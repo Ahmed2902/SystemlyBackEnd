@@ -10,14 +10,18 @@
     "migrate": "knex migrate:latest",
     "rollback": "knex migrate:rollback",
     "make": "knex migrate:make",
-    "test": "jest --runInBand --forceExit"
+    "test": "jest --runInBand --forceExit",
+    "validate:openapi": "node scripts/validate-openapi.js",
+    "studio:local": "node scripts/run-prisma-studio.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@getbrevo/brevo": "^5.0.4",
     "@prisma/client": "^6.19.3",
+    "@sendinblue/client": "^3.3.1",
     "axios": "^1.15.0",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.9.0",
@@ -27,19 +31,27 @@
     "dotenv": "^17.4.1",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
+    "google-auth-library": "^10.6.2",
     "helmet": "^8.1.0",
     "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
     "knex": "^3.2.9",
     "multer": "^2.1.1",
     "node-cron": "^4.2.1",
+    "nodemailer": "^6.9.3",
     "pg": "^8.20.0",
     "prisma": "^6.19.3",
-    "uuid": "^13.0.0",
+    "resend": "^6.11.0",
+    "sib-api-v3-sdk": "^8.5.0",
+    "uuid": "^8.3.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^9.0.0",
     "@types/express": "^5.0.6",
-    "@types/node": "^25.6.0"
+    "@types/node": "^25.6.0",
+    "@types/nodemailer": "^8.0.0",
+    "@types/uuid": "^8.3.4",
+    "typescript": "^5.3.3"
   }
 }

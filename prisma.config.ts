@@ -8,7 +8,14 @@ import { defineConfig } from "prisma/config";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-dotenv.config({ path: path.resolve(__dirname, ".env") });
+// Prefer the project's current working directory .env (e.g. when CLI is invoked
+// from the repo root). Fall back to the config file directory for other runtimes.
+const envPathCwd = path.resolve(process.cwd(), ".env");
+const envPathDir = path.resolve(__dirname, ".env");
+
+if (!dotenv.config({ path: envPathCwd }).parsed) {
+  dotenv.config({ path: envPathDir });
+}
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
@@ -17,10 +24,15 @@ export default defineConfig({
   },
   datasource: {
     url: (() => {
-      const url = process.env["DATABASE_URL"];
+      // Prefer an explicit DOCKER_DATABASE_URL when present (useful for
+      // local docker-compose workflows). Fall back to DATABASE_URL.
+      const url =
+        process.env["DOCKER_DATABASE_URL"] ||
+        process.env["DATABASE_URL"] ||
+        process.env["PRISMA_DATABASE_URL"];
       if (!url) {
         throw new Error(
-          'Missing DATABASE_URL. Set it in the environment or in the repo root ".env" file.'
+          'Missing DATABASE_URL / DOCKER_DATABASE_URL. Set one in the environment or in the repo root ".env" file.'
         );
       }
       return url;

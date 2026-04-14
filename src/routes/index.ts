@@ -1,4 +1,6 @@
 import { Router } from "express";
+import authRoutes from "../modules/auth/auth.routes";
+import businessRoutes from "./business.routes";
 
 const router = Router();
 
@@ -12,5 +14,8 @@ router.get("/health", (_req, res) => {
     },
   });
 });
+
+router.use("/auth", authRoutes);
+router.use("/businesses", businessRoutes);
 
 export default router;

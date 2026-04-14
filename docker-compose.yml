@@ -1,0 +1,40 @@
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-hgezli}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+
+  app:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@db:5432/hgezli} #kant DOCKER_DATABASE_URL
+      REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379}
+    ports:
+      - "${PORT:-3000}:3000"
+    depends_on:
+      - db
+      - redis
+    #command: sh -c "npx prisma migrate deploy --schema=prisma/schema.prisma && node dist/server.js"
+
+volumes:
+  db_data:
+  redis_data:

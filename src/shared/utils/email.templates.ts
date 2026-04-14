@@ -1,0 +1,96 @@
+export const verificationEmail = ({
+  name,
+  verificationUrl,
+}: {
+  name: string;
+  verificationUrl: string;
+}) => {
+  const safeName = name || "there";
+  return `
+  <!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    </head>
+    <body style="background:#ffffff;color:#111;font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;">
+      <table width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td align="center">
+            <table width="600" cellpadding="24" cellspacing="0" style="border-collapse:collapse;">
+              <tr>
+                <td style="text-align:left;">
+                  <h2 style="margin:0 0 8px 0;color:#111;">Verify your email to activate your Hgezli account</h2>
+                  <p style="margin:0 0 18px 0;color:#333;">Hi ${safeName},</p>
+                  <p style="margin:0 0 18px 0;color:#333;">Thank you for creating an account on Hgezli. To activate your account and publish your business website, please verify your email by clicking the button below.</p>
+                  <div style="margin:20px 0;text-align:center;">
+                    <a href="${verificationUrl}" style="background-color:#1a56db;color:#ffffff;padding:12px 20px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;">Verify your email</a>
+                  </div>
+                  <p style="margin:0 0 12px 0;color:#666;font-size:13px;">If the button above does not work, copy and paste the following link into your browser:</p>
+                  <p style="word-break:break-all;color:#1a56db;font-size:13px;margin:0 0 18px 0;">${verificationUrl}</p>
+                  <p style="margin:0;color:#999;font-size:12px;">This link expires in 24 hours. If you did not sign up for a Hgezli account, you can safely ignore this email.</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="text-align:center;color:#aaa;font-size:12px;">Hgezli &bull; Building better service websites for Egyptian businesses</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+  </html>
+  `;
+};
+
+export const welcomeEmail = ({
+  name,
+  dashboardUrl,
+  websiteUrl,
+}: {
+  name: string;
+  dashboardUrl: string;
+  websiteUrl: string;
+}) => {
+  const safeName = name || "there";
+  return `
+  <!doctype html>
+  <html>
+    <body style="background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px;">
+      <div style="max-width:600px;margin:0 auto;">
+        <h2 style="color:#111;margin-top:0;">Welcome to Hgezli, ${safeName}!</h2>
+        <p style="color:#333;">Congratulations — your account is active and your website is live at <a href="${websiteUrl}" style="color:#1a56db">${websiteUrl}</a>.</p>
+        <p style="color:#333;">You can manage bookings and settings from your dashboard.</p>
+        <p style="text-align:center;margin:24px 0;"><a href="${dashboardUrl}" style="background:#1a56db;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;">Go to dashboard</a></p>
+        <p style="color:#999;font-size:13px;margin-top:12px;">If you have any questions, reply to this email and we'll help.</p>
+      </div>
+    </body>
+  </html>
+  `;
+};
+
+export const passwordResetEmail = ({
+  name,
+  resetUrl,
+}: {
+  name: string;
+  resetUrl: string;
+}) => {
+  const safeName = name || "there";
+  return `
+  <!doctype html>
+  <html>
+    <body style="background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px;">
+      <div style="max-width:600px;margin:0 auto;">
+        <h2 style="color:#111;margin-top:0;">Reset your Hgezli password</h2>
+        <p style="color:#333;">Hi ${safeName},</p>
+        <p style="color:#333;">We received a request to reset your password. Click the button below to choose a new one. This link expires in 1 hour.</p>
+        <p style="text-align:center;margin:24px 0;"><a href="${resetUrl}" style="background:#1a56db;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;">Reset password</a></p>
+        <p style="color:#333;">If you did not request a password reset, you can safely ignore this email and your password will remain unchanged.</p>
+      </div>
+    </body>
+  </html>
+  `;
+};
+
+export default { verificationEmail, welcomeEmail, passwordResetEmail };

@@ -7,6 +7,7 @@ import helmet from "helmet";
 
 import routes from "./src/routes";
 import { APP_CONFIG } from "./src/shared/config/constants";
+import { getSwaggerHtml, openApiDocument } from "./src/shared/docs/openapi";
 import { notFoundHandler } from "./src/shared/middleware/notFound.middleware";
 import { errorHandler } from "./src/shared/middleware/errorHandler.middleware";
 import { globalRateLimit } from "./src/shared/middleware/rateLimit.middleware";
@@ -46,6 +47,14 @@ app.get("/", (_req, res) => {
       status: "ok",
     },
   });
+});
+
+app.get("/docs/openapi.json", (_req, res) => {
+  res.status(200).json(openApiDocument);
+});
+
+app.get("/docs", (_req, res) => {
+  res.type("html").send(getSwaggerHtml());
 });
 
 app.use("/api", routes);
