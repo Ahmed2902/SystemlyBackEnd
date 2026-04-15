@@ -1,0 +1,19 @@
+import type { NextFunction, Request, Response } from "express";
+import * as businessService from "./business.service";
+import { ok } from "../../shared/utils/response.util";
+
+export const getPublicBySlug = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { slug } = req.params;
+    const data = await businessService.getPublicBySlug(slug);
+    return ok(res, data);
+  } catch (err) {
+    return next(err);
+  }
+};
+
+export default { getPublicBySlug };

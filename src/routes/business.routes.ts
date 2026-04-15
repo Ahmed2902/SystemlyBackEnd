@@ -1,5 +1,6 @@
 import { Router } from "express";
 import * as businessService from "../modules/business/business.service";
+import businessController from "../modules/business/business.controller";
 
 const router = Router();
 
@@ -12,5 +13,8 @@ router.get("/check-slug/:slug", async (req, res, next) => {
     return next(err);
   }
 });
+
+// Public: full website data by slug
+router.get("/public/:slug", businessController.getPublicBySlug);
 
 export default router;

@@ -10,7 +10,6 @@ import { prisma } from "../../shared/db/prisma";
 import * as redis from "../../shared/config/redis";
 import { AUTH_CONSTANTS } from "../../shared/config/constants";
 import * as emailService from "../../shared/services/email.service";
-import { generateSlug } from "../../shared/utils/slug.util";
 import type {
   EmailBody,
   GetMeInput,
@@ -379,6 +378,7 @@ export const oauthSignIn = async ({
         email,
         provider,
         providerId,
+        passwordHash: "",
         emailVerified: !!emailVerified,
         role: Roles.User,
       },
