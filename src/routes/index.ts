@@ -5,6 +5,7 @@ import websiteContentRoutes from "../modules/website-content/website-content.rou
 import staffRoutes from "../modules/staff/staff.routes";
 import servicesRoutes from "../modules/services/services.routes";
 import customersRoutes from "../modules/customers/customers.routes";
+import faqsRoutes from "../modules/faqs/faqs.routes";
 
 const router = Router();
 
@@ -25,5 +26,6 @@ router.use("/website-content", websiteContentRoutes);
 router.use("/staff", staffRoutes);
 router.use("/services", servicesRoutes);
 router.use("/customers", customersRoutes);
+router.use("/faqs", faqsRoutes);
 
 export default router;
