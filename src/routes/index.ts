@@ -6,6 +6,7 @@ import staffRoutes from "../modules/staff/staff.routes";
 import servicesRoutes from "../modules/services/services.routes";
 import customersRoutes from "../modules/customers/customers.routes";
 import faqsRoutes from "../modules/faqs/faqs.routes";
+import photosRoutes from "../modules/photos/photos.routes";
 
 const router = Router();
 
@@ -27,5 +28,6 @@ router.use("/staff", staffRoutes);
 router.use("/services", servicesRoutes);
 router.use("/customers", customersRoutes);
 router.use("/faqs", faqsRoutes);
+router.use("/photos", photosRoutes);
 
 export default router;
