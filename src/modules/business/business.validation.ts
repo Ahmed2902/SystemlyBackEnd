@@ -15,3 +15,9 @@ export const publishBusinessSchema = z.object({
 });
 
 export type UpdateBusinessInput = z.infer<typeof updateBusinessSchema>;
+
+export const parseUpdateBusiness = (input: unknown) =>
+  updateBusinessSchema.parse(input);
+
+export const parsePublishBusiness = (input: unknown) =>
+  publishBusinessSchema.parse(input);

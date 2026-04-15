@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as businessService from "../modules/business/business.service";
 import businessController from "../modules/business/business.controller";
+import { requireAuth, requireBusinessAccess } from "../shared/middleware/auth.middleware";
 
 const router = Router();
 
@@ -16,5 +17,19 @@ router.get("/check-slug/:slug", async (req, res, next) => {
 
 // Public: full website data by slug
 router.get("/public/:slug", businessController.getPublicBySlug);
+
+// Auth: update business data (owner or admin)
+router.patch("/:id", requireAuth, requireBusinessAccess, businessController.update);
+
+// Auth: publish/unpublish business
+router.patch(
+  "/:id/publish",
+  requireAuth,
+  requireBusinessAccess,
+  businessController.publish
+);
+
+// Auth: business stats
+router.get("/:id/stats", requireAuth, requireBusinessAccess, businessController.stats);
 
 export default router;
