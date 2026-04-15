@@ -3,6 +3,7 @@ import authRoutes from "../modules/auth/auth.routes";
 import businessRoutes from "./business.routes";
 import websiteContentRoutes from "../modules/website-content/website-content.routes";
 import staffRoutes from "../modules/staff/staff.routes";
+import servicesRoutes from "../modules/services/services.routes";
 
 const router = Router();
 
@@ -21,5 +22,6 @@ router.use("/auth", authRoutes);
 router.use("/businesses", businessRoutes);
 router.use("/website-content", websiteContentRoutes);
 router.use("/staff", staffRoutes);
+router.use("/services", servicesRoutes);
 
 export default router;
