@@ -1,6 +1,7 @@
 import { Router } from "express";
 import authRoutes from "../modules/auth/auth.routes";
 import businessRoutes from "./business.routes";
+import websiteContentRoutes from "../modules/website-content/website-content.routes";
 
 const router = Router();
 
@@ -17,5 +18,6 @@ router.get("/health", (_req, res) => {
 
 router.use("/auth", authRoutes);
 router.use("/businesses", businessRoutes);
+router.use("/website-content", websiteContentRoutes);
 
 export default router;
