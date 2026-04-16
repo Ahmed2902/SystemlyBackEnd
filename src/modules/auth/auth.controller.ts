@@ -2,12 +2,11 @@ import type { NextFunction, Request, Response } from "express";
 import * as authService from "./auth.service";
 import { ok, fail } from "../../shared/utils/response.util";
 import {
-  parseEmailBody,
-  parseLoginBody,
-  parseRefreshTokenInput,
-  parseRegisterBody,
-  parseResetPasswordBody,
-  parseVerifyEmailQuery,
+  emailBodySchema,
+  loginBodySchema,
+  registerBodySchema,
+  resetPasswordBodySchema,
+  verifyEmailQuerySchema,
 } from "./auth.validation";
 
 const REFRESH_COOKIE_NAME = "refreshToken";
@@ -25,8 +24,9 @@ export const register = async (
   next: NextFunction
 ) => {
   try {
-    const payload = parseRegisterBody(req.body);
-    const result = await authService.register(payload);
+    const parsed = registerBodySchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const result = await authService.register(parsed.data);
     return res.status(201).json({
       success: true,
       data: {
@@ -46,8 +46,9 @@ export const verifyEmail = async (
   next: NextFunction
 ) => {
   try {
-    const query = parseVerifyEmailQuery(req.query);
-    const result = await authService.verifyEmail(query);
+    const parsed = verifyEmailQuerySchema.safeParse(req.query);
+    if (!parsed.success) return next(parsed.error);
+    const result = await authService.verifyEmail(parsed.data);
     res.cookie(
       REFRESH_COOKIE_NAME,
       result.refreshToken,
@@ -65,8 +66,9 @@ export const login = async (
   next: NextFunction
 ) => {
   try {
-    const payload = parseLoginBody(req.body);
-    const result = await authService.login(payload);
+    const parsed = loginBodySchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const result = await authService.login(parsed.data);
     res.cookie(
       REFRESH_COOKIE_NAME,
       result.refreshToken,
@@ -107,8 +109,9 @@ export const resendVerification = async (
   next: NextFunction
 ) => {
   try {
-    const payload = parseEmailBody(req.body);
-    const result = await authService.resendVerificationEmail(payload);
+    const parsed = emailBodySchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const result = await authService.resendVerificationEmail(parsed.data);
     return ok(res, {
       sent: result.sent,
       message:
@@ -125,8 +128,9 @@ export const forgotPassword = async (
   next: NextFunction
 ) => {
   try {
-    const payload = parseEmailBody(req.body);
-    const result = await authService.forgotPassword(payload);
+    const parsed = emailBodySchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const result = await authService.forgotPassword(parsed.data);
     return ok(res, {
       sent: result.sent,
       message:
@@ -143,8 +147,9 @@ export const resetPassword = async (
   next: NextFunction
 ) => {
   try {
-    const payload = parseResetPasswordBody(req.body);
-    const result = await authService.resetPassword(payload);
+    const parsed = resetPasswordBodySchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const result = await authService.resetPassword(parsed.data);
     return ok(res, {
       success: result.success,
       message: "Password updated. You can now log in.",

@@ -3,7 +3,7 @@ import "dotenv/config";
 import type { Server } from "http";
 
 import app from "./app";
-import { APP_CONFIG } from "./src/shared/config/constants";
+import { APP_CONFIG } from "./src/shared/config/config";
 import { prisma } from "./src/shared/db/prisma";
 
 const PORT = APP_CONFIG.port;

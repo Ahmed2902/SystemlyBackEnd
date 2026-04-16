@@ -81,7 +81,7 @@ model Staff {
   id                    String                 @id @default(uuid()) @db.Uuid
   businessId            String                 @map("business_id") @db.Uuid
   name                  String                 @db.VarChar(255)
-  role                  Roles
+  role                  Roles                  @default(Staff)
   photoUrl              String?                @map("photo_url") @db.Text
   isActive              Boolean                @default(true) @map("is_active")
   createdAt             DateTime               @default(now()) @map("created_at")
@@ -161,6 +161,7 @@ model Customer {
   businessId   String        @map("business_id") @db.Uuid
   name         String        @db.VarChar(255)
   phone        String        @db.VarChar(30)
+  email        String?       @unique @db.VarChar(255)
   visitCount   Int           @default(0) @map("visit_count")
   noShowCount  Int           @default(0) @map("no_show_count")
   notes        String?       @db.Text

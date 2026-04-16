@@ -1,11 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
 import * as staffService from "./staff.service";
 import { ok, fail } from "../../shared/utils/response.util";
+import { z } from "zod";
 import {
-  parseCreateStaff,
-  parseUpdateStaff,
-  parseAvailabilityArray,
-  parseOverride,
+  createStaffSchema,
+  updateStaffSchema,
+  availabilityEntrySchema,
+  overridesSchema,
 } from "./staff.validation";
 
 export const list = async (req: Request, res: Response, next: NextFunction) => {
@@ -29,8 +30,9 @@ export const create = async (
     const businessId = (req as any).user?.businessId;
     if (!businessId)
       return fail(res, "Business id missing", 400, "BAD_REQUEST");
-    const payload = parseCreateStaff(req.body);
-    const created = await staffService.createStaff(businessId, payload);
+    const parsed = createStaffSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const created = await staffService.createStaff(businessId, parsed.data);
     return ok(res, created);
   } catch (err) {
     return next(err);
@@ -44,8 +46,9 @@ export const update = async (
 ) => {
   try {
     const id = String(req.params?.id);
-    const payload = parseUpdateStaff(req.body);
-    const updated = await staffService.updateStaff(id, payload);
+    const parsed = updateStaffSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const updated = await staffService.updateStaff(id, parsed.data);
     return ok(res, updated);
   } catch (err) {
     return next(err);
@@ -117,8 +120,9 @@ export const replaceAvailability = async (
 ) => {
   try {
     const id = String(req.params?.id);
-    const entries = parseAvailabilityArray(req.body);
-    const result = await staffService.replaceAvailability(id, entries);
+    const arrayParsed = z.array(availabilityEntrySchema).safeParse(req.body);
+    if (!arrayParsed.success) return next(arrayParsed.error);
+    const result = await staffService.replaceAvailability(id, arrayParsed.data);
     return ok(res, result);
   } catch (err) {
     return next(err);
@@ -132,8 +136,9 @@ export const addOverride = async (
 ) => {
   try {
     const id = String(req.params?.id);
-    const payload = parseOverride(req.body);
-    const created = await staffService.addOverride(id, payload);
+    const parsed = overridesSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const created = await staffService.addOverride(id, parsed.data);
     return ok(res, created);
   } catch (err) {
     return next(err);

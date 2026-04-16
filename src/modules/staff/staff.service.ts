@@ -1,16 +1,42 @@
 import { prisma } from "../../shared/db/prisma";
+import type {
+  StaffCreateInput,
+  StaffUpdateInput,
+  AvailabilityEntry,
+  AvailabilityOverrideInput,
+  PaginatedResult,
+} from "./staff.schema";
 
-export const listByBusiness = async (businessId: string) =>
-  prisma.staff.findMany({ where: { businessId } });
+export const listByBusiness = async (
+  businessId: string,
+  page = 1,
+  perPage = 20
+): Promise<PaginatedResult<any>> => {
+  const where = { businessId } as any;
+  const skip = (page - 1) * perPage;
+  const [items, total] = await Promise.all([
+    prisma.staff.findMany({
+      where,
+      skip,
+      take: perPage,
+      orderBy: { updatedAt: "desc" },
+    }),
+    prisma.staff.count({ where }),
+  ]);
+  return { items, total, page, perPage };
+};
 
-export const createStaff = async (businessId: string, payload: any) => {
+export const createStaff = async (
+  businessId: string,
+  payload: StaffCreateInput
+) => {
   const created = await prisma.staff.create({
     data: { businessId, ...payload },
   });
   return created;
 };
 
-export const updateStaff = async (id: string, payload: any) => {
+export const updateStaff = async (id: string, payload: StaffUpdateInput) => {
   const updated = await prisma.staff.update({ where: { id }, data: payload });
   return updated;
 };
@@ -42,16 +68,34 @@ export const getAvailability = async (staffId: string) => {
   return avail;
 };
 
-export const replaceAvailability = async (staffId: string, entries: any[]) => {
+export const replaceAvailability = async (
+  staffId: string,
+  entries: AvailabilityEntry[]
+) => {
   await prisma.availability.deleteMany({ where: { staffId } });
-  const data = entries.map((e) => ({ staffId, ...e }));
+  const data = entries.map((e) => ({
+    staffId,
+    dayOfWeek: e.dayOfWeek,
+    startTime: new Date(e.startTime),
+    endTime: new Date(e.endTime),
+    breakAfterMin: e.breakAfterMin ?? null,
+  }));
   await prisma.availability.createMany({ data });
   return { success: true };
 };
 
-export const addOverride = async (staffId: string, payload: any) => {
+export const addOverride = async (
+  staffId: string,
+  payload: AvailabilityOverrideInput
+) => {
   const created = await prisma.availabilityOverride.create({
-    data: { staffId, ...payload },
+    data: {
+      staffId,
+      overrideDate: new Date(payload.overrideDate),
+      isDayOff: payload.isDayOff ?? false,
+      startTime: payload.startTime ? new Date(payload.startTime) : null,
+      endTime: payload.endTime ? new Date(payload.endTime) : null,
+    },
   });
   return created;
 };

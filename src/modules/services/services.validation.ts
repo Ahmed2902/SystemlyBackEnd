@@ -15,8 +15,3 @@ export const updateServiceSchema = z.object({
   description: z.string().optional(),
   isActive: z.boolean().optional(),
 });
-
-export const parseCreateService = (input: unknown) =>
-  createServiceSchema.parse(input);
-export const parseUpdateService = (input: unknown) =>
-  updateServiceSchema.parse(input);

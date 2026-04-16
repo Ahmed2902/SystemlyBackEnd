@@ -5,7 +5,7 @@ import {
   passwordResetEmail,
 } from "../utils/email.templates";
 
-import { EMAIL } from "../config/constants";
+import { EMAIL } from "../config/config";
 
 type SendResult = { sent: true; data?: any } | { sent: false; error?: any };
 

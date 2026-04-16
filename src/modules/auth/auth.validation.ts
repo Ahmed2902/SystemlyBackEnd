@@ -45,40 +45,40 @@ export const refreshTokenBodySchema = z.object({
   refreshToken: z.string().min(1).optional(),
 });
 
-export const parseRegisterBody = (input: unknown): RegisterBody =>
-  registerBodySchema.parse(input);
+// export const parseRegisterBody = (input: unknown): RegisterBody =>
+//   registerBodySchema.parse(input);
 
-export const parseLoginBody = (input: unknown): LoginBody =>
-  loginBodySchema.parse(input);
+// export const parseLoginBody = (input: unknown): LoginBody =>
+//   loginBodySchema.parse(input);
 
-export const parseVerifyEmailQuery = (input: unknown): VerifyEmailQuery =>
-  verifyEmailQuerySchema.parse(input);
+// export const parseVerifyEmailQuery = (input: unknown): VerifyEmailQuery =>
+//   verifyEmailQuerySchema.parse(input);
 
-export const parseEmailBody = (input: unknown): EmailBody =>
-  emailBodySchema.parse(input);
+// export const parseEmailBody = (input: unknown): EmailBody =>
+//   emailBodySchema.parse(input);
 
-export const parseResetPasswordBody = (input: unknown): ResetPasswordBody =>
-  resetPasswordBodySchema.parse(input);
+// export const parseResetPasswordBody = (input: unknown): ResetPasswordBody =>
+//   resetPasswordBodySchema.parse(input);
 
-export const parseRefreshTokenBody = (input: unknown): RefreshTokenBody =>
-  refreshTokenBodySchema.parse(input);
+// export const parseRefreshTokenBody = (input: unknown): RefreshTokenBody =>
+//   refreshTokenBodySchema.parse(input);
 
-export const parseRefreshTokenInput = (
-  body: unknown,
-  cookieRefreshToken?: string
-): RefreshTokenInput => {
-  const parsedBody = parseRefreshTokenBody(body);
-  const refreshToken = cookieRefreshToken || parsedBody.refreshToken;
+// export const parseRefreshTokenInput = (
+//   body: unknown,
+//   cookieRefreshToken?: string
+// ): RefreshTokenInput => {
+//   const parsedBody = parseRefreshTokenBody(body);
+//   const refreshToken = cookieRefreshToken || parsedBody.refreshToken;
 
-  if (!refreshToken) {
-    throw new z.ZodError([
-      {
-        code: "custom",
-        message: "No refresh token",
-        path: ["refreshToken"],
-      },
-    ]);
-  }
+//   if (!refreshToken) {
+//     throw new z.ZodError([
+//       {
+//         code: "custom",
+//         message: "No refresh token",
+//         path: ["refreshToken"],
+//       },
+//     ]);
+//   }
 
-  return { refreshToken };
-};
+//   return { refreshToken };
+// };

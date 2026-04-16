@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import * as websiteService from "./website-content.service";
 import { ok, fail } from "../../shared/utils/response.util";
-import { parseWebsiteContent } from "./website-content.validation";
+import { websiteContentSchema } from "./website-content.validation";
 
 export const getOwn = async (
   req: Request,
@@ -28,10 +28,11 @@ export const updateOwn = async (
     const businessId = (req as any).user?.businessId;
     if (!businessId)
       return fail(res, "Business id missing", 400, "BAD_REQUEST");
-    const payload = parseWebsiteContent(req.body);
+    const parsed = websiteContentSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
     const updated = await websiteService.upsertByBusinessId(
       businessId,
-      payload
+      parsed.data
     );
     return ok(res, updated);
   } catch (err) {

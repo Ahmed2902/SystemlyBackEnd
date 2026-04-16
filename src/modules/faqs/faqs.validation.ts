@@ -15,7 +15,3 @@ export const updateFaqSchema = z.object({
 export const reorderSchema = z.array(
   z.object({ id: z.string().uuid(), display_order: z.number().int() })
 );
-
-export const parseCreateFaq = (input: unknown) => createFaqSchema.parse(input);
-export const parseUpdateFaq = (input: unknown) => updateFaqSchema.parse(input);
-export const parseReorder = (input: unknown) => reorderSchema.parse(input);

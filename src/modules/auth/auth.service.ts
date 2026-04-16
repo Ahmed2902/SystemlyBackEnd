@@ -8,7 +8,7 @@ import {
 } from "../../shared/utils/token.util";
 import { prisma } from "../../shared/db/prisma";
 import * as redis from "../../shared/config/redis";
-import { AUTH_CONSTANTS } from "../../shared/config/constants";
+import { AUTH_CONSTANTS } from "../../shared/config/config";
 import * as emailService from "../../shared/services/email.service";
 import type {
   EmailBody,

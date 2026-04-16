@@ -1,7 +1,10 @@
 import type { NextFunction, Request, Response } from "express";
 import * as servicesService from "./services.service";
 import { ok, fail } from "../../shared/utils/response.util";
-import { parseCreateService, parseUpdateService } from "./services.validation";
+import {
+  createServiceSchema,
+  updateServiceSchema,
+} from "./services.validation";
 
 export const list = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -24,8 +27,12 @@ export const create = async (
     const businessId = (req as any).user?.businessId;
     if (!businessId)
       return fail(res, "Business id missing", 400, "BAD_REQUEST");
-    const payload = parseCreateService(req.body);
-    const created = await servicesService.createService(businessId, payload);
+    const parsed = createServiceSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const created = await servicesService.createService(
+      businessId,
+      parsed.data
+    );
     return ok(res, created);
   } catch (err) {
     return next(err);
@@ -39,8 +46,9 @@ export const update = async (
 ) => {
   try {
     const id = String(req.params?.id);
-    const payload = parseUpdateService(req.body);
-    const updated = await servicesService.updateService(id, payload);
+    const parsed = updateServiceSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const updated = await servicesService.updateService(id, parsed.data);
     return ok(res, updated);
   } catch (err) {
     return next(err);

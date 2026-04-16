@@ -94,3 +94,70 @@ export const passwordResetEmail = ({
 };
 
 export default { verificationEmail, welcomeEmail, passwordResetEmail };
+
+export const appointmentConfirmationEmail = ({
+  name,
+  businessName,
+  serviceName,
+  staffName,
+  startsAt,
+  cancelUrl,
+}: {
+  name: string;
+  businessName: string;
+  serviceName: string;
+  staffName?: string | null;
+  startsAt: string;
+  cancelUrl?: string | null;
+}) => {
+  const safeName = name || 'there';
+  const safeStaff = staffName || 'Staff';
+  return `
+  <!doctype html>
+  <html>
+    <body style="background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px;">
+      <div style="max-width:600px;margin:0 auto;">
+        <h2 style="color:#111;margin-top:0;">Appointment confirmation</h2>
+        <p style="color:#333;">Hi ${safeName},</p>
+        <p style="color:#333;">This is a confirmation for your upcoming appointment at <strong>${businessName}</strong>.</p>
+        <ul style="color:#333;"><li>Service: ${serviceName}</li><li>With: ${safeStaff}</li><li>When: ${startsAt}</li></ul>
+        ${cancelUrl ? `<p style="text-align:center;margin:24px 0;"><a href="${cancelUrl}" style="background:#e53e3e;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;">Cancel appointment</a></p>` : ''}
+        <p style="color:#999;font-size:13px;margin-top:12px;">If you have any questions, reply to this email and we'll help.</p>
+      </div>
+    </body>
+  </html>
+  `;
+};
+
+export const appointmentReminderEmail = ({
+  name,
+  businessName,
+  serviceName,
+  staffName,
+  startsAt,
+  whenLabel,
+}: {
+  name: string;
+  businessName: string;
+  serviceName: string;
+  staffName?: string | null;
+  startsAt: string;
+  whenLabel?: string;
+}) => {
+  const safeName = name || 'there';
+  const safeStaff = staffName || 'Staff';
+  return `
+  <!doctype html>
+  <html>
+    <body style="background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px;">
+      <div style="max-width:600px;margin:0 auto;">
+        <h2 style="color:#111;margin-top:0;">Appointment reminder${whenLabel ? ` — ${whenLabel}` : ''}</h2>
+        <p style="color:#333;">Hi ${safeName},</p>
+        <p style="color:#333;">This is a reminder for your upcoming appointment at <strong>${businessName}</strong>.</p>
+        <ul style="color:#333;"><li>Service: ${serviceName}</li><li>With: ${safeStaff}</li><li>When: ${startsAt}</li></ul>
+        <p style="color:#999;font-size:13px;margin-top:12px;">If you need to change or cancel, please contact the business.</p>
+      </div>
+    </body>
+  </html>
+  `;
+};

@@ -1,6 +1,7 @@
 import { prisma } from "../../shared/db/prisma";
+import type { BusinessUpdateInput, BusinessStats } from "./business.schema";
 
-export const isSlugTaken = async (slug: string) => {
+export const isSlugTaken = async (slug: string): Promise<boolean> => {
   const found = await prisma.business.findUnique({ where: { slug } });
   return !!found;
 };
@@ -38,7 +39,10 @@ export const getPublicBySlug = async (slug: string) => {
   return business;
 };
 
-export const updateBusiness = async (id: string, payload: any) => {
+export const updateBusiness = async (
+  id: string,
+  payload: BusinessUpdateInput
+) => {
   const updated = await prisma.business.update({
     where: { id },
     data: payload,
@@ -54,7 +58,7 @@ export const publishBusiness = async (id: string, isActive: boolean) => {
   return updated;
 };
 
-export const getStats = async (id: string) => {
+export const getStats = async (id: string): Promise<BusinessStats> => {
   const [customersCount, appointmentsCount, servicesCount, staffCount] =
     await Promise.all([
       prisma.customer.count({ where: { businessId: id } }),
@@ -68,4 +72,7 @@ export const getStats = async (id: string) => {
 export default {
   isSlugTaken,
   getPublicBySlug,
+  updateBusiness,
+  publishBusiness,
+  getStats,
 };

@@ -1,4 +1,5 @@
 import { prisma } from "../../shared/db/prisma";
+import type { WebsiteContentInput } from "./website-content.schema";
 
 export const getByBusinessId = async (businessId: string) => {
   const content = await prisma.websiteContent.findUnique({
@@ -7,7 +8,10 @@ export const getByBusinessId = async (businessId: string) => {
   return content;
 };
 
-export const upsertByBusinessId = async (businessId: string, payload: any) => {
+export const upsertByBusinessId = async (
+  businessId: string,
+  payload: WebsiteContentInput
+) => {
   const existing = await prisma.websiteContent.findUnique({
     where: { businessId },
   });

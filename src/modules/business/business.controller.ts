@@ -2,8 +2,8 @@ import type { NextFunction, Request, Response } from "express";
 import * as businessService from "./business.service";
 import { ok } from "../../shared/utils/response.util";
 import {
-  parseUpdateBusiness,
-  parsePublishBusiness,
+  updateBusinessSchema,
+  publishBusinessSchema,
 } from "./business.validation";
 
 export const getPublicBySlug = async (
@@ -27,8 +27,9 @@ export const update = async (
 ) => {
   try {
     const id = String(req.params?.id);
-    const payload = parseUpdateBusiness(req.body);
-    const updated = await businessService.updateBusiness(id, payload);
+    const parsed = updateBusinessSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const updated = await businessService.updateBusiness(id, parsed.data);
     return ok(res, updated);
   } catch (err) {
     return next(err);
@@ -42,8 +43,12 @@ export const publish = async (
 ) => {
   try {
     const id = String(req.params?.id);
-    const payload = parsePublishBusiness(req.body);
-    const updated = await businessService.publishBusiness(id, payload.isActive);
+    const parsed = publishBusinessSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const updated = await businessService.publishBusiness(
+      id,
+      parsed.data.isActive
+    );
     return ok(res, updated);
   } catch (err) {
     return next(err);

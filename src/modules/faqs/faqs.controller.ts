@@ -2,9 +2,9 @@ import type { NextFunction, Request, Response } from "express";
 import * as faqsService from "./faqs.service";
 import { ok, fail } from "../../shared/utils/response.util";
 import {
-  parseCreateFaq,
-  parseUpdateFaq,
-  parseReorder,
+  createFaqSchema,
+  updateFaqSchema,
+  reorderSchema,
 } from "./faqs.validation";
 
 export const list = async (req: Request, res: Response, next: NextFunction) => {
@@ -28,8 +28,9 @@ export const create = async (
     const businessId = (req as any).user?.businessId;
     if (!businessId)
       return fail(res, "Business id missing", 400, "BAD_REQUEST");
-    const payload = parseCreateFaq(req.body);
-    const created = await faqsService.createFaq(businessId, payload);
+    const parsed = createFaqSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const created = await faqsService.createFaq(businessId, parsed.data);
     return ok(res, created);
   } catch (err) {
     return next(err);
@@ -43,8 +44,9 @@ export const update = async (
 ) => {
   try {
     const id = String(req.params?.id);
-    const payload = parseUpdateFaq(req.body);
-    const updated = await faqsService.updateFaq(id, payload);
+    const parsed = updateFaqSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const updated = await faqsService.updateFaq(id, parsed.data);
     return ok(res, updated);
   } catch (err) {
     return next(err);
@@ -71,8 +73,9 @@ export const reorder = async (
   next: NextFunction
 ) => {
   try {
-    const items = parseReorder(req.body);
-    const result = await faqsService.reorderFaqs(items as any);
+    const parsed = reorderSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const result = await faqsService.reorderFaqs(parsed.data as any);
     return ok(res, result);
   } catch (err) {
     return next(err);

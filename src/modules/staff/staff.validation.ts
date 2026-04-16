@@ -1,16 +1,17 @@
+import { Roles } from "@prisma/client";
 import { z } from "zod";
 
 export const createStaffSchema = z.object({
   name: z.string().min(1).max(255),
-  role: z.string().optional(),
-  photoUrl: z.string().url().optional(),
+  role: z.enum(Roles).optional(),
+  photoUrl: z.url().optional(),
   isActive: z.boolean().optional(),
 });
 
 export const updateStaffSchema = z.object({
   name: z.string().min(1).max(255).optional(),
-  role: z.string().optional(),
-  photoUrl: z.string().url().optional(),
+  role: z.enum(Roles).optional(),
+  photoUrl: z.url().optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -27,11 +28,3 @@ export const overridesSchema = z.object({
   startTime: z.string().optional(),
   endTime: z.string().optional(),
 });
-
-export const parseCreateStaff = (input: unknown) =>
-  createStaffSchema.parse(input);
-export const parseUpdateStaff = (input: unknown) =>
-  updateStaffSchema.parse(input);
-export const parseAvailabilityArray = (input: unknown) =>
-  z.array(availabilityEntrySchema).parse(input);
-export const parseOverride = (input: unknown) => overridesSchema.parse(input);

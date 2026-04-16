@@ -1,6 +1,6 @@
 import rateLimit from "express-rate-limit";
 
-import { APP_CONFIG } from "../config/constants";
+import { APP_CONFIG } from "../config/config";
 
 const rateLimitHandler = (message: string, code: string) => ({
   code,
@@ -8,7 +8,12 @@ const rateLimitHandler = (message: string, code: string) => ({
   success: false,
 });
 
-const createLimiter = (windowMs: number, max: number, message: string, code: string) =>
+const createLimiter = (
+  windowMs: number,
+  max: number,
+  message: string,
+  code: string
+) =>
   rateLimit({
     windowMs,
     max,
