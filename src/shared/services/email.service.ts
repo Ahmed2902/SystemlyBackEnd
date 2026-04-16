@@ -3,6 +3,8 @@ import {
   verificationEmail,
   welcomeEmail,
   passwordResetEmail,
+  appointmentConfirmationEmail,
+  appointmentReminderEmail,
 } from "../utils/email.templates";
 
 import { EMAIL } from "../config/config";
@@ -168,8 +170,78 @@ export const sendPasswordResetEmail = async (
   }
 };
 
+export const sendAppointmentConfirmation = async (
+  to: string,
+  payload: {
+    name: string;
+    businessName: string;
+    serviceName: string;
+    staffName?: string | null;
+    startsAt: string;
+    cancelUrl?: string | null;
+  }
+): Promise<SendResult> => {
+  const html = appointmentConfirmationEmail(payload as any);
+  const subject = `Your appointment at ${payload.businessName}`;
+  const transport = getTransporter();
+  const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
+
+  if (!transport) {
+    logStub(to, subject, { startsAt: payload.startsAt });
+    return { sent: false };
+  }
+
+  try {
+    const resp = await sendWithTimeout(
+      transport.sendMail({ from: fromAddress, to, subject, html }),
+      10000
+    );
+    return { sent: true, data: resp };
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("SMTP send error:", err);
+    return { sent: false, error: String(err) };
+  }
+};
+
+export const sendAppointmentReminder = async (
+  to: string,
+  payload: {
+    name: string;
+    businessName: string;
+    serviceName: string;
+    staffName?: string | null;
+    startsAt: string;
+    whenLabel?: string;
+  }
+): Promise<SendResult> => {
+  const html = appointmentReminderEmail(payload as any);
+  const subject = `Reminder: appointment at ${payload.businessName}`;
+  const transport = getTransporter();
+  const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
+
+  if (!transport) {
+    logStub(to, subject, { startsAt: payload.startsAt });
+    return { sent: false };
+  }
+
+  try {
+    const resp = await sendWithTimeout(
+      transport.sendMail({ from: fromAddress, to, subject, html }),
+      10000
+    );
+    return { sent: true, data: resp };
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("SMTP send error:", err);
+    return { sent: false, error: String(err) };
+  }
+};
+
 export default {
   sendVerificationEmail,
   sendWelcomeEmail,
   sendPasswordResetEmail,
+  sendAppointmentConfirmation,
+  sendAppointmentReminder,
 };

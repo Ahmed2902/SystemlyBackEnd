@@ -1,5 +1,8 @@
+import reminderJob from "./reminder.job";
+
 export const registerJobs = () => {
-  console.log("Background jobs registered (none active until Phase 5)");
+  console.log("Registering background jobs...");
+  reminderJob.register();
 };
 
 export default { registerJobs };
