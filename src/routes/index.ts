@@ -1,6 +1,6 @@
 import { Router } from "express";
 import authRoutes from "../modules/auth/auth.routes";
-import businessRoutes from "./business.routes";
+import businessRoutes from "../modules/business/business.routes";
 import websiteContentRoutes from "../modules/website-content/website-content.routes";
 import staffRoutes from "../modules/staff/staff.routes";
 import servicesRoutes from "../modules/services/services.routes";
