@@ -4,7 +4,9 @@ export const listByBusiness = async (businessId: string) =>
   prisma.service.findMany({ where: { businessId } });
 
 export const createService = async (businessId: string, payload: any) => {
-  const created = await prisma.service.create({ data: { businessId, ...payload } });
+  const created = await prisma.service.create({
+    data: { businessId, ...payload },
+  });
   return created;
 };
 

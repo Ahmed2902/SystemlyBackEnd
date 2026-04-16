@@ -6,7 +6,7 @@ Phase 5 — Adding staff & availability: not-started (Prisma migration planned)
 Phase 6 — Publishing website: not-started
 
 Notes:
+
 - Availability will migrate to DateTime (confirmed).
 - Photo uploads: Cloudinary (env: CLOUDINARY_CLOUD_NAME/KEY/SECRET).
 - Customers: unique per business; public booking allowed.
-

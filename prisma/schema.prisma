@@ -129,8 +129,8 @@ model Availability {
   id            String   @id @default(uuid()) @db.Uuid
   staffId       String   @map("staff_id") @db.Uuid
   dayOfWeek     Int      @map("day_of_week")
-  startTime     String   @map("start_time") @db.VarChar(8)
-  endTime       String   @map("end_time") @db.VarChar(8)
+  startTime     DateTime @map("start_time")
+  endTime       DateTime @map("end_time")
   breakAfterMin Int?     @map("break_after_min")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
@@ -146,8 +146,8 @@ model AvailabilityOverride {
   staffId      String   @map("staff_id") @db.Uuid
   overrideDate DateTime @map("override_date") @db.Date
   isDayOff     Boolean  @default(false) @map("is_day_off")
-  startTime    String?  @map("start_time") @db.VarChar(8)
-  endTime      String?  @map("end_time") @db.VarChar(8)
+  startTime    DateTime? @map("start_time")
+  endTime      DateTime? @map("end_time")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
   staff        Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)

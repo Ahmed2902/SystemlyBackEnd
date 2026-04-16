@@ -12,6 +12,12 @@
     "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["app.ts", "server.ts", "index.ts", "src/**/*.ts"],
+  "include": [
+    "app.ts",
+    "server.ts",
+    "index.ts",
+    "src/**/*.ts",
+    "business.routes.ts"
+  ],
   "exclude": ["dist", "node_modules"]
 }

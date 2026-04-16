@@ -11,7 +11,8 @@ import {
 export const list = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const businessId = (req as any).user?.businessId;
-    if (!businessId) return fail(res, "Business id missing", 400, "BAD_REQUEST");
+    if (!businessId)
+      return fail(res, "Business id missing", 400, "BAD_REQUEST");
     const data = await staffService.listByBusiness(businessId);
     return ok(res, data);
   } catch (err) {
@@ -19,10 +20,15 @@ export const list = async (req: Request, res: Response, next: NextFunction) => {
   }
 };
 
-export const create = async (req: Request, res: Response, next: NextFunction) => {
+export const create = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
     const businessId = (req as any).user?.businessId;
-    if (!businessId) return fail(res, "Business id missing", 400, "BAD_REQUEST");
+    if (!businessId)
+      return fail(res, "Business id missing", 400, "BAD_REQUEST");
     const payload = parseCreateStaff(req.body);
     const created = await staffService.createStaff(businessId, payload);
     return ok(res, created);
@@ -31,9 +37,13 @@ export const create = async (req: Request, res: Response, next: NextFunction) =>
   }
 };
 
-export const update = async (req: Request, res: Response, next: NextFunction) => {
+export const update = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params?.id);
     const payload = parseUpdateStaff(req.body);
     const updated = await staffService.updateStaff(id, payload);
     return ok(res, updated);
@@ -42,9 +52,13 @@ export const update = async (req: Request, res: Response, next: NextFunction) =>
   }
 };
 
-export const remove = async (req: Request, res: Response, next: NextFunction) => {
+export const remove = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params?.id);
     const result = await staffService.deleteStaff(id);
     return ok(res, result);
   } catch (err) {
@@ -52,9 +66,13 @@ export const remove = async (req: Request, res: Response, next: NextFunction) =>
   }
 };
 
-export const assignServices = async (req: Request, res: Response, next: NextFunction) => {
+export const assignServices = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const { id } = req.params; // staff id
+    const id = String(req.params?.id); // staff id
     const { serviceId } = req.body;
     const row = await staffService.assignService(id, serviceId);
     return ok(res, row);
@@ -63,9 +81,14 @@ export const assignServices = async (req: Request, res: Response, next: NextFunc
   }
 };
 
-export const unassignService = async (req: Request, res: Response, next: NextFunction) => {
+export const unassignService = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const { id, serviceId } = req.params;
+    const id = String(req.params?.id);
+    const serviceId = String(req.params?.serviceId);
     const row = await staffService.unassignService(id, serviceId);
     return ok(res, row);
   } catch (err) {
@@ -73,9 +96,13 @@ export const unassignService = async (req: Request, res: Response, next: NextFun
   }
 };
 
-export const getAvailability = async (req: Request, res: Response, next: NextFunction) => {
+export const getAvailability = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params?.id);
     const data = await staffService.getAvailability(id);
     return ok(res, data);
   } catch (err) {
@@ -83,9 +110,13 @@ export const getAvailability = async (req: Request, res: Response, next: NextFun
   }
 };
 
-export const replaceAvailability = async (req: Request, res: Response, next: NextFunction) => {
+export const replaceAvailability = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params?.id);
     const entries = parseAvailabilityArray(req.body);
     const result = await staffService.replaceAvailability(id, entries);
     return ok(res, result);
@@ -94,9 +125,13 @@ export const replaceAvailability = async (req: Request, res: Response, next: Nex
   }
 };
 
-export const addOverride = async (req: Request, res: Response, next: NextFunction) => {
+export const addOverride = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params?.id);
     const payload = parseOverride(req.body);
     const created = await staffService.addOverride(id, payload);
     return ok(res, created);
@@ -105,9 +140,13 @@ export const addOverride = async (req: Request, res: Response, next: NextFunctio
   }
 };
 
-export const deleteOverride = async (req: Request, res: Response, next: NextFunction) => {
+export const deleteOverride = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const { overrideId } = req.params;
+    const overrideId = String(req.params?.overrideId);
     const result = await staffService.deleteOverride(overrideId);
     return ok(res, result);
   } catch (err) {

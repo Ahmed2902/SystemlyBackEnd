@@ -1,7 +1,10 @@
 import type { NextFunction, Request, Response } from "express";
 import * as businessService from "./business.service";
 import { ok } from "../../shared/utils/response.util";
-import { parseUpdateBusiness, parsePublishBusiness } from "./business.validation";
+import {
+  parseUpdateBusiness,
+  parsePublishBusiness,
+} from "./business.validation";
 
 export const getPublicBySlug = async (
   req: Request,
@@ -9,7 +12,7 @@ export const getPublicBySlug = async (
   next: NextFunction
 ) => {
   try {
-    const { slug } = req.params;
+    const slug = String(req.params?.slug);
     const data = await businessService.getPublicBySlug(slug);
     return ok(res, data);
   } catch (err) {
@@ -23,7 +26,7 @@ export const update = async (
   next: NextFunction
 ) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params?.id);
     const payload = parseUpdateBusiness(req.body);
     const updated = await businessService.updateBusiness(id, payload);
     return ok(res, updated);
@@ -38,7 +41,7 @@ export const publish = async (
   next: NextFunction
 ) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params?.id);
     const payload = parsePublishBusiness(req.body);
     const updated = await businessService.publishBusiness(id, payload.isActive);
     return ok(res, updated);
@@ -53,7 +56,7 @@ export const stats = async (
   next: NextFunction
 ) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params?.id);
     const data = await businessService.getStats(id);
     return ok(res, data);
   } catch (err) {

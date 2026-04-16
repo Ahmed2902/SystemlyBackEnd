@@ -28,7 +28,10 @@ export const overridesSchema = z.object({
   endTime: z.string().optional(),
 });
 
-export const parseCreateStaff = (input: unknown) => createStaffSchema.parse(input);
-export const parseUpdateStaff = (input: unknown) => updateStaffSchema.parse(input);
-export const parseAvailabilityArray = (input: unknown) => z.array(availabilityEntrySchema).parse(input);
+export const parseCreateStaff = (input: unknown) =>
+  createStaffSchema.parse(input);
+export const parseUpdateStaff = (input: unknown) =>
+  updateStaffSchema.parse(input);
+export const parseAvailabilityArray = (input: unknown) =>
+  z.array(availabilityEntrySchema).parse(input);
 export const parseOverride = (input: unknown) => overridesSchema.parse(input);
