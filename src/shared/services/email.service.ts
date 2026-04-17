@@ -8,6 +8,8 @@ import {
   trialStartedEmail,
   trialEndingEmail,
   trialExpiredEmail,
+  subscriptionActivatedEmail,
+  subscriptionPaymentFailedEmail,
 } from "../utils/email.templates";
 
 import { EMAIL } from "../config/config";
@@ -329,3 +331,60 @@ export default {
   sendAppointmentConfirmation,
   sendAppointmentReminder,
 };
+
+export const sendSubscriptionActivatedEmail = async (
+  user: { name: string; email: string },
+  payload: { businessName: string; planName: string; periodEnd: string }
+): Promise<SendResult> => {
+  const html = subscriptionActivatedEmail(payload as any);
+  const subject = `Subscription active — ${payload.businessName}`;
+  const transport = getTransporter();
+  const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
+
+  if (!transport) {
+    logStub(user.email, subject, { businessName: payload.businessName, periodEnd: payload.periodEnd });
+    return { sent: false };
+  }
+
+  try {
+    const resp = await sendWithTimeout(
+      transport.sendMail({ from: fromAddress, to: user.email, subject, html }),
+      10000
+    );
+    return { sent: true, data: resp };
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("SMTP send error:", err);
+    return { sent: false, error: String(err) };
+  }
+};
+
+export const sendSubscriptionPaymentFailedEmail = async (
+  user: { name: string; email: string },
+  payload: { businessName: string; planName: string }
+): Promise<SendResult> => {
+  const html = subscriptionPaymentFailedEmail(payload as any);
+  const subject = `Payment failed — ${payload.businessName}`;
+  const transport = getTransporter();
+  const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
+
+  if (!transport) {
+    logStub(user.email, subject, { businessName: payload.businessName });
+    return { sent: false };
+  }
+
+  try {
+    const resp = await sendWithTimeout(
+      transport.sendMail({ from: fromAddress, to: user.email, subject, html }),
+      10000
+    );
+    return { sent: true, data: resp };
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("SMTP send error:", err);
+    return { sent: false, error: String(err) };
+  }
+};
+
+// extend default export with new functions
+Object.assign(exports.default, { sendSubscriptionActivatedEmail, sendSubscriptionPaymentFailedEmail });

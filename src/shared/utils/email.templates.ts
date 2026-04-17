@@ -249,3 +249,53 @@ export const trialExpiredEmail = ({
   </html>
   `;
 };
+
+export const subscriptionActivatedEmail = ({
+  name,
+  businessName,
+  planName,
+  periodEnd,
+}: {
+  name: string;
+  businessName: string;
+  planName: string;
+  periodEnd: string;
+}) => {
+  const safeName = name || "there";
+  return `
+  <!doctype html>
+  <html>
+    <body style="background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px;">
+      <div style="max-width:600px;margin:0 auto;">
+        <h2 style="color:#111;margin-top:0;">Subscription activated</h2>
+        <p style="color:#333;">Hi ${safeName},</p>
+        <p style="color:#333;">Your subscription for <strong>${businessName}</strong> on the <strong>${planName}</strong> plan is now active until <strong>${periodEnd}</strong>.</p>
+      </div>
+    </body>
+  </html>
+  `;
+};
+
+export const subscriptionPaymentFailedEmail = ({
+  name,
+  businessName,
+  planName,
+}: {
+  name: string;
+  businessName: string;
+  planName: string;
+}) => {
+  const safeName = name || "there";
+  return `
+  <!doctype html>
+  <html>
+    <body style="background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px;">
+      <div style="max-width:600px;margin:0 auto;">
+        <h2 style="color:#111;margin-top:0;">Payment failed</h2>
+        <p style="color:#333;">Hi ${safeName},</p>
+        <p style="color:#333;">We were unable to process payment for <strong>${businessName}</strong> on the <strong>${planName}</strong> plan. Please update your payment details from the dashboard to avoid interruption.</p>
+      </div>
+    </body>
+  </html>
+  `;
+};

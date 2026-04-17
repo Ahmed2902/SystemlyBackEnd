@@ -7,6 +7,9 @@ const router = Router();
 // Start a 14-day trial for the authenticated user's business
 router.post("/trial", requireAuth, requireBusinessAccess, billingController.startTrial);
 
+// Create a checkout / payment for subscribing to a plan
+router.post("/checkout", requireAuth, requireBusinessAccess, billingController.createCheckout);
+
 // Webhook endpoint for Paymob (no auth)
 router.post("/webhook", billingController.webhook);
 

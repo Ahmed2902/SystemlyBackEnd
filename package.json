@@ -11,6 +11,7 @@
     "prisma:generate": "npx prisma generate --schema=prisma/schema.prisma",
     "prisma:migrate:deploy": "npx prisma migrate deploy --schema=prisma/schema.prisma",
     "seed:plans": "node dist/src/scripts/seedPlans.js",
+    "email:test": "node dist/src/scripts/sendTestEmail.js",
     "migrate": "knex migrate:latest",
     "rollback": "knex migrate:rollback",
     "make": "knex migrate:make",

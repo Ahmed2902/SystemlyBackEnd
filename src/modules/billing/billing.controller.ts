@@ -18,13 +18,30 @@ export const startTrial = async (req: Request, res: Response, next: NextFunction
 export const webhook = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const verification = await paymob.verifyWebhook(req.headers as any, req.body);
-    // TODO: map verified payload to subscription updates
     // eslint-disable-next-line no-console
     console.log("[BillingWebhook] Received payload", verification.payload);
-    return res.status(200).json({ success: true });
+
+    if (verification.verified) {
+      const handled = await billingService.handlePaymobPayload(verification.payload);
+      if (handled && handled.handled) return res.status(200).json({ success: true });
+    }
+
+    return res.status(200).json({ success: true, handled: false });
   } catch (err) {
     return next(err);
   }
 };
 
-export default { startTrial, webhook };
+export const createCheckout = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const businessId = req.user?.businessId || req.body?.businessId;
+    if (!businessId) return fail(res, "Business id missing", 400, "BAD_REQUEST");
+    const planId = req.body?.planId;
+    const result = await billingService.createCheckout(businessId, planId);
+    return ok(res, { payment: result.payment, subscription: result.subscription });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+export default { startTrial, webhook, createCheckout };
