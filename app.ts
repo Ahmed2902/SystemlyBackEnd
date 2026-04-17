@@ -11,6 +11,7 @@ import { getSwaggerHtml, openApiDocument } from "./src/shared/docs/openapi";
 import { notFoundHandler } from "./src/shared/middleware/notFound.middleware";
 import { errorHandler } from "./src/shared/middleware/errorHandler.middleware";
 import { globalRateLimit } from "./src/shared/middleware/rateLimit.middleware";
+import * as promClient from "prom-client";
 
 const app: Application = express();
 
@@ -64,6 +65,13 @@ app.get("/docs/openapi.json", (_req, res) => {
 
 app.get("/docs", (_req, res) => {
   res.type("html").send(getSwaggerHtml());
+});
+
+// Prometheus metrics endpoint
+promClient.collectDefaultMetrics();
+app.get("/metrics", async (_req, res) => {
+  res.set("Content-Type", promClient.register.contentType);
+  res.send(await promClient.register.metrics());
 });
 
 app.use("/api", routes);

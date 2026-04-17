@@ -167,3 +167,85 @@ export const appointmentReminderEmail = ({
   </html>
   `;
 };
+
+export const trialStartedEmail = ({
+  name,
+  businessName,
+  planName,
+  trialEnd,
+}: {
+  name: string;
+  businessName: string;
+  planName: string;
+  trialEnd: string;
+}) => {
+  const safeName = name || "there";
+  return `
+  <!doctype html>
+  <html>
+    <body style="background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px;">
+      <div style="max-width:600px;margin:0 auto;">
+        <h2 style="color:#111;margin-top:0;">Your ${planName} trial has started</h2>
+        <p style="color:#333;">Hi ${safeName},</p>
+        <p style="color:#333;">Your free 14-day trial for <strong>${businessName}</strong> is active until <strong>${trialEnd}</strong>.</p>
+        <p style="color:#333;">No payment details were required. To keep using the plan after the trial, upgrade from the dashboard.</p>
+      </div>
+    </body>
+  </html>
+  `;
+};
+
+export const trialEndingEmail = ({
+  name,
+  businessName,
+  planName,
+  trialEnd,
+  daysLeft,
+}: {
+  name: string;
+  businessName: string;
+  planName: string;
+  trialEnd: string;
+  daysLeft: number;
+}) => {
+  const safeName = name || "there";
+  return `
+  <!doctype html>
+  <html>
+    <body style="background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px;">
+      <div style="max-width:600px;margin:0 auto;">
+        <h2 style="color:#111;margin-top:0;">Your trial ends in ${daysLeft} day(s)</h2>
+        <p style="color:#333;">Hi ${safeName},</p>
+        <p style="color:#333;">Your free trial for <strong>${businessName}</strong> on the <strong>${planName}</strong> plan ends on <strong>${trialEnd}</strong>.</p>
+        <p style="color:#333;">To avoid interruption, please choose a paid plan from your dashboard before the trial ends.</p>
+      </div>
+    </body>
+  </html>
+  `;
+};
+
+export const trialExpiredEmail = ({
+  name,
+  businessName,
+  planName,
+  expiredAt,
+}: {
+  name: string;
+  businessName: string;
+  planName: string;
+  expiredAt: string;
+}) => {
+  const safeName = name || "there";
+  return `
+  <!doctype html>
+  <html>
+    <body style="background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px;">
+      <div style="max-width:600px;margin:0 auto;">
+        <h2 style="color:#111;margin-top:0;">Your trial has ended</h2>
+        <p style="color:#333;">Hi ${safeName},</p>
+        <p style="color:#333;">Your free trial for <strong>${businessName}</strong> ended on <strong>${expiredAt}</strong>. To continue using premium features, please upgrade to a paid plan.</p>
+      </div>
+    </body>
+  </html>
+  `;
+};

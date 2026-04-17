@@ -186,6 +186,7 @@ model Appointment {
   endsAt       DateTime          @map("ends_at")
   status       AppointmentStatus @default(pending)
   reminderSent Boolean           @default(false) @map("reminder_sent")
+  confirmationSent Boolean       @default(false) @map("confirmation_sent")
   cancelToken  String            @unique @default(uuid()) @map("cancel_token") @db.Uuid
   notes        String?           @db.Text
   createdAt    DateTime          @default(now()) @map("created_at")
@@ -262,6 +263,9 @@ model Subscription {
   currentPeriodStart   DateTime @map("current_period_start")
   currentPeriodEnd     DateTime @map("current_period_end")
   paymobSubscriptionId String?  @map("paymob_subscription_id") @db.VarChar(255)
+  trialNotified3Days   Boolean  @default(false) @map("trial_notified_3days")
+  trialNotified1Day    Boolean  @default(false) @map("trial_notified_1day")
+  expiredHandled       Boolean  @default(false) @map("expired_handled")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
   business             Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -298,4 +302,20 @@ model RefreshToken {
   asCurrentFor BusinessUser? @relation("CurrentRefreshToken")
 
   @@map("refresh_tokens")
+}
+
+model ReminderLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  appointmentId String   @map("appointment_id") @db.Uuid
+  whenKey       String   @map("when_key") @db.VarChar(50)
+  channel       String?  @db.VarChar(50)
+  status        String   @default("pending") @db.VarChar(20)
+  errorMessage  String?  @map("error_message") @db.Text
+  sentAt        DateTime? @map("sent_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([appointmentId, whenKey])
+  @@index([appointmentId])
+  @@map("reminder_logs")
 }

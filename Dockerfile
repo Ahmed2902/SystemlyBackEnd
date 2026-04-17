@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for Hgezli
 
-FROM node:18-alpine AS builder
+FROM node:18-bullseye-slim AS builder
 WORKDIR /app
 ARG DATABASE_URL="postgres://postgres:postgres@db:5432/hgezli"
 ENV DATABASE_URL=$DATABASE_URL
@@ -18,7 +18,7 @@ RUN npx prisma generate --schema=prisma/schema.prisma
 RUN npm run build
 
 # Final image
-FROM node:18-alpine
+FROM node:18-bullseye-slim
 WORKDIR /app
 ENV NODE_ENV=production
 

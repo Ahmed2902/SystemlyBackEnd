@@ -79,3 +79,14 @@ export const AUTH_CONSTANTS = {
   REFRESH_TOKEN_TTL_SECONDS:
     Number(process.env.REFRESH_TOKEN_TTL_SECONDS) || 30 * 24 * 60 * 60, // 30 days
 };
+
+export const SENTRY = {
+  DSN: process.env.SENTRY_DSN,
+  ENV: process.env.SENTRY_ENV || process.env.NODE_ENV || "production",
+  RELEASE: process.env.SENTRY_RELEASE,
+};
+
+export const PAYMOB = {
+  API_KEY: process.env.PAYMOB_API_KEY,
+  MERCHANT_ID: process.env.PAYMOB_MERCHANT_ID,
+};

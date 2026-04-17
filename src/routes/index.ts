@@ -9,6 +9,7 @@ import faqsRoutes from "../modules/faqs/faqs.routes";
 import photosRoutes from "../modules/photos/photos.routes";
 import bookingRoutes from "../modules/bookings/bookings.routes";
 import appointmentsRoutes from "../modules/appointments/appointments.routes";
+import billingRoutes from "../modules/billing/billing.routes";
 
 const router = Router();
 
@@ -33,5 +34,6 @@ router.use("/booking", bookingRoutes);
 router.use("/appointments", appointmentsRoutes);
 router.use("/faqs", faqsRoutes);
 router.use("/photos", photosRoutes);
+router.use("/billing", billingRoutes);
 
 export default router;

@@ -35,6 +35,18 @@ services:
       - redis
     #command: sh -c "npx prisma migrate deploy --schema=prisma/schema.prisma && node dist/server.js"
 
+  nginx:
+    image: nginx:1.25-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - app
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+
 volumes:
   db_data:
   redis_data:

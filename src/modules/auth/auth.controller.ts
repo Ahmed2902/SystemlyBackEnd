@@ -14,7 +14,9 @@ const REFRESH_COOKIE_NAME = "refreshToken";
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
-  sameSite: "strict" as const,
+  // When frontend is hosted on a different domain (production), use SameSite=None
+  sameSite:
+    process.env.NODE_ENV === "production" ? ("none" as const) : ("strict" as const),
   maxAge: 30 * 24 * 60 * 60 * 1000,
 };
 
