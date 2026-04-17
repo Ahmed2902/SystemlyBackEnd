@@ -43,7 +43,9 @@ const worker = new Worker(
           staffName: appt.staff?.name || null,
           startsAt: appt.startsAt.toISOString(),
           cancelUrl: appt.cancelToken
-            ? `${process.env.APP_URL || process.env.FRONTEND_URL || ""}/api/booking/cancel/${appt.cancelToken}`
+            ? `${
+                process.env.APP_URL || process.env.FRONTEND_URL || ""
+              }/api/booking/cancel/${appt.cancelToken}`
             : undefined,
         });
 
@@ -52,7 +54,8 @@ const worker = new Worker(
           Math.max(
             60,
             Math.floor((new Date(appt.startsAt).getTime() - Date.now()) / 1000)
-          ) + 60 * 60;
+          ) +
+          60 * 60;
         await redis.set(CONFIRM_KEY(appt.id), "1", seconds);
 
         // update log and appointment flag
@@ -78,7 +81,8 @@ const worker = new Worker(
           Math.max(
             60,
             Math.floor((new Date(appt.startsAt).getTime() - Date.now()) / 1000)
-          ) + 60 * 60;
+          ) +
+          60 * 60;
         await redis.set(REMIND_KEY(appt.id, whenKey), "1", seconds);
 
         await prisma.reminderLog.updateMany({

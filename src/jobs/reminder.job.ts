@@ -27,7 +27,12 @@ const sendConfirmationFor = async (appt: any) => {
     const whenKey = "confirm";
     try {
       await prisma.reminderLog.create({
-        data: { appointmentId: appt.id, whenKey, channel: "email", status: "pending" },
+        data: {
+          appointmentId: appt.id,
+          whenKey,
+          channel: "email",
+          status: "pending",
+        },
       });
     } catch (err: any) {
       if (err?.code === "P2002") return; // already created/processed
@@ -41,10 +46,17 @@ const sendConfirmationFor = async (appt: any) => {
         type: "confirmation",
       });
       // eslint-disable-next-line no-console
-      console.log("[ReminderJob] Enqueued confirmation for appointment", appt.id);
+      console.log(
+        "[ReminderJob] Enqueued confirmation for appointment",
+        appt.id
+      );
     } catch (err: any) {
       // eslint-disable-next-line no-console
-      console.error("[ReminderJob] Failed to enqueue confirmation", appt.id, err);
+      console.error(
+        "[ReminderJob] Failed to enqueue confirmation",
+        appt.id,
+        err
+      );
     }
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -66,7 +78,12 @@ const sendReminderFor = async (
     // Create durable ReminderLog then enqueue a reminder job
     try {
       await prisma.reminderLog.create({
-        data: { appointmentId: appt.id, whenKey, channel: "email", status: "pending" },
+        data: {
+          appointmentId: appt.id,
+          whenKey,
+          channel: "email",
+          status: "pending",
+        },
       });
     } catch (err: any) {
       if (err?.code === "P2002") return; // already created

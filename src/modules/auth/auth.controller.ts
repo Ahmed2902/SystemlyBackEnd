@@ -16,7 +16,9 @@ const REFRESH_COOKIE_OPTIONS = {
   secure: process.env.NODE_ENV === "production",
   // When frontend is hosted on a different domain (production), use SameSite=None
   sameSite:
-    process.env.NODE_ENV === "production" ? ("none" as const) : ("strict" as const),
+    process.env.NODE_ENV === "production"
+      ? ("none" as const)
+      : ("strict" as const),
   maxAge: 30 * 24 * 60 * 60 * 1000,
 };
 

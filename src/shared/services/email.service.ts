@@ -253,7 +253,10 @@ export const sendTrialStartedEmail = async (
   const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
 
   if (!transport) {
-    logStub(user.email, subject, { businessName: payload.businessName, trialEnd: payload.trialEnd });
+    logStub(user.email, subject, {
+      businessName: payload.businessName,
+      trialEnd: payload.trialEnd,
+    });
     return { sent: false };
   }
 
@@ -272,7 +275,12 @@ export const sendTrialStartedEmail = async (
 
 export const sendTrialEndingEmail = async (
   user: { name: string; email: string },
-  payload: { businessName: string; planName: string; trialEnd: string; daysLeft: number }
+  payload: {
+    businessName: string;
+    planName: string;
+    trialEnd: string;
+    daysLeft: number;
+  }
 ): Promise<SendResult> => {
   const html = trialEndingEmail(payload as any);
   const subject = `Trial ending in ${payload.daysLeft} day(s) — ${payload.businessName}`;
@@ -280,7 +288,10 @@ export const sendTrialEndingEmail = async (
   const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
 
   if (!transport) {
-    logStub(user.email, subject, { businessName: payload.businessName, trialEnd: payload.trialEnd });
+    logStub(user.email, subject, {
+      businessName: payload.businessName,
+      trialEnd: payload.trialEnd,
+    });
     return { sent: false };
   }
 
@@ -307,7 +318,10 @@ export const sendTrialExpiredEmail = async (
   const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
 
   if (!transport) {
-    logStub(user.email, subject, { businessName: payload.businessName, expiredAt: payload.expiredAt });
+    logStub(user.email, subject, {
+      businessName: payload.businessName,
+      expiredAt: payload.expiredAt,
+    });
     return { sent: false };
   }
 
@@ -342,7 +356,10 @@ export const sendSubscriptionActivatedEmail = async (
   const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
 
   if (!transport) {
-    logStub(user.email, subject, { businessName: payload.businessName, periodEnd: payload.periodEnd });
+    logStub(user.email, subject, {
+      businessName: payload.businessName,
+      periodEnd: payload.periodEnd,
+    });
     return { sent: false };
   }
 
@@ -387,4 +404,7 @@ export const sendSubscriptionPaymentFailedEmail = async (
 };
 
 // extend default export with new functions
-Object.assign(exports.default, { sendSubscriptionActivatedEmail, sendSubscriptionPaymentFailedEmail });
+Object.assign(exports.default, {
+  sendSubscriptionActivatedEmail,
+  sendSubscriptionPaymentFailedEmail,
+});
