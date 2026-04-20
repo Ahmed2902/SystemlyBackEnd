@@ -20,6 +20,26 @@ const parseOrigins = (value: string | undefined) => {
     .filter(Boolean);
 };
 
+const resolveDatabaseUrl = () => {
+  const url =
+    process.env.DOCKER_DATABASE_URL ||
+    process.env.DATABASE_URL ||
+    process.env.PRISMA_DATABASE_URL ||
+    (process.env.NODE_ENV === "production"
+      ? process.env.SUPABASE_TRANSACTION_POOLER
+      : process.env.SUPABASE_CONNECTION_STRING) ||
+    process.env.SUPABASE_TRANSACTION_POOLER ||
+    process.env.SUPABASE_CONNECTION_STRING;
+
+  if (!url) {
+    throw new Error(
+      "Missing database connection string. Set DATABASE_URL in .env."
+    );
+  }
+
+  return url;
+};
+
 export const APP_CONFIG = {
   nodeEnv:
     (process.env.NODE_ENV as "development" | "production" | "test") ||
@@ -31,6 +51,26 @@ export const APP_CONFIG = {
   corsOrigins: parseOrigins(process.env.FRONTEND_URL),
   formBodyLimit: process.env.FORM_BODY_LIMIT || "1mb",
   jsonBodyLimit: process.env.JSON_BODY_LIMIT || "1mb",
+  rateLimit: {
+    authMax: parseNumber(process.env.AUTH_RATE_LIMIT_MAX, 10),
+    authWindowMs: parseNumber(
+      process.env.AUTH_RATE_LIMIT_WINDOW_MS,
+      15 * 60 * 1000
+    ),
+    globalMax: parseNumber(process.env.RATE_LIMIT_MAX, 300),
+    globalWindowMs: parseNumber(
+      process.env.RATE_LIMIT_WINDOW_MS,
+      15 * 60 * 1000
+    ),
+    publicBookingMax: parseNumber(
+      process.env.PUBLIC_BOOKING_RATE_LIMIT_MAX,
+      30
+    ),
+    publicBookingWindowMs: parseNumber(
+      process.env.PUBLIC_BOOKING_RATE_LIMIT_WINDOW_MS,
+      10 * 60 * 1000
+    ),
+  },
 } as const;
 
 export const FRONTEND_URL =
@@ -46,9 +86,7 @@ export const APP_URL =
     : "https://api.hgezli.com");
 
 export const DATABASE = {
-  DATABASE_URL:
-    process.env.DATABASE_URL ||
-    "postgresql://user:password@localhost:5432/hgezli",
+  DATABASE_URL: resolveDatabaseUrl(),
 } as const;
 
 export const REDIS = {
