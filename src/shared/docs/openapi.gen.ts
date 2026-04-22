@@ -63,10 +63,8 @@ const pathFromRegexp = (regexp: RegExp | undefined) => {
 
 const collectEndpoints = (app: Application): Endpoint[] => {
   const endpoints: Endpoint[] = [];
-  const stack =
-    ((app as unknown as { _router?: { stack?: unknown[] } })._router?.stack as
-      | unknown[]
-      | undefined) ?? [];
+  const asAny = app as any;
+  const stack: unknown[] = (asAny.router?.stack ?? asAny._router?.stack) ?? [];
 
   const traverse = (layers: unknown[], prefix = "") => {
     for (const layer of layers) {
