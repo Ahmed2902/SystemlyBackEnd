@@ -10,6 +10,7 @@ import photosRoutes from "../modules/photos/photos.routes";
 import bookingRoutes from "../modules/bookings/bookings.routes";
 import appointmentsRoutes from "../modules/appointments/appointments.routes";
 import billingRoutes from "../modules/billing/billing.routes";
+import docsRoutes from "../shared/docs/docs.routes";
 
 const router = Router();
 
@@ -35,5 +36,6 @@ router.use("/appointments", appointmentsRoutes);
 router.use("/faqs", faqsRoutes);
 router.use("/photos", photosRoutes);
 router.use("/billing", billingRoutes);
+router.use("/docs", docsRoutes);
 
 export default router;
