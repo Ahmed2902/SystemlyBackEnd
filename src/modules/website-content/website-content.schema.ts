@@ -1,15 +1,23 @@
-export type WebsiteContentInput = {
-  tagline?: string | null;
-  aboutText?: string | null;
-  template?: string | null;
-  primaryColor?: string | null;
-  secondaryColor?: string | null;
-  font?: string | null;
-  customDomain?: string | null;
-  sectionOrder?: any;
-  showTeam?: boolean;
-  showFaq?: boolean;
-  showReviews?: boolean;
-  metaTitle?: string | null;
-  metaDescription?: string | null;
+import { z } from "zod";
+
+export const websiteContentSchema = z.object({
+  tagline: z.string().optional(),
+  aboutText: z.string().optional(),
+  template: z.string().optional(),
+  primaryColor: z.string().optional(),
+  secondaryColor: z.string().optional(),
+  font: z.string().optional(),
+  customDomain: z.string().optional(),
+  sectionOrder: z.unknown().optional(),
+  showTeam: z.boolean().optional(),
+  showFaq: z.boolean().optional(),
+  showReviews: z.boolean().optional(),
+  metaTitle: z.string().optional(),
+  metaDescription: z.string().optional(),
+});
+
+export type WebsiteContentInput = z.infer<typeof websiteContentSchema>;
+
+export const websiteContentSchemas = {
+  websiteContentSchema,
 };

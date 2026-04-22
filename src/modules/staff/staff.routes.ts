@@ -4,15 +4,28 @@ import {
   requireAuth,
   requireBusinessAccess,
 } from "../../shared/middleware/auth.middleware";
+import validate from "../../shared/middleware/validate.middleware";
+import {
+  createStaffSchema,
+  overridesSchema,
+  replaceAvailabilitySchema,
+  updateStaffSchema,
+} from "./staff.schema";
 
 const router = Router();
 
 router.get("/", requireAuth, staffController.list);
-router.post("/", requireAuth, staffController.create);
+router.post(
+  "/",
+  requireAuth,
+  validate.validateBody(createStaffSchema),
+  staffController.create
+);
 router.patch(
   "/:id",
   requireAuth,
   requireBusinessAccess,
+  validate.validateBody(updateStaffSchema),
   staffController.update
 );
 router.delete(
@@ -40,12 +53,14 @@ router.put(
   "/:id/availability",
   requireAuth,
   requireBusinessAccess,
+  validate.validateBody(replaceAvailabilitySchema),
   staffController.replaceAvailability
 );
 router.post(
   "/:id/availability/overrides",
   requireAuth,
   requireBusinessAccess,
+  validate.validateBody(overridesSchema),
   staffController.addOverride
 );
 router.delete(

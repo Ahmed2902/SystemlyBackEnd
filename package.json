@@ -18,6 +18,7 @@
     "make": "knex migrate:make",
     "test": "jest --runInBand --forceExit",
     "validate:openapi": "node scripts/validate-openapi.js",
+    "generate:openapi": "node scripts/generate-openapi.js",
     "studio:local": "node scripts/run-prisma-studio.js"
   },
   "keywords": [],
@@ -25,6 +26,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^8.1.0",
     "@getbrevo/brevo": "^5.0.4",
     "@prisma/client": "^6.19.3",
     "@sendinblue/client": "^3.3.1",

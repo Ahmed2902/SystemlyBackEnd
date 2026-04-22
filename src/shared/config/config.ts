@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./env";
 
 const parseNumber = (value: string | undefined, fallback: number) => {
   const parsed = Number(value);

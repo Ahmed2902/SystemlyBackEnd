@@ -4,15 +4,24 @@ import {
   requireAuth,
   requireBusinessAccess,
 } from "../../shared/middleware/auth.middleware";
+import validate from "../../shared/middleware/validate.middleware";
+import { createServiceSchema, updateServiceSchema } from "./services.schema";
 
 const router = Router();
 
 router.get("/", requireAuth, servicesController.list);
-router.post("/", requireAuth, requireBusinessAccess, servicesController.create);
+router.post(
+  "/",
+  requireAuth,
+  requireBusinessAccess,
+  validate.validateBody(createServiceSchema),
+  servicesController.create
+);
 router.patch(
   "/:id",
   requireAuth,
   requireBusinessAccess,
+  validate.validateBody(updateServiceSchema),
   servicesController.update
 );
 router.delete(

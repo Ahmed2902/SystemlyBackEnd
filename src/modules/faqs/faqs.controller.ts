@@ -4,8 +4,8 @@ import { ok, fail } from "../../shared/utils/response.util";
 import {
   createFaqSchema,
   updateFaqSchema,
-  reorderSchema,
-} from "./faqs.validation";
+  reorderFaqsSchema,
+} from "./faqs.schema";
 
 export const list = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -73,9 +73,9 @@ export const reorder = async (
   next: NextFunction
 ) => {
   try {
-    const parsed = reorderSchema.safeParse(req.body);
+    const parsed = reorderFaqsSchema.safeParse(req.body);
     if (!parsed.success) return next(parsed.error);
-    const result = await faqsService.reorderFaqs(parsed.data as any);
+    const result = await faqsService.reorderFaqs(parsed.data);
     return ok(res, result);
   } catch (err) {
     return next(err);

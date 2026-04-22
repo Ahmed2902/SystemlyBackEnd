@@ -7,7 +7,9 @@ import {
   registerBodySchema,
   resetPasswordBodySchema,
   verifyEmailQuerySchema,
-} from "./auth.validation";
+  refreshTokenInputSchema,
+  getMeInputSchema,
+} from "./auth.schema";
 
 const REFRESH_COOKIE_NAME = "refreshToken";
 
@@ -90,11 +92,13 @@ export const refresh = async (
   next: NextFunction
 ) => {
   try {
-    const refreshToken =
+    const refreshTokenSource =
       (req as any).cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
-    if (!refreshToken)
-      return fail(res, "No refresh token", 401, "UNAUTHORIZED");
-    const result = await authService.refreshToken({ refreshToken });
+    const parsed = refreshTokenInputSchema.safeParse({
+      refreshToken: refreshTokenSource,
+    });
+    if (!parsed.success) return fail(res, "No refresh token", 401, "UNAUTHORIZED");
+    const result = await authService.refreshToken(parsed.data);
     // set rotated refresh token cookie
     res.cookie(
       REFRESH_COOKIE_NAME,
@@ -182,9 +186,11 @@ export const getMe = async (
   next: NextFunction
 ) => {
   try {
-    const userId = (req as any).user?.id;
-    if (!userId) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
-    const safeUser = await authService.getMe({ userId });
+    const parsed = getMeInputSchema.safeParse({
+      userId: (req as any).user?.id,
+    });
+    if (!parsed.success) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+    const safeUser = await authService.getMe(parsed.data);
     return ok(res, safeUser);
   } catch (err) {
     return next(err);

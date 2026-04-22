@@ -1,21 +1,23 @@
 import type { NextFunction, Request, Response } from "express";
 import * as customersService from "./customers.service";
 import { ok, fail } from "../../shared/utils/response.util";
-import { listQuerySchema, updateNotesSchema } from "./customers.validation";
+import {
+  listCustomersQuerySchema,
+  updateCustomerNotesSchema,
+} from "./customers.schema";
 
 export const list = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const businessId = (req as any).user?.businessId;
     if (!businessId)
       return fail(res, "Business id missing", 400, "BAD_REQUEST");
-    const parsed = listQuerySchema.safeParse(req.query);
+    const parsed = listCustomersQuerySchema.safeParse(req.query);
     if (!parsed.success) return next(parsed.error);
     const query = parsed.data;
-    const page = query.page ? parseInt(query.page, 10) : 1;
     const data = await customersService.listCustomers(
       businessId,
       query.search,
-      page
+      query.page ?? 1
     );
     return ok(res, data);
   } catch (err) {
@@ -41,7 +43,7 @@ export const updateNotes = async (
 ) => {
   try {
     const id = String(req.params?.id);
-    const parsed = updateNotesSchema.safeParse(req.body);
+    const parsed = updateCustomerNotesSchema.safeParse(req.body);
     if (!parsed.success) return next(parsed.error);
     const updated = await customersService.updateNotes(id, parsed.data.notes);
     return ok(res, updated);

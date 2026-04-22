@@ -5,6 +5,8 @@ import {
   requireBusinessAccess,
 } from "../../shared/middleware/auth.middleware";
 import { uploadSingle } from "../../shared/middleware/upload.middleware";
+import validate from "../../shared/middleware/validate.middleware";
+import { photoIdParamsSchema } from "./photos.schema";
 
 const router = Router();
 
@@ -35,6 +37,7 @@ router.delete(
   "/gallery/:id",
   requireAuth,
   requireBusinessAccess,
+  validate.validateParams(photoIdParamsSchema),
   photosController.deleteGallery
 );
 

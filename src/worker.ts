@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./shared/config/env";
 import jobs from "./jobs";
 import { prisma } from "./shared/db/prisma";
 import { initEmailQueue } from "./queues/emailQueue";

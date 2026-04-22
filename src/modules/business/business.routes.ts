@@ -5,18 +5,30 @@ import {
   requireAuth,
   requireBusinessAccess,
 } from "../../shared/middleware/auth.middleware";
+import validate from "../../shared/middleware/validate.middleware";
+import {
+  publishBusinessSchema,
+  slugParamsSchema,
+  updateBusinessSchema,
+} from "./business.schema";
 
 const router = Router();
 
-router.get("/check-slug/:slug", async (req, res, next) => {
-  try {
-    const { slug } = req.params;
-    const taken = await businessService.isSlugTaken(slug);
-    return res.json({ available: !taken, slug });
-  } catch (err) {
-    return next(err);
+router.get(
+  "/check-slug/:slug",
+  validate.validateParams(slugParamsSchema),
+  async (req, res, next) => {
+    try {
+      const slug = Array.isArray(req.params.slug)
+        ? req.params.slug[0]
+        : req.params.slug;
+      const taken = await businessService.isSlugTaken(slug);
+      return res.json({ available: !taken, slug });
+    } catch (err) {
+      return next(err);
+    }
   }
-});
+);
 
 // Public: full website data by slug
 router.get("/public/:slug", businessController.getPublicBySlug);
@@ -26,6 +38,7 @@ router.patch(
   "/:id",
   requireAuth,
   requireBusinessAccess,
+  validate.validateBody(updateBusinessSchema),
   businessController.update
 );
 
@@ -34,6 +47,7 @@ router.patch(
   "/:id/publish",
   requireAuth,
   requireBusinessAccess,
+  validate.validateBody(publishBusinessSchema),
   businessController.publish
 );
 

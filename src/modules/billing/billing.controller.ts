@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import * as billingService from "./billing.service";
 import paymob from "./paymob";
 import { ok, fail } from "../../shared/utils/response.util";
+import { subscriptionActionBodySchema } from "./billing.schema";
 
 export const startTrial = async (
   req: Request,
@@ -9,10 +10,12 @@ export const startTrial = async (
   next: NextFunction
 ) => {
   try {
-    const businessId = req.user?.businessId || req.body?.businessId;
+    const parsed = subscriptionActionBodySchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const businessId = req.user?.businessId || parsed.data.businessId;
     if (!businessId)
       return fail(res, "Business id missing", 400, "BAD_REQUEST");
-    const planId = req.body?.planId;
+    const planId = parsed.data.planId;
     const sub = await billingService.startTrial(businessId, planId);
     return ok(res, { subscription: sub });
   } catch (err) {
@@ -53,10 +56,12 @@ export const createCheckout = async (
   next: NextFunction
 ) => {
   try {
-    const businessId = req.user?.businessId || req.body?.businessId;
+    const parsed = subscriptionActionBodySchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const businessId = req.user?.businessId || parsed.data.businessId;
     if (!businessId)
       return fail(res, "Business id missing", 400, "BAD_REQUEST");
-    const planId = req.body?.planId;
+    const planId = parsed.data.planId;
     const result = await billingService.createCheckout(businessId, planId);
     return ok(res, {
       payment: result.payment,

@@ -1,13 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
 import * as staffService from "./staff.service";
 import { ok, fail } from "../../shared/utils/response.util";
-import { z } from "zod";
 import {
   createStaffSchema,
   updateStaffSchema,
-  availabilityEntrySchema,
+  replaceAvailabilitySchema,
   overridesSchema,
-} from "./staff.validation";
+} from "./staff.schema";
 
 export const list = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -120,7 +119,7 @@ export const replaceAvailability = async (
 ) => {
   try {
     const id = String(req.params?.id);
-    const arrayParsed = z.array(availabilityEntrySchema).safeParse(req.body);
+    const arrayParsed = replaceAvailabilitySchema.safeParse(req.body);
     if (!arrayParsed.success) return next(arrayParsed.error);
     const result = await staffService.replaceAvailability(id, arrayParsed.data);
     return ok(res, result);

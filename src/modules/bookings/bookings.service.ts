@@ -5,6 +5,8 @@ import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
 import { upsertByPhone as upsertCustomer } from "../customers/customers.service";
 import { generateCancelToken } from "../../shared/utils/token.util";
+import type { AvailabilityQuery, CreateBookingBody } from "./bookings.schema";
+import type { Slot } from "../../shared/utils/slots.util";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -14,7 +16,7 @@ const CANCEL_TTL_DAYS = parseInt(
   10
 );
 
-export const getAvailability = async (opts: any) => {
+export const getAvailability = async (opts: AvailabilityQuery) => {
   const { businessId, serviceId, staffId, date, timezone = undefined } = opts;
 
   const business = await prisma.business.findUnique({
@@ -37,7 +39,7 @@ export const getAvailability = async (opts: any) => {
     staffIds = rows.filter((r) => r.staff?.isActive).map((r) => r.staffId);
   }
 
-  const allSlots: any[] = [];
+  const allSlots: Slot[] = [];
 
   for (const sId of staffIds) {
     // check override for the exact date
@@ -102,10 +104,10 @@ export const getAvailability = async (opts: any) => {
   }
 
   // dedupe by ISO time and sort
-  const map: Record<string, any> = {};
+  const map: Record<string, Slot> = {};
   for (const s of allSlots) map[s.time] = s;
   const uniq = Object.values(map).sort(
-    (a: any, b: any) => new Date(a.time).getTime() - new Date(b.time).getTime()
+    (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()
   );
   return uniq;
 };
@@ -140,7 +142,7 @@ export const cancelByToken = async (token: string) => {
   return updated;
 };
 
-export const createBooking = async (payload: any) => {
+export const createBooking = async (payload: CreateBookingBody) => {
   const {
     businessId,
     serviceId,

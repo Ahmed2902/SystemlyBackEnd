@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import * as websiteService from "./website-content.service";
 import { ok, fail } from "../../shared/utils/response.util";
-import { websiteContentSchema } from "./website-content.validation";
+import { websiteContentSchema } from "./website-content.schema";
 
 export const getOwn = async (
   req: Request,

@@ -1,4 +1,9 @@
 import { prisma } from "../../shared/db/prisma";
+import type {
+  CreateFaqBody,
+  ReorderFaqsBody,
+  UpdateFaqBody,
+} from "./faqs.schema";
 
 export const listByBusiness = async (businessId: string) =>
   prisma.faq.findMany({
@@ -6,18 +11,16 @@ export const listByBusiness = async (businessId: string) =>
     orderBy: { displayOrder: "asc" },
   });
 
-export const createFaq = async (businessId: string, payload: any) =>
+export const createFaq = async (businessId: string, payload: CreateFaqBody) =>
   prisma.faq.create({ data: { businessId, ...payload } });
 
-export const updateFaq = async (id: string, payload: any) =>
+export const updateFaq = async (id: string, payload: UpdateFaqBody) =>
   prisma.faq.update({ where: { id }, data: payload });
 
 export const deleteFaq = async (id: string) =>
   prisma.faq.delete({ where: { id } });
 
-export const reorderFaqs = async (
-  items: { id: string; display_order: number }[]
-) => {
+export const reorderFaqs = async (items: ReorderFaqsBody) => {
   const ops = items.map((it) =>
     prisma.faq.update({
       where: { id: it.id },

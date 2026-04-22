@@ -1,81 +1,106 @@
-import { Request, Response } from "express";
+import type { NextFunction, Request, Response } from "express";
 import * as service from "./appointments.service";
 import { ok, fail } from "../../shared/utils/response.util";
+import {
+  appointmentIdParamsSchema,
+  createManualAppointmentSchema,
+  listAppointmentsQuerySchema,
+  updateAppointmentNotesSchema,
+  updateAppointmentStatusSchema,
+} from "./appointments.schema";
 
-export const listAppointments = async (req: Request, res: Response) => {
+export const listAppointments = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const { date, from, to, page, perPage } = req.query as any;
+    const parsed = listAppointmentsQuerySchema.safeParse(req.query);
+    if (!parsed.success) return next(parsed.error);
     const user = req.user;
+    if (!user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
     const data = await service.listAppointments({
       user,
-      date,
-      from,
-      to,
-      page,
-      perPage,
+      date: parsed.data.date,
+      from: parsed.data.from,
+      to: parsed.data.to,
+      page: parsed.data.page,
+      perPage: parsed.data.perPage,
     });
     return ok(res, data);
-  } catch (err: any) {
-    return fail(
-      res,
-      err.message || "Could not list appointments",
-      err.statusCode || 500
-    );
+  } catch (err) {
+    return next(err);
   }
 };
 
-export const getAppointment = async (req: Request, res: Response) => {
+export const getAppointment = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const appt = await service.getAppointmentById(id);
+    const parsed = appointmentIdParamsSchema.safeParse(req.params);
+    if (!parsed.success) return next(parsed.error);
+    const appt = await service.getAppointmentById(parsed.data.id);
     if (!appt) return fail(res, "Not found", 404);
     return ok(res, appt);
-  } catch (err: any) {
-    return fail(res, err.message || "Error", err.statusCode || 500);
+  } catch (err) {
+    return next(err);
   }
 };
 
-export const updateStatus = async (req: Request, res: Response) => {
+export const updateStatus = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { status } = req.body;
-    const updated = await service.updateStatus(id, status);
-    return ok(res, updated);
-  } catch (err: any) {
-    return fail(
-      res,
-      err.message || "Could not update status",
-      err.statusCode || 400
+    const paramsParsed = appointmentIdParamsSchema.safeParse(req.params);
+    if (!paramsParsed.success) return next(paramsParsed.error);
+    const bodyParsed = updateAppointmentStatusSchema.safeParse(req.body);
+    if (!bodyParsed.success) return next(bodyParsed.error);
+    const updated = await service.updateStatus(
+      paramsParsed.data.id,
+      bodyParsed.data.status
     );
-  }
-};
-
-export const updateNotes = async (req: Request, res: Response) => {
-  try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-    const { notes } = req.body;
-    const updated = await service.updateNotes(id, notes);
     return ok(res, updated);
-  } catch (err: any) {
-    return fail(
-      res,
-      err.message || "Could not update notes",
-      err.statusCode || 400
-    );
+  } catch (err) {
+    return next(err);
   }
 };
 
-export const createAppointment = async (req: Request, res: Response) => {
+export const updateNotes = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const payload = req.body;
-    const created = await service.createManualAppointment(payload);
+    const paramsParsed = appointmentIdParamsSchema.safeParse(req.params);
+    if (!paramsParsed.success) return next(paramsParsed.error);
+    const bodyParsed = updateAppointmentNotesSchema.safeParse(req.body);
+    if (!bodyParsed.success) return next(bodyParsed.error);
+    const updated = await service.updateNotes(
+      paramsParsed.data.id,
+      bodyParsed.data.notes
+    );
+    return ok(res, updated);
+  } catch (err) {
+    return next(err);
+  }
+};
+
+export const createAppointment = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const parsed = createManualAppointmentSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const created = await service.createManualAppointment(parsed.data);
     return ok(res, created, 201);
-  } catch (err: any) {
-    return fail(
-      res,
-      err.message || "Could not create appointment",
-      err.statusCode || 400
-    );
+  } catch (err) {
+    return next(err);
   }
 };
 

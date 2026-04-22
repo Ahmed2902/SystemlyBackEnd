@@ -4,6 +4,8 @@ import {
   requireAuth,
   requireBusinessAccess,
 } from "../../shared/middleware/auth.middleware";
+import validate from "../../shared/middleware/validate.middleware";
+import { subscriptionActionBodySchema } from "./billing.schema";
 
 const router = Router();
 
@@ -12,6 +14,7 @@ router.post(
   "/trial",
   requireAuth,
   requireBusinessAccess,
+  validate.validateBody(subscriptionActionBodySchema),
   billingController.startTrial
 );
 
@@ -20,6 +23,7 @@ router.post(
   "/checkout",
   requireAuth,
   requireBusinessAccess,
+  validate.validateBody(subscriptionActionBodySchema),
   billingController.createCheckout
 );
 

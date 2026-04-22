@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./../../src/shared/config/env";
 import { sendWelcomeEmail } from "../shared/services/email.service";
 
 const run = async () => {

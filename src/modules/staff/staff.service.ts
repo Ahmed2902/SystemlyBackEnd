@@ -4,14 +4,14 @@ import type {
   StaffUpdateInput,
   AvailabilityEntry,
   AvailabilityOverrideInput,
-  PaginatedResult,
+  StaffListResult,
 } from "./staff.schema";
 
 export const listByBusiness = async (
   businessId: string,
   page = 1,
   perPage = 20
-): Promise<PaginatedResult<any>> => {
+): Promise<StaffListResult> => {
   const where = { businessId } as any;
   const skip = (page - 1) * perPage;
   const [items, total] = await Promise.all([

@@ -1,7 +1,15 @@
 import { prisma } from "../../shared/db/prisma";
 import dayjs from "dayjs";
+import type {
+  CreateManualAppointmentBody,
+  ListAppointmentsQuery,
+} from "./appointments.schema";
 
-export const listAppointments = async (opts: any) => {
+type ListAppointmentsInput = ListAppointmentsQuery & {
+  user: Express.Request["user"];
+};
+
+export const listAppointments = async (opts: ListAppointmentsInput) => {
   const { user, date, from, to, page = 1, perPage = 20 } = opts;
   const where: any = {};
 
@@ -48,7 +56,7 @@ export const updateStatus = async (id: string, status: string) => {
   return appt;
 };
 
-export const updateNotes = async (id: string, notes: string) => {
+export const updateNotes = async (id: string, notes?: string) => {
   const appt = await prisma.appointment.update({
     where: { id },
     data: { notes },
@@ -56,7 +64,9 @@ export const updateNotes = async (id: string, notes: string) => {
   return appt;
 };
 
-export const createManualAppointment = async (payload: any) => {
+export const createManualAppointment = async (
+  payload: CreateManualAppointmentBody
+) => {
   const {
     businessId,
     serviceId,

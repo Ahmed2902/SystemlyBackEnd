@@ -4,7 +4,7 @@ import { ok } from "../../shared/utils/response.util";
 import {
   updateBusinessSchema,
   publishBusinessSchema,
-} from "./business.validation";
+} from "./business.schema";
 
 export const getPublicBySlug = async (
   req: Request,

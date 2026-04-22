@@ -14,6 +14,7 @@ import type {
   EmailBody,
   GetMeInput,
   LoginBody,
+  OauthSignInInput,
   RefreshTokenInput,
   RegisterBody,
   ResetPasswordBody,
@@ -347,14 +348,7 @@ export const oauthSignIn = async ({
   name,
   picture,
   emailVerified,
-}: {
-  provider: string;
-  providerId: string;
-  email: string;
-  name?: string | null;
-  picture?: string | null;
-  emailVerified?: boolean;
-}) => {
+}: OauthSignInInput) => {
   if (!email) {
     throw buildErr("OAuth provider did not return an email", 400, "NO_EMAIL");
   }

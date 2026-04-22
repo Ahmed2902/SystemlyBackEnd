@@ -4,7 +4,7 @@ import { ok, fail } from "../../shared/utils/response.util";
 import {
   createServiceSchema,
   updateServiceSchema,
-} from "./services.validation";
+} from "./services.schema";
 
 export const list = async (req: Request, res: Response, next: NextFunction) => {
   try {

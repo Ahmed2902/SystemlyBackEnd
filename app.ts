@@ -1,5 +1,3 @@
-import "dotenv/config";
-
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { Application } from "express";
@@ -7,7 +5,7 @@ import helmet from "helmet";
 
 import routes from "./src/routes";
 import { APP_CONFIG } from "./src/shared/config/config";
-import { getSwaggerHtml, openApiDocument } from "./src/shared/docs/openapi";
+import { getOpenApiDocument, getSwaggerHtml } from "./src/shared/docs/openapi.gen";
 import { notFoundHandler } from "./src/shared/middleware/notFound.middleware";
 import { errorHandler } from "./src/shared/middleware/errorHandler.middleware";
 import { globalRateLimit } from "./src/shared/middleware/rateLimit.middleware";
@@ -60,10 +58,16 @@ app.get("/", (_req, res) => {
 });
 
 app.get("/docs/openapi.json", (_req, res) => {
-  res.status(200).json(openApiDocument);
+  const doc = getOpenApiDocument(app, {
+    title: "Hgezli API",
+    version: "1.0.0",
+    url: process.env.APP_URL,
+  });
+  res.status(200).json(doc);
 });
 
 app.get("/docs", (_req, res) => {
+  // Keep the simple static UI for environments where CDN is preferred
   res.type("html").send(getSwaggerHtml());
 });
 

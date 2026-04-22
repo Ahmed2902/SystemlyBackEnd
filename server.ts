@@ -1,5 +1,3 @@
-import "dotenv/config";
-
 import type { Server } from "http";
 
 import * as Sentry from "@sentry/node";
