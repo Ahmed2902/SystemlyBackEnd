@@ -4,6 +4,7 @@
   "description": "",
   "main": "dist/index.js",
   "scripts": {
+    "start:prod": "npm run prisma:migrate:deploy && npm run build && node dist/server.js",
     "build": "npx tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "dev": "npx tsc -p tsconfig.json && node dist/server.js",
