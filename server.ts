@@ -7,7 +7,7 @@ import app from "./app";
 import { APP_CONFIG, SENTRY } from "./src/shared/config/config";
 import { prisma } from "./src/shared/db/prisma";
 
-const PORT = APP_CONFIG.port;
+const PORT = Number(process.env.PORT) || APP_CONFIG.port || 3000;
 let server: Server;
 
 const startServer = () => {
@@ -21,8 +21,8 @@ const startServer = () => {
     console.log("Sentry initialized");
   }
 
-  server = app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  server = app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on port ${PORT}`);
   });
 };
 
