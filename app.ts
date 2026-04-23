@@ -2,10 +2,12 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { Application } from "express";
 import helmet from "helmet";
-
 import routes from "./src/routes";
 import { APP_CONFIG } from "./src/shared/config/config";
-import { getOpenApiDocument, getSwaggerHtml } from "./src/shared/docs/openapi.gen";
+import {
+  getOpenApiDocument,
+  getSwaggerHtml,
+} from "./src/shared/docs/openapi.gen";
 import { notFoundHandler } from "./src/shared/middleware/notFound.middleware";
 import { errorHandler } from "./src/shared/middleware/errorHandler.middleware";
 import { globalRateLimit } from "./src/shared/middleware/rateLimit.middleware";

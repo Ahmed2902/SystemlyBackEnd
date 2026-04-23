@@ -46,7 +46,7 @@ export const getMeInputSchema = z.object({
 export const oauthSignInInputSchema = z.object({
   provider: z.string().min(1),
   providerId: z.string().min(1),
-  email: normalizedEmailSchema,
+  email: normalizedEmailSchema.nullable(),
   name: z.string().optional().nullable(),
   picture: z.url().optional().nullable(),
   emailVerified: z.boolean().optional(),
