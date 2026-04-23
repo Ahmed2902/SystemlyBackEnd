@@ -64,7 +64,7 @@ const pathFromRegexp = (regexp: RegExp | undefined) => {
 const collectEndpoints = (app: Application): Endpoint[] => {
   const endpoints: Endpoint[] = [];
   const asAny = app as any;
-  const stack: unknown[] = (asAny.router?.stack ?? asAny._router?.stack) ?? [];
+  const stack: unknown[] = asAny.router?.stack ?? asAny._router?.stack ?? [];
 
   const traverse = (layers: unknown[], prefix = "") => {
     for (const layer of layers) {
@@ -99,7 +99,11 @@ const collectEndpoints = (app: Application): Endpoint[] => {
         for (const routePath of routePaths) {
           for (const method of methods) {
             const normalizedMethod = method.toLowerCase() as Endpoint["method"];
-            if (!["get", "post", "put", "patch", "delete"].includes(normalizedMethod)) {
+            if (
+              !["get", "post", "put", "patch", "delete"].includes(
+                normalizedMethod
+              )
+            ) {
               continue;
             }
             endpoints.push({
@@ -117,7 +121,10 @@ const collectEndpoints = (app: Application): Endpoint[] => {
         current.handle &&
         Array.isArray(current.handle.stack)
       ) {
-        traverse(current.handle.stack, `${prefix}${pathFromRegexp(current.regexp)}`);
+        traverse(
+          current.handle.stack,
+          `${prefix}${pathFromRegexp(current.regexp)}`
+        );
         continue;
       }
 

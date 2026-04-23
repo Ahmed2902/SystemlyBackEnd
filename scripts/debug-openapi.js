@@ -8,9 +8,18 @@ for (let i = 0; i < stack.length; i++) {
   const layer = stack[i];
   const hasRoute = !!layer.route;
   const routePath = layer.route ? layer.route.path : undefined;
-  const methods = layer.route ? Object.keys(layer.route.methods || {}) : undefined;
+  const methods = layer.route
+    ? Object.keys(layer.route.methods || {})
+    : undefined;
   const name = layer.name;
   const hasHandleStack = Array.isArray(layer.handle?.stack);
   const regexpSource = layer.regexp ? layer.regexp.source : undefined;
-  console.log(i, { name, hasRoute, routePath, methods, hasHandleStack, regexpSource });
+  console.log(i, {
+    name,
+    hasRoute,
+    routePath,
+    methods,
+    hasHandleStack,
+    regexpSource,
+  });
 }
