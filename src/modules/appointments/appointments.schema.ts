@@ -12,6 +12,10 @@ export const updateAppointmentStatusSchema = z.object({
   status: z.string().min(1),
 });
 
+export const rescheduleAppointmentSchema = z.object({
+  startsAt: z.string().min(1),
+});
+
 export const updateAppointmentNotesSchema = z.object({
   notes: z.string().optional(),
 });

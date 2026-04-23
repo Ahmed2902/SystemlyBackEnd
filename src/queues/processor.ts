@@ -4,6 +4,7 @@ import { prisma } from "../shared/db/prisma";
 import {
   sendAppointmentConfirmation,
   sendAppointmentReminder,
+  sendStaffInviteEmail,
 } from "../shared/services/email.service";
 import redis from "../shared/config/redis";
 
@@ -16,6 +17,13 @@ const REMIND_KEY = (id: string, when: string) => `appt:remind:${when}:${id}`;
 const worker = new Worker(
   "emailQueue",
   async (job: Job) => {
+    // support multiple job types: appointment jobs and staff invites
+    if (job.name === "staff_invite") {
+      const { to, inviterName, businessName, acceptUrl } = job.data as any;
+      await sendStaffInviteEmail(to, { inviterName, businessName, acceptUrl });
+      return;
+    }
+
     const { appointmentId, whenKey, whenLabel, type } = job.data as any;
 
     // fetch appointment with relations

@@ -121,6 +121,12 @@ export const requireAppointmentOwnerOrAdmin = async (
       return next();
     }
     if (
+      req.user.role === Roles.Receptionist.toString() &&
+      appointment.businessId === req.user.businessId
+    ) {
+      return next();
+    }
+    if (
       req.user.role === Roles.Staff.toString() &&
       appointment.staffId === req.user.id
     ) {

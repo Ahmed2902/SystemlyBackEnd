@@ -168,6 +168,33 @@ export const appointmentReminderEmail = ({
   `;
 };
 
+export const staffInviteEmail = ({
+  inviterName,
+  businessName,
+  acceptUrl,
+}: {
+  inviterName?: string | null;
+  businessName?: string | null;
+  acceptUrl: string;
+}) => {
+  const inviter = inviterName || "Someone";
+  const biz = businessName || "your business";
+  return `
+  <!doctype html>
+  <html>
+    <body style="background:#fff;color:#111;font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px;">
+      <div style="max-width:600px;margin:0 auto;">
+        <h2 style="color:#111;margin-top:0;">You've been invited to join ${biz} on Hgezli</h2>
+        <p style="color:#333;">Hi there,</p>
+        <p style="color:#333;">${inviter} has invited you to join <strong>${biz}</strong> on Hgezli. Click the button below to accept the invitation and join the team.</p>
+        <p style="text-align:center;margin:24px 0;"><a href="${acceptUrl}" style="background:#1a56db;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;">Accept invitation</a></p>
+        <p style="color:#999;font-size:13px;margin-top:12px;">If you did not expect this invitation, you can ignore this email.</p>
+      </div>
+    </body>
+  </html>
+  `;
+};
+
 export const trialStartedEmail = ({
   name,
   businessName,

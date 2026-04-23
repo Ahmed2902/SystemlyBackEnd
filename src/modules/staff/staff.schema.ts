@@ -52,3 +52,16 @@ export const staffSchemas = {
   overridesSchema,
   staffPaginationSchema,
 };
+
+export const createInviteSchema = z.object({
+  email: z.email(),
+  role: z.enum(Roles),
+  expiresInDays: z.number().int().positive().optional(),
+});
+
+export const acceptInviteSchema = z.object({
+  token: z.string().min(1),
+});
+
+export type CreateInviteInput = z.infer<typeof createInviteSchema>;
+export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;

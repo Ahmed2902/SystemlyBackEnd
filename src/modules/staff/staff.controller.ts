@@ -6,6 +6,8 @@ import {
   updateStaffSchema,
   replaceAvailabilitySchema,
   overridesSchema,
+  createInviteSchema,
+  acceptInviteSchema,
 } from "./staff.schema";
 
 export const list = async (req: Request, res: Response, next: NextFunction) => {
@@ -158,6 +160,47 @@ export const deleteOverride = async (
   }
 };
 
+export const createInvite = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const businessId = (req as any).user?.businessId;
+    if (!businessId) return fail(res, "Business id missing", 400, "BAD_REQUEST");
+    const parsed = createInviteSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const inviterId = (req as any).user?.id;
+    const result = await staffService.createInvite(
+      businessId,
+      parsed.data.email,
+      parsed.data.role,
+      inviterId,
+      parsed.data.expiresInDays
+    );
+    return ok(res, result);
+  } catch (err) {
+    return next(err);
+  }
+};
+
+export const acceptInvite = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const parsed = acceptInviteSchema.safeParse(req.body);
+    if (!parsed.success) return next(parsed.error);
+    const userId = (req as any).user?.id;
+    if (!userId) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+    const result = await staffService.acceptInvite(parsed.data.token, userId);
+    return ok(res, result);
+  } catch (err) {
+    return next(err);
+  }
+};
+
 export default {
   list,
   create,
@@ -169,4 +212,6 @@ export default {
   replaceAvailability,
   addOverride,
   deleteOverride,
+  createInvite,
+  acceptInvite,
 };

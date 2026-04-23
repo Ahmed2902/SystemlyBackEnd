@@ -5,6 +5,7 @@ import {
   passwordResetEmail,
   appointmentConfirmationEmail,
   appointmentReminderEmail,
+  staffInviteEmail,
   trialStartedEmail,
   trialEndingEmail,
   trialExpiredEmail,
@@ -243,6 +244,39 @@ export const sendAppointmentReminder = async (
   }
 };
 
+export const sendStaffInviteEmail = async (
+  to: string,
+  payload: {
+    inviterName?: string | null;
+    businessName?: string | null;
+    acceptUrl: string;
+  }
+): Promise<SendResult> => {
+  const html = staffInviteEmail(payload as any);
+  const subject = `${payload.businessName || "Hgezli"}: Invitation to join`;
+  const transport = getTransporter();
+  const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
+
+  if (!transport) {
+    logStub(to, subject, { acceptUrl: payload.acceptUrl });
+    return { sent: false };
+  }
+
+  try {
+    // eslint-disable-next-line no-console
+    console.log("[Email][SMTP] Sending staff invite to:", to);
+    const resp = await sendWithTimeout(
+      transport.sendMail({ from: fromAddress, to, subject, html }),
+      10000
+    );
+    return { sent: true, data: resp };
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("SMTP send error:", err);
+    return { sent: false, error: String(err) };
+  }
+};
+
 export const sendTrialStartedEmail = async (
   user: { name: string; email: string },
   payload: { businessName: string; planName: string; trialEnd: string }
@@ -407,4 +441,5 @@ export const sendSubscriptionPaymentFailedEmail = async (
 Object.assign(exports.default, {
   sendSubscriptionActivatedEmail,
   sendSubscriptionPaymentFailedEmail,
+  sendStaffInviteEmail,
 });

@@ -1,5 +1,6 @@
 import { prisma } from "../../shared/db/prisma";
 import dayjs from "dayjs";
+import { Roles, AppointmentStatus } from "@prisma/client";
 import type {
   CreateManualAppointmentBody,
   ListAppointmentsQuery,
@@ -13,10 +14,8 @@ export const listAppointments = async (opts: ListAppointmentsInput) => {
   const { user, date, from, to, page = 1, perPage = 20 } = opts;
   const where: any = {};
 
-  // Role-based filtering
-  if (user.role === "Staff") {
-    where.staffId = user.id;
-  } else if (user.role === "BusinessAdmin") {
+  // Role-based filtering: SuperAdmin sees all, others scoped to their business
+  if (user.role !== Roles.SuperAdmin.toString()) {
     where.businessId = user.businessId;
   }
 
@@ -37,18 +36,46 @@ export const listAppointments = async (opts: ListAppointmentsInput) => {
       skip,
       take: perPage,
       orderBy: { startsAt: "desc" },
+      include: { customer: true, service: true, staff: true },
     }),
     prisma.appointment.count({ where }),
   ]);
-  return { items, total, page, perPage };
+
+  // Privacy: if the viewer is a staff member, strip customer phone/email for appointments
+  // that belong to other staff members
+  const masked = items.map((it: any) => {
+    if (user.role === Roles.Staff.toString() && it.staffId !== user.id) {
+      if (it.customer) {
+        // shallow copy to avoid mutating original objects
+        const ap = { ...it, customer: { ...it.customer } };
+        ap.customer.phone = undefined;
+        ap.customer.email = undefined;
+        return ap;
+      }
+    }
+    return it;
+  });
+
+  return { items: masked, total, page, perPage };
 };
 
 export const getAppointmentById = async (id: string) => {
-  return prisma.appointment.findUnique({ where: { id } });
+  return prisma.appointment.findUnique({
+    where: { id },
+    include: { customer: true, service: true, staff: true },
+  });
 };
 
 export const updateStatus = async (id: string, status: string) => {
-  // TODO: validate allowed transitions
+  // validate status value exists in enum
+  const validStatuses = Object.values(AppointmentStatus) as string[];
+  if (!validStatuses.includes(status)) {
+    const err: any = new Error("Invalid status");
+    err.statusCode = 400;
+    err.code = "INVALID_STATUS";
+    throw err;
+  }
+
   const appt = await prisma.appointment.update({
     where: { id },
     data: { status } as any,
@@ -148,10 +175,66 @@ export const createManualAppointment = async (
   });
 };
 
+export const rescheduleAppointment = async (id: string, startsAt: string) => {
+  // Use a transaction to check conflicts and update atomically
+  return prisma.$transaction(async (tx) => {
+    const appt = await tx.appointment.findUnique({
+      where: { id },
+      include: { service: true },
+    });
+    if (!appt) {
+      const err: any = new Error("Appointment not found");
+      err.statusCode = 404;
+      err.code = "NOT_FOUND";
+      throw err;
+    }
+
+    const svc = appt.service;
+    if (!svc) {
+      const err: any = new Error("Service not found");
+      err.statusCode = 404;
+      err.code = "NOT_FOUND";
+      throw err;
+    }
+
+    const starts = new Date(startsAt);
+    const ends = new Date(starts.getTime() + svc.durationMin * 60 * 1000);
+
+    const conflict = await tx.appointment.findFirst({
+      where: {
+        staffId: appt.staffId,
+        id: { not: id },
+        status: { notIn: ["cancelled_by_customer", "cancelled_by_business"] },
+        AND: [{ startsAt: { lt: ends } }, { endsAt: { gt: starts } }],
+      },
+    });
+
+    if (conflict) {
+      const err: any = new Error("Slot taken");
+      err.statusCode = 409;
+      err.code = "SLOT_TAKEN";
+      throw err;
+    }
+
+    const updated = await tx.appointment.update({
+      where: { id },
+      data: {
+        startsAt: starts,
+        endsAt: ends,
+        reminderSent: false,
+        confirmationSent: false,
+      } as any,
+    });
+
+    return updated;
+  });
+};
+
 export default {
   listAppointments,
   getAppointmentById,
   updateStatus,
   updateNotes,
   createManualAppointment,
+  rescheduleAppointment,
 };

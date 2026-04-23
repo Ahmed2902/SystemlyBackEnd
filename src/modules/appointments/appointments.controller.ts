@@ -104,10 +104,32 @@ export const createAppointment = async (
   }
 };
 
+export const rescheduleAppointment = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const paramsParsed = appointmentIdParamsSchema.safeParse(req.params);
+    if (!paramsParsed.success) return next(paramsParsed.error);
+    const bodyParsed = (await import("./appointments.schema"))
+      .rescheduleAppointmentSchema.safeParse(req.body);
+    if (!bodyParsed.success) return next(bodyParsed.error);
+    const updated = await service.rescheduleAppointment(
+      paramsParsed.data.id,
+      bodyParsed.data.startsAt
+    );
+    return ok(res, updated);
+  } catch (err) {
+    return next(err);
+  }
+};
+
 export default {
   listAppointments,
   getAppointment,
   updateStatus,
   updateNotes,
   createAppointment,
+  rescheduleAppointment,
 };

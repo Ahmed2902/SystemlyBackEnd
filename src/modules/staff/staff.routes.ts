@@ -3,6 +3,7 @@ import staffController from "./staff.controller";
 import {
   requireAuth,
   requireBusinessAccess,
+  requireRole,
 } from "../../shared/middleware/auth.middleware";
 import validate from "../../shared/middleware/validate.middleware";
 import {
@@ -10,6 +11,8 @@ import {
   overridesSchema,
   replaceAvailabilitySchema,
   updateStaffSchema,
+  createInviteSchema,
+  acceptInviteSchema,
 } from "./staff.schema";
 
 const router = Router();
@@ -68,6 +71,22 @@ router.delete(
   requireAuth,
   requireBusinessAccess,
   staffController.deleteOverride
+);
+
+router.post(
+  "/invites",
+  requireAuth,
+  requireBusinessAccess,
+  requireRole(["BusinessAdmin"]),
+  validate.validateBody(createInviteSchema),
+  staffController.createInvite
+);
+
+router.post(
+  "/invites/accept",
+  requireAuth,
+  validate.validateBody(acceptInviteSchema),
+  staffController.acceptInvite
 );
 
 export default router;

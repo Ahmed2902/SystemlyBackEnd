@@ -12,6 +12,7 @@ import {
   listAppointmentsQuerySchema,
   updateAppointmentNotesSchema,
   updateAppointmentStatusSchema,
+  rescheduleAppointmentSchema,
 } from "./appointments.schema";
 
 const router = Router();
@@ -25,9 +26,16 @@ router.get(
 );
 router.post(
   "/",
-  requireRole(["BusinessAdmin", "Staff"]),
+  requireRole(["BusinessAdmin", "Receptionist"]),
   validate.validateBody(createManualAppointmentSchema),
   controller.createAppointment
+);
+router.patch(
+  "/:id/reschedule",
+  requireRole(["BusinessAdmin", "Receptionist"]),
+  validate.validateParams(appointmentIdParamsSchema),
+  validate.validateBody(rescheduleAppointmentSchema),
+  controller.rescheduleAppointment
 );
 router.get(
   "/:id",
