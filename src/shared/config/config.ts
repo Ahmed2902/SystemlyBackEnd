@@ -75,17 +75,9 @@ export const APP_CONFIG = {
   },
 } as const;
 
-export const FRONTEND_URL =
-  process.env.FRONTEND_URL ||
-  (APP_CONFIG.isDevelopment
-    ? "http://localhost:5173"
-    : "https://app.hgezli.com");
+export const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
 
-export const APP_URL =
-  process.env.APP_URL ||
-  (APP_CONFIG.isDevelopment
-    ? "http://localhost:3000"
-    : "https://api.hgezli.com");
+export const APP_URL = process.env.APP_URL || "http://localhost:3000";
 
 export const DATABASE = {
   DATABASE_URL: resolveDatabaseUrl(),
@@ -106,7 +98,7 @@ export const EMAIL = {
     process.env.EMAIL_FROM ||
     process.env.RESEND_FROM_EMAIL ||
     process.env.BREVO_FROM_EMAIL ||
-    "noreply@hgezli.com",
+    "ahmedabdelrahma@gmail.com",
   SMTP_URL: process.env.EMAIL_SMTP_URL || process.env.SMTP_URL,
   SMTP_HOST: process.env.EMAIL_SMTP_HOST || "localhost",
   SMTP_PORT: process.env.EMAIL_SMTP_PORT

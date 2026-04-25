@@ -1,4 +1,8 @@
 import nodemailer from "nodemailer";
+import Brevo from "@getbrevo/brevo";
+// @ts-ignore
+import SibApiV3Sdk from "sib-api-v3-sdk";
+// @ts-ignore
 import {
   verificationEmail,
   welcomeEmail,
@@ -66,6 +70,105 @@ const sendWithTimeout = async (promise: Promise<any>, ms = 10000) => {
   }
 };
 
+let brevoClient: any | null = null;
+
+const initBrevoClient = () => {
+  if (!EMAIL.BREVO_API_KEY) {
+    console.error("❌ Missing BREVO_API_KEY");
+    return null;
+  }
+
+  try {
+    const client = SibApiV3Sdk.ApiClient.instance;
+
+    client.authentications["api-key"].apiKey = EMAIL.BREVO_API_KEY;
+
+    brevoClient = new SibApiV3Sdk.TransactionalEmailsApi();
+
+    console.log("✅ Brevo client initialized");
+
+    return brevoClient;
+  } catch (err) {
+    console.error("❌ Brevo init failed:", err);
+    brevoClient = null;
+    return null;
+  }
+};
+
+// =====================
+// Core send email function
+// =====================
+export const sendEmail = async (
+  to: string | string[],
+  subject: string,
+  html: string,
+  fromAddress?: string
+): Promise<SendResult> => {
+  const from = fromAddress || EMAIL.FROM_EMAIL || "noreply@hgezli.com";
+
+  try {
+    if (!brevoClient) initBrevoClient();
+    if (!brevoClient) {
+      throw new Error("Brevo client not initialized");
+    }
+
+    const toList = Array.isArray(to)
+      ? to.map((email) => ({ email }))
+      : [{ email: to }];
+
+    const payload = {
+      sender: { email: "from" },
+      to: toList,
+      subject,
+      htmlContent: html,
+    };
+
+    console.log("📨 Sending email via Brevo...");
+    console.log("➡️ To:", toList);
+    console.log("➡️ Subject:", subject);
+
+    const response = await brevoClient.sendTransacEmail(payload);
+
+    console.log("✅ Brevo response:", response);
+
+    return { sent: true, data: response };
+  } catch (err: any) {
+    console.error("❌ BREVO SEND FAILED:", err?.response?.body || err);
+
+    return {
+      sent: false,
+      error: err?.response?.body || String(err),
+    };
+  }
+};
+
+// Fallback to SMTP transporter if available
+// const transport = getTransporter();
+// {
+//   if (!transport) {
+//     logStub(typeof to === "string" ? to : to.join(","), subject, {
+//       htmlSnippet: html ? html.slice(0, 200) : undefined,
+//     });
+//     return { sent: false };
+//   }
+
+//   try {
+//     const resp = await sendWithTimeout(
+//       transport.sendMail({
+//         from,
+//         to: Array.isArray(to) ? (to as string[]).join(",") : (to as string),
+//         subject,
+//         html,
+//       }),
+//       10000
+//     );
+//     return { sent: true, data: resp };
+//   } catch (err) {
+//     // eslint-disable-next-line no-console
+//     console.error("SMTP send error:", err);
+//     return { sent: false, error: String(err) };
+//   }
+// }
 const logStub = (
   to: string,
   subject: string,
@@ -88,29 +191,9 @@ export const sendVerificationEmail = async (
   const html = verificationEmail({ name: user.name, verificationUrl });
   const subject = "Verify your email to activate your Hgezli account";
 
-  const transport = getTransporter();
-  const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
-
-  if (!transport) {
-    logStub(user.email, subject, { verificationUrl });
-    return { sent: false };
-  }
-
-  try {
-    // eslint-disable-next-line no-console
-    console.log("[Email][SMTP] Sending verification email to:", user.email);
-
-    const resp = await sendWithTimeout(
-      transport.sendMail({ from: fromAddress, to: user.email, subject, html }),
-      10000
-    );
-
-    return { sent: true, data: resp };
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("SMTP send error:", err);
-    return { sent: false, error: String(err) };
-  }
+  const fromAddress = EMAIL.FROM_EMAIL || "ahmedabdelrahma@gmail.com";
+  const resp = await sendEmail(user.email, subject, html, fromAddress);
+  return resp;
 };
 
 export const sendWelcomeEmail = async (user: {
@@ -118,31 +201,13 @@ export const sendWelcomeEmail = async (user: {
   email: string;
 }): Promise<SendResult> => {
   const dashboardUrl = `${process.env.FRONTEND_URL}/dashboard`;
-  const websiteUrl = process.env.APP_URL || process.env.FRONTEND_URL || "";
+  const websiteUrl = process.env.FRONTEND_URL || process.env.APP_URL || "";
   const html = welcomeEmail({ name: user.name, dashboardUrl, websiteUrl });
-  const subject = "Welcome to Hgezli — your account is active";
+  const subject = "Welcome to Mercora — your account is active";
 
-  const transport = getTransporter();
-  const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
-
-  if (!transport) {
-    logStub(user.email, subject, { dashboardUrl, websiteUrl });
-    return { sent: false };
-  }
-
-  try {
-    // eslint-disable-next-line no-console
-    console.log("[Email][SMTP] Sending welcome email to:", user.email);
-    const resp = await sendWithTimeout(
-      transport.sendMail({ from: fromAddress, to: user.email, subject, html }),
-      10000
-    );
-    return { sent: true, data: resp };
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("SMTP send error:", err);
-    return { sent: false, error: String(err) };
-  }
+  const fromAddress = EMAIL.FROM_EMAIL || "noreply@mercora.com";
+  const resp = await sendEmail(user.email, subject, html, fromAddress);
+  return resp;
 };
 
 export const sendPasswordResetEmail = async (
@@ -153,27 +218,9 @@ export const sendPasswordResetEmail = async (
   const html = passwordResetEmail({ name: user.name, resetUrl });
   const subject = "Reset your Hgezli password";
 
-  const transport = getTransporter();
   const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
-
-  if (!transport) {
-    logStub(user.email, subject, { resetUrl });
-    return { sent: false };
-  }
-
-  try {
-    // eslint-disable-next-line no-console
-    console.log("[Email][SMTP] Sending password reset email to:", user.email);
-    const resp = await sendWithTimeout(
-      transport.sendMail({ from: fromAddress, to: user.email, subject, html }),
-      10000
-    );
-    return { sent: true, data: resp };
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("SMTP send error:", err);
-    return { sent: false, error: String(err) };
-  }
+  const resp = await sendEmail(user.email, subject, html, fromAddress);
+  return resp;
 };
 
 export const sendAppointmentConfirmation = async (
@@ -189,25 +236,9 @@ export const sendAppointmentConfirmation = async (
 ): Promise<SendResult> => {
   const html = appointmentConfirmationEmail(payload as any);
   const subject = `Your appointment at ${payload.businessName}`;
-  const transport = getTransporter();
   const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
-
-  if (!transport) {
-    logStub(to, subject, { startsAt: payload.startsAt });
-    return { sent: false };
-  }
-
-  try {
-    const resp = await sendWithTimeout(
-      transport.sendMail({ from: fromAddress, to, subject, html }),
-      10000
-    );
-    return { sent: true, data: resp };
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("SMTP send error:", err);
-    return { sent: false, error: String(err) };
-  }
+  const resp = await sendEmail(to, subject, html, fromAddress);
+  return resp;
 };
 
 export const sendAppointmentReminder = async (
@@ -223,25 +254,9 @@ export const sendAppointmentReminder = async (
 ): Promise<SendResult> => {
   const html = appointmentReminderEmail(payload as any);
   const subject = `Reminder: appointment at ${payload.businessName}`;
-  const transport = getTransporter();
   const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
-
-  if (!transport) {
-    logStub(to, subject, { startsAt: payload.startsAt });
-    return { sent: false };
-  }
-
-  try {
-    const resp = await sendWithTimeout(
-      transport.sendMail({ from: fromAddress, to, subject, html }),
-      10000
-    );
-    return { sent: true, data: resp };
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("SMTP send error:", err);
-    return { sent: false, error: String(err) };
-  }
+  const resp = await sendEmail(to, subject, html, fromAddress);
+  return resp;
 };
 
 export const sendStaffInviteEmail = async (
@@ -254,27 +269,11 @@ export const sendStaffInviteEmail = async (
 ): Promise<SendResult> => {
   const html = staffInviteEmail(payload as any);
   const subject = `${payload.businessName || "Hgezli"}: Invitation to join`;
-  const transport = getTransporter();
   const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
-
-  if (!transport) {
-    logStub(to, subject, { acceptUrl: payload.acceptUrl });
-    return { sent: false };
-  }
-
-  try {
-    // eslint-disable-next-line no-console
-    console.log("[Email][SMTP] Sending staff invite to:", to);
-    const resp = await sendWithTimeout(
-      transport.sendMail({ from: fromAddress, to, subject, html }),
-      10000
-    );
-    return { sent: true, data: resp };
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("SMTP send error:", err);
-    return { sent: false, error: String(err) };
-  }
+  // eslint-disable-next-line no-console
+  console.log("[Email] Sending staff invite to:", to);
+  const resp = await sendEmail(to, subject, html, fromAddress);
+  return resp;
 };
 
 export const sendTrialStartedEmail = async (
@@ -283,28 +282,9 @@ export const sendTrialStartedEmail = async (
 ): Promise<SendResult> => {
   const html = trialStartedEmail(payload as any);
   const subject = `Your ${payload.planName} trial has started`;
-  const transport = getTransporter();
   const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
-
-  if (!transport) {
-    logStub(user.email, subject, {
-      businessName: payload.businessName,
-      trialEnd: payload.trialEnd,
-    });
-    return { sent: false };
-  }
-
-  try {
-    const resp = await sendWithTimeout(
-      transport.sendMail({ from: fromAddress, to: user.email, subject, html }),
-      10000
-    );
-    return { sent: true, data: resp };
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("SMTP send error:", err);
-    return { sent: false, error: String(err) };
-  }
+  const resp = await sendEmail(user.email, subject, html, fromAddress);
+  return resp;
 };
 
 export const sendTrialEndingEmail = async (
@@ -318,28 +298,9 @@ export const sendTrialEndingEmail = async (
 ): Promise<SendResult> => {
   const html = trialEndingEmail(payload as any);
   const subject = `Trial ending in ${payload.daysLeft} day(s) — ${payload.businessName}`;
-  const transport = getTransporter();
   const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
-
-  if (!transport) {
-    logStub(user.email, subject, {
-      businessName: payload.businessName,
-      trialEnd: payload.trialEnd,
-    });
-    return { sent: false };
-  }
-
-  try {
-    const resp = await sendWithTimeout(
-      transport.sendMail({ from: fromAddress, to: user.email, subject, html }),
-      10000
-    );
-    return { sent: true, data: resp };
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("SMTP send error:", err);
-    return { sent: false, error: String(err) };
-  }
+  const resp = await sendEmail(user.email, subject, html, fromAddress);
+  return resp;
 };
 
 export const sendTrialExpiredEmail = async (
@@ -348,28 +309,9 @@ export const sendTrialExpiredEmail = async (
 ): Promise<SendResult> => {
   const html = trialExpiredEmail(payload as any);
   const subject = `Trial ended — ${payload.businessName}`;
-  const transport = getTransporter();
   const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
-
-  if (!transport) {
-    logStub(user.email, subject, {
-      businessName: payload.businessName,
-      expiredAt: payload.expiredAt,
-    });
-    return { sent: false };
-  }
-
-  try {
-    const resp = await sendWithTimeout(
-      transport.sendMail({ from: fromAddress, to: user.email, subject, html }),
-      10000
-    );
-    return { sent: true, data: resp };
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("SMTP send error:", err);
-    return { sent: false, error: String(err) };
-  }
+  const resp = await sendEmail(user.email, subject, html, fromAddress);
+  return resp;
 };
 
 export default {
@@ -386,28 +328,9 @@ export const sendSubscriptionActivatedEmail = async (
 ): Promise<SendResult> => {
   const html = subscriptionActivatedEmail(payload as any);
   const subject = `Subscription active — ${payload.businessName}`;
-  const transport = getTransporter();
   const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
-
-  if (!transport) {
-    logStub(user.email, subject, {
-      businessName: payload.businessName,
-      periodEnd: payload.periodEnd,
-    });
-    return { sent: false };
-  }
-
-  try {
-    const resp = await sendWithTimeout(
-      transport.sendMail({ from: fromAddress, to: user.email, subject, html }),
-      10000
-    );
-    return { sent: true, data: resp };
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("SMTP send error:", err);
-    return { sent: false, error: String(err) };
-  }
+  const resp = await sendEmail(user.email, subject, html, fromAddress);
+  return resp;
 };
 
 export const sendSubscriptionPaymentFailedEmail = async (
@@ -416,25 +339,9 @@ export const sendSubscriptionPaymentFailedEmail = async (
 ): Promise<SendResult> => {
   const html = subscriptionPaymentFailedEmail(payload as any);
   const subject = `Payment failed — ${payload.businessName}`;
-  const transport = getTransporter();
   const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
-
-  if (!transport) {
-    logStub(user.email, subject, { businessName: payload.businessName });
-    return { sent: false };
-  }
-
-  try {
-    const resp = await sendWithTimeout(
-      transport.sendMail({ from: fromAddress, to: user.email, subject, html }),
-      10000
-    );
-    return { sent: true, data: resp };
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("SMTP send error:", err);
-    return { sent: false, error: String(err) };
-  }
+  const resp = await sendEmail(user.email, subject, html, fromAddress);
+  return resp;
 };
 
 // extend default export with new functions
