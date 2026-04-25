@@ -104,7 +104,7 @@ export const sendEmail = async (
   html: string,
   fromAddress?: string
 ): Promise<SendResult> => {
-  const from = fromAddress || EMAIL.FROM_EMAIL || "noreply@hgezli.com";
+  const from = fromAddress || EMAIL.FROM_EMAIL || "ahmedabdelrahma@gmail.com";
 
   try {
     if (!brevoClient) initBrevoClient();
@@ -117,7 +117,7 @@ export const sendEmail = async (
       : [{ email: to }];
 
     const payload = {
-      sender: { email: "from" },
+      sender: { email: from },
       to: toList,
       subject,
       htmlContent: html,
