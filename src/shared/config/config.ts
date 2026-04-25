@@ -48,7 +48,9 @@ export const APP_CONFIG = {
   isProduction: process.env.NODE_ENV === "production",
   isTest: process.env.NODE_ENV === "test",
   port: parseNumber(process.env.PORT, 3000),
-  corsOrigins: parseOrigins(process.env.FRONTEND_URL),
+  corsOrigins: parseOrigins(
+    process.env.CORS_ORIGINS || process.env.FRONTEND_URL
+  ),
   formBodyLimit: process.env.FORM_BODY_LIMIT || "1mb",
   jsonBodyLimit: process.env.JSON_BODY_LIMIT || "1mb",
   rateLimit: {
