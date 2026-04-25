@@ -20,32 +20,41 @@ const withSchemaMetadata = (
   tagged.__validationSchema = schema;
   return tagged;
 };
-export const validateBody =
-  (schema: ZodSchema): RequestHandler =>
-  withSchemaMetadata((req, _res, next) => {
-    const parsed = schema.safeParse(req.body);
-    if (!parsed.success) return next(parsed.error);
-    req.body = parsed.data;
-    return next();
-  }, "body", schema as ZodTypeAny);
+export const validateBody = (schema: ZodSchema): RequestHandler =>
+  withSchemaMetadata(
+    (req, _res, next) => {
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      req.body = parsed.data;
+      return next();
+    },
+    "body",
+    schema as ZodTypeAny
+  );
 
-export const validateQuery =
-  (schema: ZodSchema): RequestHandler =>
-  withSchemaMetadata((req, _res, next) => {
-    const parsed = schema.safeParse(req.query);
-    if (!parsed.success) return next(parsed.error);
-    req.query = parsed.data as any;
-    return next();
-  }, "query", schema as ZodTypeAny);
+export const validateQuery = (schema: ZodSchema): RequestHandler =>
+  withSchemaMetadata(
+    (req, _res, next) => {
+      const parsed = schema.safeParse(req.query);
+      if (!parsed.success) return next(parsed.error);
+      //req.query = parsed.data as any;
+      return next();
+    },
+    "query",
+    schema as ZodTypeAny
+  );
 
-export const validateParams =
-  (schema: ZodSchema): RequestHandler =>
-  withSchemaMetadata((req, _res, next) => {
-    const parsed = schema.safeParse(req.params);
-    if (!parsed.success) return next(parsed.error);
-    req.params = parsed.data as any;
-    return next();
-  }, "params", schema as ZodTypeAny);
+export const validateParams = (schema: ZodSchema): RequestHandler =>
+  withSchemaMetadata(
+    (req, _res, next) => {
+      const parsed = schema.safeParse(req.params);
+      if (!parsed.success) return next(parsed.error);
+      req.params = parsed.data as any;
+      return next();
+    },
+    "params",
+    schema as ZodTypeAny
+  );
 
 export const validate = (schemas: {
   body?: ZodAny;

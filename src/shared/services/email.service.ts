@@ -142,54 +142,13 @@ export const sendEmail = async (
   }
 };
 
-// Fallback to SMTP transporter if available
-// const transport = getTransporter();
-// {
-//   if (!transport) {
-//     logStub(typeof to === "string" ? to : to.join(","), subject, {
-//       htmlSnippet: html ? html.slice(0, 200) : undefined,
-//     });
-//     return { sent: false };
-//   }
-
-//   try {
-//     const resp = await sendWithTimeout(
-//       transport.sendMail({
-//         from,
-//         to: Array.isArray(to) ? (to as string[]).join(",") : (to as string),
-//         subject,
-//         html,
-//       }),
-//       10000
-//     );
-//     return { sent: true, data: resp };
-//   } catch (err) {
-//     // eslint-disable-next-line no-console
-//     console.error("SMTP send error:", err);
-//     return { sent: false, error: String(err) };
-//   }
-// }
-const logStub = (
-  to: string,
-  subject: string,
-  bodyInfo?: Record<string, unknown>
-) => {
-  // Email stub used in development when SMTP is not configured
-  // eslint-disable-next-line no-console
-  console.log(
-    `[Email STUB] To: ${to} Subject: ${subject} ${
-      bodyInfo ? JSON.stringify(bodyInfo) : ""
-    }`
-  );
-};
-
 export const sendVerificationEmail = async (
   user: { name: string; email: string },
   token: string
 ): Promise<SendResult> => {
   const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
   const html = verificationEmail({ name: user.name, verificationUrl });
-  const subject = "Verify your email to activate your Hgezli account";
+  const subject = "Verify your email to activate your Mercora account";
 
   const fromAddress = EMAIL.FROM_EMAIL || "ahmedabdelrahma@gmail.com";
   const resp = await sendEmail(user.email, subject, html, fromAddress);
