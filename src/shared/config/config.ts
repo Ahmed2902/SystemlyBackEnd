@@ -84,9 +84,7 @@ export const DATABASE = {
 } as const;
 
 export const REDIS = {
-  URL:
-    process.env.REDIS_URL ||
-    (APP_CONFIG.isDevelopment ? "redis://localhost:6379" : undefined),
+  URL: process.env.REDIS_URL,
   HOST: process.env.REDIS_HOST || "localhost",
   PORT: parseNumber(process.env.REDIS_PORT, 6379),
   PASSWORD: process.env.REDIS_PASSWORD || undefined,
