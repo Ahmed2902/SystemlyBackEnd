@@ -1,5 +1,7 @@
 import { v2 as cloudinary } from "cloudinary";
 import fs from "fs";
+import path from "path";
+import stream from "stream";
 
 const configured = Boolean(
   process.env.CLOUDINARY_CLOUD_NAME &&
@@ -15,133 +17,112 @@ if (configured) {
   });
 }
 
+const PLACEHOLDER_URL =
+  "https://via.placeholder.com/800x600?text=upload+not+configured";
+
+function bufferToStream(buffer: Buffer) {
+  const readable = new stream.PassThrough();
+  readable.end(buffer);
+  return readable;
+}
+
+function deleteLocalFile(filePath: string) {
+  try {
+    const abs = path.isAbsolute(filePath)
+      ? filePath
+      : path.join(process.cwd(), filePath);
+
+    if (fs.existsSync(abs)) {
+      fs.unlinkSync(abs);
+    }
+  } catch {
+    // ignore cleanup errors
+  }
+}
+
 /**
- * Upload a local file path to Cloudinary. If Cloudinary is not configured,
- * returns a placeholder URL and does not throw — TODO: implement provider selection.
+ * Supports:
+ * - string path
+ * - multer file object (.path or .buffer)
+ * - Buffer
  */
-export const uploadFile = async (filePath: string, opts: any = {}) => {
+export const uploadFile = async (input: any, opts: any = {}) => {
   if (!configured) {
-    // TODO: replace placeholder with real upload once Cloudinary credentials are set
+    const localPath =
+      typeof input === "string"
+        ? input
+        : typeof input?.path === "string"
+        ? input.path
+        : null;
+
+    if (localPath) deleteLocalFile(localPath);
+
     return {
-      url: "https://via.placeholder.com/800x600?text=upload+not+configured",
+      url: PLACEHOLDER_URL,
       publicId: "placeholder",
     };
   }
+
   try {
-    const res = await cloudinary.uploader.upload(filePath, opts);
-    // remove local temp file
-    try {
-      import { v2 as cloudinary } from "cloudinary";
-      import fs from "fs";
-      import stream from "stream";
-      import path from "path";
+    // Local file path or multer disk storage
+    if (
+      typeof input === "string" ||
+      (input && typeof input.path === "string")
+    ) {
+      const filePath = typeof input === "string" ? input : input.path;
 
-      const configured = Boolean(
-        process.env.CLOUDINARY_CLOUD_NAME &&
-          process.env.CLOUDINARY_API_KEY &&
-          process.env.CLOUDINARY_API_SECRET
-      );
+      const res = await cloudinary.uploader.upload(filePath, opts);
 
-      if (configured) {
-        cloudinary.config({
-          cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-          api_key: process.env.CLOUDINARY_API_KEY,
-          api_secret: process.env.CLOUDINARY_API_SECRET,
-        });
-      }
+      deleteLocalFile(filePath);
 
-      const PLACEHOLDER_URL = "https://via.placeholder.com/800x600?text=upload+not+configured";
-
-      function bufferToStream(buffer: Buffer) {
-        const readable = new stream.PassThrough();
-        readable.end(buffer);
-        return readable;
-      }
-
-      /**
-       * Upload a file to Cloudinary. Supports:
-       * - local file path (string)
-       * - multer file object with `.path` or `.buffer`
-       * - Buffer
-       *
-       * If Cloudinary is not configured, returns a placeholder url and cleans up
-       * any local temp file if provided.
-       */
-      export const uploadFile = async (input: any, opts: any = {}) => {
-        if (!configured) {
-          // delete local tmp file if present
-          try {
-            const filePath = typeof input === "string" ? input : input?.path;
-            if (filePath && typeof filePath === "string") {
-              // only unlink if it seems to be a local path under project
-              const abs = path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), filePath);
-              if (abs.startsWith(process.cwd())) {
-                try {
-                  fs.unlinkSync(abs);
-                } catch (e) {
-                  // ignore
-                }
-              }
-            }
-          } catch (e) {
-            // ignore cleanup errors
-          }
-          return { url: PLACEHOLDER_URL, publicId: "placeholder" };
-        }
-
-        // Actual Cloudinary upload
-        try {
-          // Case: local file path
-          if (typeof input === "string" || (input && typeof input.path === "string")) {
-            const filePath = typeof input === "string" ? input : input.path;
-            const res = await cloudinary.uploader.upload(filePath, opts);
-            // remove local temp file if it looks local
-            try {
-              const abs = path.isAbsolute(filePath) ? filePath : path.join(process.cwd(), filePath);
-              if (abs.startsWith(process.cwd())) fs.unlinkSync(abs);
-            } catch (e) {
-              // ignore unlink errors
-            }
-            return { url: res.secure_url || res.url, publicId: res.public_id || res.publicId };
-          }
-
-          // Case: multer in-memory buffer or raw Buffer
-          const buffer: Buffer | undefined = input?.buffer && Buffer.isBuffer(input.buffer)
-            ? input.buffer
-            : Buffer.isBuffer(input)
-            ? input
-            : undefined;
-
-          if (buffer) {
-            const uploadFromBuffer = (buf: Buffer) =>
-              new Promise<any>((resolve, reject) => {
-                const uploadStream = cloudinary.uploader.upload_stream(opts, (err: any, result: any) => {
-                  if (err) return reject(err);
-                  resolve(result);
-                });
-                bufferToStream(buf).pipe(uploadStream);
-              });
-
-            const res = await uploadFromBuffer(buffer);
-            return { url: res.secure_url || res.url, publicId: res.public_id || res.publicId };
-          }
-
-          throw new Error("Unsupported input for uploadFile");
-        } catch (err) {
-          throw err;
-        }
+      return {
+        url: res.secure_url,
+        publicId: res.public_id,
       };
+    }
 
-      export const deleteFile = async (publicId: string) => {
-        if (!configured) {
-          return true;
-        }
-        try {
-          const res = await cloudinary.uploader.destroy(publicId);
-          return res && (res.result === "ok" || res.result === "not_found");
-        } catch (err) {
-          throw err;
-        }
+    // Buffer / multer memory storage
+    const buffer: Buffer | undefined =
+      input?.buffer && Buffer.isBuffer(input.buffer)
+        ? input.buffer
+        : Buffer.isBuffer(input)
+        ? input
+        : undefined;
+
+    if (buffer) {
+      const res = await new Promise<any>((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          opts,
+          (err, result) => {
+            if (err) return reject(err);
+            resolve(result);
+          }
+        );
+
+        bufferToStream(buffer).pipe(uploadStream);
+      });
+
+      return {
+        url: res.secure_url,
+        publicId: res.public_id,
       };
+    }
 
-      export default { uploadFile, deleteFile };
+    throw new Error("Unsupported input for uploadFile");
+  } catch (error) {
+    throw error;
+  }
+};
+
+export const deleteFile = async (publicId: string) => {
+  if (!configured) return true;
+
+  const res = await cloudinary.uploader.destroy(publicId);
+
+  return res.result === "ok" || res.result === "not_found";
+};
+
+export default {
+  uploadFile,
+  deleteFile,
+};

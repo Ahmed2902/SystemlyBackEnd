@@ -2,7 +2,7 @@ import cron from "node-cron";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc";
 import timezone from "dayjs/plugin/timezone";
-import { markNoShows } from "../modules/appointments/appointments.service";
+import  appointmentService from "../modules/appointments/appointments.service";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -12,7 +12,7 @@ const TZ = "Africa/Cairo";
 
 const register = () => {
   // run immediately then schedule
-  void markNoShows(30)
+  void appointmentService.markNoShows(30)
     .then(() => {
       // eslint-disable-next-line no-console
       console.log("[NoShowJob] Initial run complete");
@@ -25,7 +25,7 @@ const register = () => {
   cron.schedule(
     CRON_EXPRESSION,
     () => {
-      void markNoShows(30).catch((err) => {
+      void appointmentService.markNoShows(30).catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[NoShowJob] Scheduled run error", err);
       });

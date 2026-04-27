@@ -6,7 +6,8 @@ class PhotosController {
   async uploadLogo(req: Request, res: Response, next: NextFunction) {
     try {
       const businessId = (req as any).user?.businessId;
-      if (!businessId) return fail(res, "Business id missing", 400, "BAD_REQUEST");
+      if (!businessId)
+        return fail(res, "Business id missing", 400, "BAD_REQUEST");
       const file = (req as any).file;
       if (!file) return fail(res, "No file uploaded", 400, "BAD_REQUEST");
       const updated = await photosService.uploadLogo(businessId, file);
@@ -19,7 +20,8 @@ class PhotosController {
   async uploadCover(req: Request, res: Response, next: NextFunction) {
     try {
       const businessId = (req as any).user?.businessId;
-      if (!businessId) return fail(res, "Business id missing", 400, "BAD_REQUEST");
+      if (!businessId)
+        return fail(res, "Business id missing", 400, "BAD_REQUEST");
       const file = (req as any).file;
       if (!file) return fail(res, "No file uploaded", 400, "BAD_REQUEST");
       const updated = await photosService.uploadCover(businessId, file);
@@ -32,7 +34,8 @@ class PhotosController {
   async uploadGallery(req: Request, res: Response, next: NextFunction) {
     try {
       const businessId = (req as any).user?.businessId;
-      if (!businessId) return fail(res, "Business id missing", 400, "BAD_REQUEST");
+      if (!businessId)
+        return fail(res, "Business id missing", 400, "BAD_REQUEST");
       const file = (req as any).file;
       if (!file) return fail(res, "No file uploaded", 400, "BAD_REQUEST");
       const photo = await photosService.uploadGallery(businessId, file);

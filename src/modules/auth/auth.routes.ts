@@ -1,5 +1,5 @@
 import { Router } from "express";
-import * as authController from "./auth.controller";
+import authController from "./auth.controller";
 import * as googleOauth from "./google.oauth";
 import * as appleOauth from "./apple.oauth";
 import { authRateLimit } from "../../shared/middleware/rateLimit.middleware";

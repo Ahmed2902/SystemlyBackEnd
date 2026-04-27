@@ -437,13 +437,18 @@ export const oauthSignIn = async ({
   };
 };
 
-export default {
-  register,
-  verifyEmail,
-  login,
-  refreshToken,
-  resendVerificationEmail,
-  forgotPassword,
-  resetPassword,
-  oauthSignIn,
-};
+class AuthService {
+  register = register;
+  verifyEmail = verifyEmail;
+  login = login;
+  revokeRefreshToken = revokeRefreshToken;
+  refreshToken = refreshToken;
+  resendVerificationEmail = resendVerificationEmail;
+  forgotPassword = forgotPassword;
+  resetPassword = resetPassword;
+  getMe = getMe;
+  oauthSignIn = oauthSignIn;
+}
+
+const authService = new AuthService();
+export default authService;
