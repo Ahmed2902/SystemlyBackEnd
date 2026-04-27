@@ -5,29 +5,42 @@ import type {
   UpdateFaqBody,
 } from "./faqs.schema";
 
-export const listByBusiness = async (businessId: string) =>
-  prisma.faq.findMany({
-    where: { businessId },
-    orderBy: { displayOrder: "asc" },
-  });
+class FaqsService {
+  async listByBusiness(businessId: string) {
+    return prisma.faq.findMany({
+      where: { businessId },
+      orderBy: { displayOrder: "asc" },
+    });
+  }
 
-export const createFaq = async (businessId: string, payload: CreateFaqBody) =>
-  prisma.faq.create({ data: { businessId, ...payload } });
+  async createFaq(businessId: string, payload: CreateFaqBody) {
+    return prisma.faq.create({ data: { businessId, ...payload } });
+  }
 
-export const updateFaq = async (id: string, payload: UpdateFaqBody) =>
-  prisma.faq.update({ where: { id }, data: payload });
+  async updateFaq(id: string, payload: UpdateFaqBody) {
+    return prisma.faq.update({ where: { id }, data: payload });
+  }
 
-export const deleteFaq = async (id: string) =>
-  prisma.faq.delete({ where: { id } });
+  async deleteFaq(id: string) {
+    return prisma.faq.delete({ where: { id } });
+  }
 
-export const reorderFaqs = async (items: ReorderFaqsBody) => {
-  const ops = items.map((it) =>
-    prisma.faq.update({
-      where: { id: it.id },
-      data: { displayOrder: it.display_order },
-    })
-  );
-  return prisma.$transaction(ops);
-};
+  async reorderFaqs(items: ReorderFaqsBody) {
+    const ops = items.map((it) =>
+      prisma.faq.update({
+        where: { id: it.id },
+        data: { displayOrder: it.display_order },
+      })
+    );
+    return prisma.$transaction(ops);
+  }
+}
 
-export default { listByBusiness, createFaq, updateFaq, deleteFaq, reorderFaqs };
+const faqsService = new FaqsService();
+export default faqsService;
+
+export const listByBusiness = faqsService.listByBusiness.bind(faqsService);
+export const createFaq = faqsService.createFaq.bind(faqsService);
+export const updateFaq = faqsService.updateFaq.bind(faqsService);
+export const deleteFaq = faqsService.deleteFaq.bind(faqsService);
+export const reorderFaqs = faqsService.reorderFaqs.bind(faqsService);

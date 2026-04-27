@@ -1,5 +1,5 @@
 import { Router } from "express";
-import * as controller from "./bookings.controller";
+import bookingsController from "./bookings.controller";
 import validate from "../../shared/middleware/validate.middleware";
 import {
   availabilityQuerySchema,
@@ -12,18 +12,23 @@ const router = Router();
 router.get(
   "/availability",
   validate.validateQuery(availabilityQuerySchema),
-  controller.getAvailability
+  bookingsController.getAvailability
 );
-router.post("/", validate.validateBody(createBookingSchema), controller.createBooking);
+router.post(
+  "/",
+  //publicBookingRateLimit,
+  validate.validateBody(createBookingSchema),
+  bookingsController.createBooking
+);
 router.get(
   "/confirm/:token",
   validate.validateParams(bookingTokenParamsSchema),
-  controller.confirmBooking
+  bookingsController.confirmBooking
 );
 router.post(
   "/cancel/:token",
   validate.validateParams(bookingTokenParamsSchema),
-  controller.cancelBooking
+  bookingsController.cancelBooking
 );
 
 export default router;

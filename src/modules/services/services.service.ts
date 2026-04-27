@@ -1,27 +1,31 @@
 import { prisma } from "../../shared/db/prisma";
 import type { CreateServiceBody, UpdateServiceBody } from "./services.schema";
 
-export const listByBusiness = async (businessId: string) =>
-  prisma.service.findMany({ where: { businessId } });
+class ServicesService {
+  async listByBusiness(businessId: string) {
+    return prisma.service.findMany({ where: { businessId } });
+  }
 
-export const createService = async (
-  businessId: string,
-  payload: CreateServiceBody
-) => {
-  const created = await prisma.service.create({
-    data: { businessId, ...payload },
-  });
-  return created;
-};
+  async createService(businessId: string, payload: CreateServiceBody) {
+    return prisma.service.create({
+      data: { businessId, ...payload },
+    });
+  }
 
-export const updateService = async (id: string, payload: UpdateServiceBody) => {
-  const updated = await prisma.service.update({ where: { id }, data: payload });
-  return updated;
-};
+  async updateService(id: string, payload: UpdateServiceBody) {
+    return prisma.service.update({ where: { id }, data: payload });
+  }
 
-export const deleteService = async (id: string) => {
-  await prisma.service.delete({ where: { id } });
-  return { success: true };
-};
+  async deleteService(id: string) {
+    await prisma.service.delete({ where: { id } });
+    return { success: true };
+  }
+}
 
-export default { listByBusiness, createService, updateService, deleteService };
+const servicesService = new ServicesService();
+export default servicesService;
+
+export const listByBusiness = servicesService.listByBusiness.bind(servicesService);
+export const createService = servicesService.createService.bind(servicesService);
+export const updateService = servicesService.updateService.bind(servicesService);
+export const deleteService = servicesService.deleteService.bind(servicesService);
