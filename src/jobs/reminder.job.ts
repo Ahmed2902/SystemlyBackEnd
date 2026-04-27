@@ -180,9 +180,13 @@ const processCycle = async () => {
 const register = () => {
   // run immediately then schedule
   void processCycle();
-  cron.schedule(`*/${INTERVAL_MINUTES} * * * *`, () => {
-    void processCycle();
-  });
+  cron.schedule(
+    `*/${INTERVAL_MINUTES} * * * *`,
+    () => {
+      void processCycle();
+    },
+    { timezone: "Africa/Cairo" }
+  );
   // eslint-disable-next-line no-console
   console.log(
     "[ReminderJob] Registered - runs every",

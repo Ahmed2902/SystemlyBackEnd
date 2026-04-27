@@ -151,9 +151,13 @@ const processCycle = async () => {
 const register = () => {
   void processCycle();
   // run hourly
-  cron.schedule(`0 */${INTERVAL_HOURS} * * *`, () => {
-    void processCycle();
-  });
+  cron.schedule(
+    `0 */${INTERVAL_HOURS} * * *`,
+    () => {
+      void processCycle();
+    },
+    { timezone: "Africa/Cairo" }
+  );
   // eslint-disable-next-line no-console
   console.log(
     "[SubscriptionJob] Registered - runs every",

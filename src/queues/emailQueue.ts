@@ -1,14 +1,33 @@
 import IORedis from "ioredis";
 import { Queue, QueueScheduler } from "bullmq";
 
-const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
+const REDIS_URL = process.env.REDIS_URL || undefined;
 
-const connection = new IORedis(REDIS_URL);
+let connection: any = null;
+let scheduler: any = null;
+let emailQueue: any = null;
 
-// Ensure a scheduler exists for delayed/retry jobs
-const scheduler = new QueueScheduler("emailQueue", { connection });
+if (REDIS_URL && process.env.NODE_ENV !== "test") {
+  try {
+    connection = new IORedis(REDIS_URL);
+    // Ensure a scheduler exists for delayed/retry jobs
+    scheduler = new QueueScheduler("emailQueue", { connection });
+    emailQueue = new Queue("emailQueue", { connection });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[EmailQueue] Redis unavailable, falling back to in-memory stub", err);
+  }
+}
 
-export const emailQueue = new Queue("emailQueue", { connection });
+// In test or when Redis not configured, provide no-op stubs so imports don't crash
+if (!scheduler) {
+  scheduler = { waitUntilReady: async () => {} } as any;
+}
+if (!emailQueue) {
+  emailQueue = {
+    add: async () => ({}),
+  } as any;
+}
 
 export const enqueueEmailJob = async (
   name: string,
@@ -25,7 +44,6 @@ export const enqueueEmailJob = async (
 };
 
 export const initEmailQueue = async () => {
-  // touch scheduler to initialize
   await scheduler.waitUntilReady();
   return { scheduler, queue: emailQueue };
 };

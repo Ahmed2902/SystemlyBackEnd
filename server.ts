@@ -26,7 +26,7 @@ const startServer = () => {
 
 // Background jobs are run in a dedicated worker process (see src/worker.ts)
 
-const shutdown = async (signal: string) => {
+const shutdown = async (signal: string, exitCode = 0) => {
   console.log(`${signal} received. Shutting down gracefully...`);
 
   if (server) {
@@ -43,7 +43,7 @@ const shutdown = async (signal: string) => {
   }
 
   await prisma.$disconnect();
-  process.exit(0);
+  process.exit(exitCode);
 };
 
 process.on("SIGINT", () => {
@@ -62,6 +62,8 @@ process.on("unhandledRejection", (reason) => {
 process.on("uncaughtException", (error) => {
   console.error("Uncaught exception:", error);
   if (SENTRY.DSN) Sentry.captureException(error as any);
+  // attempt graceful shutdown then exit with non-zero code so orchestrators restart
+  void shutdown("uncaughtException", 1);
 });
 
 startServer();

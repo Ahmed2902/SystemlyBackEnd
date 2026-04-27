@@ -66,11 +66,11 @@ export const APP_CONFIG = {
     ),
     publicBookingMax: parseNumber(
       process.env.PUBLIC_BOOKING_RATE_LIMIT_MAX,
-      30
+      10
     ),
     publicBookingWindowMs: parseNumber(
       process.env.PUBLIC_BOOKING_RATE_LIMIT_WINDOW_MS,
-      10 * 60 * 1000
+      60 * 60 * 1000
     ),
   },
 } as const;

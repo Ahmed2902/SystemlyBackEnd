@@ -1,16 +1,26 @@
 import { z } from "zod";
-
-const egyptPhone = /^(010|011|012|015)\d{8}$/;
+import { parsePhoneNumberFromString } from "libphonenumber-js";
 
 const normalizedEmailSchema = z
   .email()
   .transform((value) => value.toLowerCase().trim());
 
+const internationalPhoneSchema = z
+  .string()
+  .min(4)
+  .refine((val) => {
+    try {
+      const p = parsePhoneNumberFromString(val);
+      return !!p && p.isValid();
+    } catch (e) {
+      return false;
+    }
+  }, "Invalid phone number");
 export const registerBodySchema = z.object({
   name: z.string().min(2).max(100),
   email: normalizedEmailSchema,
   password: z.string().min(8).max(100),
-  phone: z.string().regex(egyptPhone, "Invalid Egyptian phone number"),
+  phone: internationalPhoneSchema,
 });
 
 export const loginBodySchema = z.object({

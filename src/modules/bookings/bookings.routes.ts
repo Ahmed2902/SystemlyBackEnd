@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as controller from "./bookings.controller";
 import validate from "../../shared/middleware/validate.middleware";
+import { publicBookingRateLimit } from "../../shared/middleware/rateLimit.middleware";
 import {
   availabilityQuerySchema,
   bookingTokenParamsSchema,
@@ -14,7 +15,12 @@ router.get(
   validate.validateQuery(availabilityQuerySchema),
   controller.getAvailability
 );
-router.post("/", validate.validateBody(createBookingSchema), controller.createBooking);
+router.post(
+  "/",
+  publicBookingRateLimit,
+  validate.validateBody(createBookingSchema),
+  controller.createBooking
+);
 router.get(
   "/confirm/:token",
   validate.validateParams(bookingTokenParamsSchema),

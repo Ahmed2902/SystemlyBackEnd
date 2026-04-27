@@ -230,6 +230,54 @@ export const rescheduleAppointment = async (id: string, startsAt: string) => {
   });
 };
 
+export const markNoShows = async (bufferMin = 30) => {
+  const cutoff = new Date(Date.now() - bufferMin * 60 * 1000);
+
+  const appointments = await prisma.appointment.findMany({
+    where: {
+      status: "confirmed",
+      endsAt: { lt: cutoff }, //hases enha mfrod tb2a startsAt : {gt : cutoff}
+    },
+    select: { id: true, customerId: true },
+  });
+
+  if (!appointments || appointments.length === 0) {
+    // eslint-disable-next-line no-console
+    console.log("[NoShowJob] No-show job: 0 appointments to process");
+    return { count: 0 };
+  }
+
+  const ids = appointments.map((a) => a.id);
+
+  const updated = await prisma.appointment.updateMany({
+    where: { id: { in: ids } },
+    data: { status: AppointmentStatus.no_show },
+  });
+
+  const customerCounts = appointments.reduce(
+    (acc: Record<string, number>, appt) => {
+      if (!appt.customerId) return acc;
+      acc[appt.customerId] = (acc[appt.customerId] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
+
+  for (const [customerId, count] of Object.entries(customerCounts)) {
+    await prisma.customer.update({
+      where: { id: customerId },
+      data: { noShowCount: { increment: count } },
+    });
+  }
+
+  // eslint-disable-next-line no-console
+  console.log(
+    `[NoShowJob] No-show job: ${updated.count} appointments marked as no_show`
+  );
+
+  return { count: updated.count };
+};
+
 export default {
   listAppointments,
   getAppointmentById,

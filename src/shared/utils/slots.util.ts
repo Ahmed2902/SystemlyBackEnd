@@ -44,7 +44,7 @@ export const generateSlots = (params: GenerateSlotsParams): Slot[] => {
 
   const slots: Slot[] = [];
 
-  const businessNow = now ? dayjs(now).tz(timezone) : dayjs().tz(timezone);
+  const businessNow = now ? dayjs(now).tz(timezone) : null;
 
   let current = buildDateTime(date, startTime, timezone);
   const dayEnd = buildDateTime(date, endTime, timezone);
@@ -55,48 +55,48 @@ export const generateSlots = (params: GenerateSlotsParams): Slot[] => {
 
     const slotStart = current;
 
-    // Skip slots in the past
-    if (slotStart.isAfter(businessNow)) {
-      // Check overlap against every existing appointment (including buffer)
-      const conflicts = bookedSlots
-        .map((booked) => {
-          const rawStart: any =
-            (booked as any).starts_at || (booked as any).startsAt;
-          const rawEnd: any = (booked as any).ends_at || (booked as any).endsAt;
-          const bookedStart = parseISOToTZ(rawStart, timezone);
-          const bookedEnd = parseISOToTZ(rawEnd, timezone).add(
-            breakAfterMin,
-            "minute"
-          );
-          return { bookedStart, bookedEnd };
-        })
-        .filter(
-          ({ bookedStart, bookedEnd }) =>
-            slotStart.isBefore(bookedEnd) && slotEnd.isAfter(bookedStart)
-        );
-
-      if (conflicts.length === 0) {
-        slots.push({
-          time: slotStart.toISOString(),
-          display: slotStart.format("HH:mm"),
-          staffId,
-        });
-        // advance by service duration
-        current = current.add(durationMin, "minute");
-        continue;
-      }
-
-      // If there is a conflict, jump to the end of the latest conflicting appointment (including buffer)
-      const latestEnd = conflicts.reduce(
-        (max, c) => (c.bookedEnd.isAfter(max) ? c.bookedEnd : max),
-        conflicts[0].bookedEnd
-      );
-      current = latestEnd;
+    // If a 'now' is provided, skip slots in the past relative to that moment
+    if (businessNow && slotStart.isBefore(businessNow)) {
+      current = current.add(durationMin, "minute");
       continue;
     }
 
-    // Advance by service duration
-    current = current.add(durationMin, "minute");
+    // Check overlap against every existing appointment (including buffer)
+    const conflicts = bookedSlots
+      .map((booked) => {
+        const rawStart: any =
+          (booked as any).starts_at || (booked as any).startsAt;
+        const rawEnd: any = (booked as any).ends_at || (booked as any).endsAt;
+        const bookedStart = parseISOToTZ(rawStart, timezone);
+        const bookedEnd = parseISOToTZ(rawEnd, timezone).add(
+          breakAfterMin,
+          "minute"
+        );
+        return { bookedStart, bookedEnd };
+      })
+      .filter(
+        ({ bookedStart, bookedEnd }) =>
+          slotStart.isBefore(bookedEnd) && slotEnd.isAfter(bookedStart)
+      );
+
+    if (conflicts.length === 0) {
+      slots.push({
+        time: slotStart.toISOString(),
+        display: slotStart.format("HH:mm"),
+        staffId,
+      });
+      // advance by service duration
+      current = current.add(durationMin, "minute");
+      continue;
+    }
+
+    // If there is a conflict, jump to the end of the latest conflicting appointment (including buffer)
+    const latestEnd = conflicts.reduce(
+      (max, c) => (c.bookedEnd.isAfter(max) ? c.bookedEnd : max),
+      conflicts[0].bookedEnd
+    );
+    current = latestEnd;
+    continue;
   }
 
   return slots;

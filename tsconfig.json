@@ -16,7 +16,8 @@
     "app.ts",
     "server.ts",
     "index.ts",
-    "src/**/*.ts"
+    "src/**/*.ts",
+    "src/**/*.d.ts"
     // "business.routes.ts"
   ],
   "exclude": ["dist", "node_modules"]

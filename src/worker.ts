@@ -29,14 +29,14 @@ const startWorker = async () => {
 
 void startWorker();
 
-const shutdown = async (signal: string) => {
+const shutdown = async (signal: string, exitCode = 0) => {
   console.log(`${signal} received. Shutting down worker...`);
   try {
     await prisma.$disconnect();
   } catch (err) {
     // ignore
   }
-  process.exit(0);
+  process.exit(exitCode);
 };
 
 process.on("SIGINT", () => {
@@ -50,6 +50,7 @@ process.on("SIGTERM", () => {
 process.on("uncaughtException", (err) => {
   console.error("Uncaught exception in worker:", err);
   if (SENTRY.DSN) Sentry.captureException(err as any);
+  void shutdown("uncaughtException", 1);
 });
 
 process.on("unhandledRejection", (reason) => {

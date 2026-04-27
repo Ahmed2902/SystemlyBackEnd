@@ -1,39 +1,55 @@
 import { prisma } from "../../shared/db/prisma";
 import cloudinary from "../../shared/services/cloudinary.service";
 
-export const uploadLogo = async (businessId: string, file: any) => {
-  const res = await cloudinary.uploadFile(file.path);
-  const updated = await prisma.business.update({
-    where: { id: businessId },
-    data: { logoUrl: res.url },
-  });
-  return updated;
-};
+class PhotosService {
+  async uploadLogo(businessId: string, file: any) {
+    const res = await cloudinary.uploadFile(file?.path || file);
+    const updated = await prisma.business.update({
+      where: { id: businessId },
+      data: { logoUrl: res.url },
+    });
+    return updated;
+  }
 
-export const uploadCover = async (businessId: string, file: any) => {
-  const res = await cloudinary.uploadFile(file.path);
-  const updated = await prisma.business.update({
-    where: { id: businessId },
-    data: { coverUrl: res.url },
-  });
-  return updated;
-};
+  async uploadCover(businessId: string, file: any) {
+    const res = await cloudinary.uploadFile(file?.path || file);
+    const updated = await prisma.business.update({
+      where: { id: businessId },
+      data: { coverUrl: res.url },
+    });
+    return updated;
+  }
 
-// Gallery endpoints require a Photo model to persist items. For now return TODO.
-export const uploadGallery = async (_businessId: string, _file: any) => {
-  // TODO: implement gallery model and persist uploaded urls
-  return {
-    message: "NOT_IMPLEMENTED",
-    todo: "Add Photo model and persist gallery entries",
-  };
-};
+  async uploadGallery(_businessId: string, _file: any) {
+    const res = await cloudinary.uploadFile(_file?.path || _file);
+    const photo = await prisma.photo.create({
+      data: {
+        businessId: _businessId,
+        url: res.url,
+        publicId: res.publicId,
+      },
+    });
+    return photo;
+  }
 
-export const deleteGallery = async (_id: string) => {
-  // TODO: implement deletion once Photo model exists
-  return {
-    message: "NOT_IMPLEMENTED",
-    todo: "Delete gallery photo by id after adding Photo model",
-  };
-};
+  async deleteGallery(_id: string) {
+    const existing = await prisma.photo.findUnique({ where: { id: _id } });
+    if (!existing) {
+      const err: any = new Error("Photo not found");
+      err.statusCode = 404;
+      err.code = "NOT_FOUND";
+      throw err;
+    }
 
-export default { uploadLogo, uploadCover, uploadGallery, deleteGallery };
+    try {
+      await cloudinary.deleteFile(existing.publicId);
+    } catch (err) {
+      console.error("Failed to delete Cloudinary file", existing.publicId, err);
+    }
+
+    await prisma.photo.delete({ where: { id: _id } });
+    return { success: true };
+  }
+}
+
+export default new PhotosService();
