@@ -21,6 +21,7 @@ import type {
   VerifyEmailQuery,
 } from "./auth.schema";
 import { Roles } from "@prisma/client";
+import { date } from "zod";
 
 const buildErr = (message: string, statusCode: number, code: string) => {
   const err: any = new Error(message);
@@ -134,11 +135,11 @@ export const login = async (payload: LoginBody) => {
     err.details = { email: user.email };
     throw err;
   }
-
+  const now = new Date();
   setImmediate(() => {
     void prisma.businessUser.update({
       where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+      data: { lastLoginAt: now },
     });
   });
 

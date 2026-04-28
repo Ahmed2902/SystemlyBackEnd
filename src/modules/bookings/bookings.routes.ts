@@ -6,6 +6,7 @@ import {
   bookingTokenParamsSchema,
   createBookingSchema,
 } from "./bookings.schema";
+import { publicBookingRateLimit } from "../../shared/middleware/rateLimit.middleware";
 
 const router = Router();
 
@@ -16,7 +17,7 @@ router.get(
 );
 router.post(
   "/",
-  //publicBookingRateLimit,
+  publicBookingRateLimit,
   validate.validateBody(createBookingSchema),
   bookingsController.createBooking
 );
