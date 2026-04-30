@@ -24,13 +24,15 @@ export const googleRedirect = (_req: Request, res: Response) => {
 
   res.cookie("oauth_state", state, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: "none",
+    secure: true,
   });
 
   const clientId = process.env.GOOGLE_CLIENT_ID || "";
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || "";
-
+  console.log("Query state:", _req.query.state);
+  console.log("Cookie state:", _req.cookies.oauth_state);
+  console.log("Cookies:", _req.cookies);
   const url =
     `https://accounts.google.com/o/oauth2/v2/auth?` +
     `client_id=${encodeURIComponent(clientId)}&` +
@@ -71,7 +73,9 @@ export const googleCallback = async (
     -------------------------- */
     const stateFromGoogle = req.query.state;
     const storedState = req.cookies.oauth_state;
-
+    console.log("Query state:", req.query.state);
+    console.log("Cookie state:", req.cookies.oauth_state);
+    console.log("Cookies:", req.cookies);
     if (!stateFromGoogle || stateFromGoogle !== storedState) {
       return fail(res, "Invalid state (CSRF DETECTED)", 400, "INVALID_STATE");
     }
