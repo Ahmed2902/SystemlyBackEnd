@@ -8,6 +8,23 @@ import crypto from "crypto";
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const REFRESH_COOKIE_NAME = "refreshToken";
+const OAUTH_STATE_COOKIE_NAME = "oauth_state";
+
+const getIsHttpsRequest = (req: Request) => {
+  if (req.secure) return true;
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  if (typeof forwardedProto === "string") return forwardedProto.includes("https");
+  if (Array.isArray(forwardedProto)) return forwardedProto.some((p) => p.includes("https"));
+  return false;
+};
+
+const getOauthStateCookieOptions = (req: Request) => ({
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: getIsHttpsRequest(req),
+  path: "/",
+  maxAge: 10 * 60 * 1000,
+});
 
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
@@ -19,20 +36,16 @@ const REFRESH_COOKIE_OPTIONS = {
 /* -------------------------
    REDIRECT TO GOOGLE
 -------------------------- */
-export const googleRedirect = (_req: Request, res: Response) => {
+export const googleRedirect = (req: Request, res: Response) => {
   const state = crypto.randomBytes(32).toString("hex");
 
-  res.cookie("oauth_state", state, {
-    httpOnly: true,
-    sameSite: "none",
-    secure: true,
-  });
+  res.cookie(OAUTH_STATE_COOKIE_NAME, state, getOauthStateCookieOptions(req));
 
   const clientId = process.env.GOOGLE_CLIENT_ID || "";
   const redirectUri = process.env.GOOGLE_REDIRECT_URI || "";
-  console.log("Query state:", _req.query.state);
-  console.log("Cookie state:", _req.cookies.oauth_state);
-  console.log("Cookies:", _req.cookies);
+  console.log("Query state:", req.query.state);
+  console.log("Cookie state:", req.cookies?.[OAUTH_STATE_COOKIE_NAME]);
+  console.log("Cookies:", req.cookies);
   const url =
     `https://accounts.google.com/o/oauth2/v2/auth?` +
     `client_id=${encodeURIComponent(clientId)}&` +
@@ -69,19 +82,19 @@ export const googleCallback = async (
     }
 
     /* -------------------------
-       VERIFY STATE (CSRF PROTECTION)
-    -------------------------- */
+     VERIFY STATE (CSRF PROTECTION)
+  -------------------------- */
     const stateFromGoogle = req.query.state;
-    const storedState = req.cookies.oauth_state;
+    const storedState = req.cookies?.[OAUTH_STATE_COOKIE_NAME];
     console.log("Query state:", req.query.state);
-    console.log("Cookie state:", req.cookies.oauth_state);
+    console.log("Cookie state:", req.cookies?.[OAUTH_STATE_COOKIE_NAME]);
     console.log("Cookies:", req.cookies);
     if (!stateFromGoogle || stateFromGoogle !== storedState) {
       return fail(res, "Invalid state (CSRF DETECTED)", 400, "INVALID_STATE");
     }
 
     // clear state after validation
-    res.clearCookie("oauth_state");
+    res.clearCookie(OAUTH_STATE_COOKIE_NAME, { path: "/" });
 
     /* -------------------------
        EXCHANGE CODE FOR TOKENS
