@@ -51,8 +51,12 @@ router.post(
    OAUTH (NO CSRF HERE)
    - CSRF does NOT apply to OAuth redirects
 -------------------------- */
-router.get("/oauth/google", googleOauth.googleRedirect);
-router.get("/oauth/google/callback", googleOauth.googleCallback);
+router.get("/oauth/google", csrfProtection, googleOauth.googleRedirect);
+router.get(
+  "/oauth/google/callback",
+  csrfProtection,
+  googleOauth.googleCallback
+);
 
 router.get("/oauth/apple", appleOauth.appleRedirect);
 router.post("/oauth/apple/callback", appleOauth.appleCallback);
