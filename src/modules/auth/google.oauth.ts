@@ -13,8 +13,10 @@ const OAUTH_STATE_COOKIE_NAME = "oauth_state";
 const getIsHttpsRequest = (req: Request) => {
   if (req.secure) return true;
   const forwardedProto = req.headers["x-forwarded-proto"];
-  if (typeof forwardedProto === "string") return forwardedProto.includes("https");
-  if (Array.isArray(forwardedProto)) return forwardedProto.some((p) => p.includes("https"));
+  if (typeof forwardedProto === "string")
+    return forwardedProto.includes("https");
+  if (Array.isArray(forwardedProto))
+    return forwardedProto.some((p) => p.includes("https"));
   return false;
 };
 
@@ -58,17 +60,6 @@ export const googleRedirect = (req: Request, res: Response) => {
     `access_type=offline&` +
     `prompt=consent&` + // <-- FIXED (& added)
     `state=${state}`;
-
-  // If a frontend calls this endpoint via fetch/XHR, the browser won't navigate,
-  // and Set-Cookie may not be stored. Support that by returning the URL.
-  const acceptsJson = typeof req.headers.accept === "string" && req.headers.accept.includes("application/json");
-  const isFetch =
-    req.get("x-requested-with") === "XMLHttpRequest" ||
-    typeof req.headers["sec-fetch-mode"] === "string";
-
-  if (acceptsJson || isFetch) {
-    return ok(res, { url });
-  }
 
   return res.redirect(url);
 };
