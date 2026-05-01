@@ -26,6 +26,12 @@ const getOauthStateCookieOptions = (req: Request) => ({
   maxAge: 10 * 60 * 1000,
 });
 
+const getGoogleRedirectUri = () => {
+  if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
+  const appUrl = process.env.APP_URL || "http://localhost:3000";
+  return `${appUrl.replace(/\/$/, "")}/api/auth/oauth/google/callback`;
+};
+
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
@@ -42,10 +48,7 @@ export const googleRedirect = (req: Request, res: Response) => {
   res.cookie(OAUTH_STATE_COOKIE_NAME, state, getOauthStateCookieOptions(req));
 
   const clientId = process.env.GOOGLE_CLIENT_ID || "";
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || "";
-  console.log("Query state:", req.query.state);
-  console.log("Cookie state:", req.cookies?.[OAUTH_STATE_COOKIE_NAME]);
-  console.log("Cookies:", req.cookies);
+  const redirectUri = getGoogleRedirectUri();
   const url =
     `https://accounts.google.com/o/oauth2/v2/auth?` +
     `client_id=${encodeURIComponent(clientId)}&` +
@@ -55,6 +58,17 @@ export const googleRedirect = (req: Request, res: Response) => {
     `access_type=offline&` +
     `prompt=consent&` + // <-- FIXED (& added)
     `state=${state}`;
+
+  // If a frontend calls this endpoint via fetch/XHR, the browser won't navigate,
+  // and Set-Cookie may not be stored. Support that by returning the URL.
+  const acceptsJson = typeof req.headers.accept === "string" && req.headers.accept.includes("application/json");
+  const isFetch =
+    req.get("x-requested-with") === "XMLHttpRequest" ||
+    typeof req.headers["sec-fetch-mode"] === "string";
+
+  if (acceptsJson || isFetch) {
+    return ok(res, { url });
+  }
 
   return res.redirect(url);
 };
@@ -86,9 +100,6 @@ export const googleCallback = async (
   -------------------------- */
     const stateFromGoogle = req.query.state;
     const storedState = req.cookies?.[OAUTH_STATE_COOKIE_NAME];
-    console.log("Query state:", req.query.state);
-    console.log("Cookie state:", req.cookies?.[OAUTH_STATE_COOKIE_NAME]);
-    console.log("Cookies:", req.cookies);
     if (!stateFromGoogle || stateFromGoogle !== storedState) {
       return fail(res, "Invalid state (CSRF DETECTED)", 400, "INVALID_STATE");
     }
@@ -105,7 +116,7 @@ export const googleCallback = async (
         code,
         client_id: process.env.GOOGLE_CLIENT_ID || "",
         client_secret: process.env.GOOGLE_CLIENT_SECRET || "",
-        redirect_uri: process.env.GOOGLE_REDIRECT_URI || "",
+        redirect_uri: getGoogleRedirectUri(),
         grant_type: "authorization_code",
       }).toString(),
       {
