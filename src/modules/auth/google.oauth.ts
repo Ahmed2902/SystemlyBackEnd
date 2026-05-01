@@ -36,9 +36,10 @@ const getGoogleRedirectUri = () => {
 
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
+  secure: true,
   sameSite: "lax" as const,
   maxAge: 30 * 24 * 60 * 60 * 1000,
+  path: "/",
 };
 
 /* -------------------------
