@@ -2,21 +2,22 @@ import type { NextFunction, Request, Response } from "express";
 import axios from "axios";
 import type { AxiosError } from "axios";
 import { OAuth2Client } from "google-auth-library";
+import crypto from "crypto";
 import * as authService from "./auth.service";
 import { ok, fail } from "../../shared/utils/response.util";
-import crypto from "crypto";
+import { FRONTEND_URL } from "../../shared/config/config";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const REFRESH_COOKIE_NAME = "refreshToken";
 const OAUTH_STATE_COOKIE_NAME = "oauth_state";
 
-//WITHOUT COOKIES
+// Backup state store for setups that fail to persist cookies (not multi-instance safe)
 const oauthStateStore = new Map<string, number>(); // state -> expiry timestamp
-const STATE_TTL = 10 * 60 * 1000; // 10 minutes
+const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 const storeState = (state: string) => {
-  oauthStateStore.set(state, Date.now() + STATE_TTL);
+  oauthStateStore.set(state, Date.now() + STATE_TTL_MS);
 };
 
 const verifyAndConsumeState = (state: string) => {
@@ -32,7 +33,6 @@ const verifyAndConsumeState = (state: string) => {
   return true;
 };
 
-// cleanup expired states every minute
 setInterval(() => {
   const now = Date.now();
   for (const [key, expiry] of oauthStateStore.entries()) {
@@ -40,41 +40,85 @@ setInterval(() => {
   }
 }, 60 * 1000);
 
+const getIsHttpsRequest = (req: Request) => {
+  if (req.secure) return true;
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  if (typeof forwardedProto === "string") return forwardedProto.includes("https");
+  if (Array.isArray(forwardedProto))
+    return forwardedProto.some((p) => p.includes("https"));
+  return false;
+};
+
+const isBrowserNavigation = (req: Request) => {
+  const accept = typeof req.headers.accept === "string" ? req.headers.accept : "";
+  const fetchMode =
+    typeof req.headers["sec-fetch-mode"] === "string"
+      ? req.headers["sec-fetch-mode"]
+      : "";
+  return fetchMode === "navigate" || accept.includes("text/html");
+};
+
 const getOauthStateCookieOptions = (req: Request) => ({
   httpOnly: true,
-  sameSite: "none" as const, // 🔥 CRITICAL
-  secure: true, // 🔥 REQUIRED with "none"
+  sameSite: "lax" as const,
+  secure: getIsHttpsRequest(req),
   path: "/",
-  maxAge: 10 * 60 * 1000,
+  maxAge: STATE_TTL_MS,
 });
-
-const getGoogleRedirectUri = () => {
-  if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
-  const appUrl = process.env.APP_URL || "http://localhost:3000";
-  return `${appUrl.replace(/\/$/, "")}/api/auth/oauth/google/callback`;
-};
 
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
-  secure: true,
+  secure: process.env.NODE_ENV === "production",
   sameSite: "lax" as const,
   maxAge: 30 * 24 * 60 * 60 * 1000,
   path: "/",
 };
 
+const getBaseUrlFromRequest = (req: Request) => {
+  const protoHeader = req.headers["x-forwarded-proto"];
+  const hostHeader = req.headers["x-forwarded-host"] || req.headers["host"];
+
+  const proto =
+    typeof protoHeader === "string"
+      ? protoHeader.split(",")[0].trim()
+      : getIsHttpsRequest(req)
+        ? "https"
+        : "http";
+
+  const host =
+    typeof hostHeader === "string"
+      ? hostHeader.split(",")[0].trim()
+      : Array.isArray(hostHeader)
+        ? hostHeader[0]
+        : undefined;
+
+  if (!host) return null;
+  return `${proto}://${host}`;
+};
+
+const getGoogleRedirectUri = (req: Request) => {
+  if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
+  const baseUrl =
+    getBaseUrlFromRequest(req) || process.env.APP_URL || "http://localhost:3000";
+  return `${String(baseUrl).replace(/\/$/, "")}/api/auth/oauth/google/callback`;
+};
+
+const frontendSignupError = (err: string) =>
+  `${FRONTEND_URL.replace(/\/$/, "")}/signup?oauthError=${encodeURIComponent(err)}`;
+
 /* -------------------------
    REDIRECT TO GOOGLE
 -------------------------- */
 export const googleRedirect = (req: Request, res: Response) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID || "";
+  if (!clientId) return res.redirect(frontendSignupError("start_failed"));
+
   const state = crypto.randomBytes(32).toString("hex");
+  const redirectUri = getGoogleRedirectUri(req);
 
-  //res.cookie(OAUTH_STATE_COOKIE_NAME, state, getOauthStateCookieOptions(req));
-
-  // ✅ store state in memory (instead of cookies)
+  res.cookie(OAUTH_STATE_COOKIE_NAME, state, getOauthStateCookieOptions(req));
   storeState(state);
 
-  const clientId = process.env.GOOGLE_CLIENT_ID || "";
-  const redirectUri = getGoogleRedirectUri();
   const url =
     `https://accounts.google.com/o/oauth2/v2/auth?` +
     `client_id=${encodeURIComponent(clientId)}&` +
@@ -82,14 +126,24 @@ export const googleRedirect = (req: Request, res: Response) => {
     `response_type=code&` +
     `scope=${encodeURIComponent("openid email profile")}&` +
     `access_type=offline&` +
-    `prompt=consent&` + // <-- FIXED (& added)
+    `prompt=consent&` +
     `state=${state}`;
+
+  // Support clients that call this endpoint via fetch/XHR
+  const acceptsJson =
+    typeof req.headers.accept === "string" &&
+    req.headers.accept.includes("application/json");
+  const isFetch = typeof req.headers["sec-fetch-mode"] === "string";
+
+  if (!isBrowserNavigation(req) && (acceptsJson || isFetch)) {
+    return ok(res, { url });
+  }
 
   return res.redirect(url);
 };
 
 /* -------------------------
-   GOOGLE CALLBACK (SECURE)
+   GOOGLE CALLBACK
 -------------------------- */
 export const googleCallback = async (
   req: Request,
@@ -97,45 +151,30 @@ export const googleCallback = async (
   next: NextFunction
 ) => {
   try {
-    /* -------------------------
-       HANDLE OAUTH ERROR FIRST
-    -------------------------- */
     if (req.query.error) {
+      if (isBrowserNavigation(req)) return res.redirect(frontendSignupError("oauth_error"));
       return fail(res, "OAuth error", 400, "OAUTH_ERROR");
     }
 
     const code = req.query?.code ? String(req.query.code) : null;
-
     if (!code) {
+      if (isBrowserNavigation(req)) return res.redirect(frontendSignupError("missing_code"));
       return fail(res, "Missing authorization code", 400, "MISSING_CODE");
     }
 
-    /* -------------------------
-     VERIFY STATE (CSRF PROTECTION)
-  -------------------------- */
-    // const stateFromGoogle = req.query.state;
-    // const storedState = req.cookies?.[OAUTH_STATE_COOKIE_NAME];
-    // if (!stateFromGoogle || stateFromGoogle !== storedState) {
-    //   return fail(res, "Invalid state (CSRF DETECTED)", 400, "INVALID_STATE");
-    // }
     const stateFromGoogle = req.query.state ? String(req.query.state) : null;
+    const cookieState = req.cookies?.[OAUTH_STATE_COOKIE_NAME];
+    const cookieOk = !!stateFromGoogle && stateFromGoogle === cookieState;
+    const memoryOk = !!stateFromGoogle && verifyAndConsumeState(stateFromGoogle);
 
-    console.log("STATE CHECK:", {
-      stateFromGoogle,
-      exists: stateFromGoogle ? oauthStateStore.has(stateFromGoogle) : false,
-    });
-
-    if (!stateFromGoogle || !verifyAndConsumeState(stateFromGoogle)) {
+    if (!cookieOk && !memoryOk) {
+      if (isBrowserNavigation(req)) return res.redirect(frontendSignupError("invalid_state"));
       return fail(res, "Invalid state (CSRF DETECTED)", 400, "INVALID_STATE");
     }
 
-    // clear state after validation
-    //res.clearCookie(OAUTH_STATE_COOKIE_NAME, { path: "/" });
+    res.clearCookie(OAUTH_STATE_COOKIE_NAME, { path: "/" });
 
-    /* -------------------------
-       EXCHANGE CODE FOR TOKENS
-    -------------------------- */
-    const redirectUri = getGoogleRedirectUri();
+    const redirectUri = getGoogleRedirectUri(req);
 
     let tokenRes: { data: any };
     try {
@@ -155,44 +194,37 @@ export const googleCallback = async (
       );
     } catch (e) {
       const err = e as AxiosError<any>;
-      const status = err.response?.status;
-      const data = err.response?.data;
+      if (isBrowserNavigation(req)) return res.redirect(frontendSignupError("token_exchange_failed"));
 
       return res.status(400).json({
         success: false,
         error: "Google token exchange failed",
         code: "GOOGLE_TOKEN_EXCHANGE_FAILED",
         details: {
-          status: status ?? null,
-          googleError: data ?? null,
+          status: err.response?.status ?? null,
+          googleError: err.response?.data ?? null,
           redirectUri,
         },
       });
     }
 
     const idToken = tokenRes.data?.id_token;
-
     if (!idToken) {
+      if (isBrowserNavigation(req)) return res.redirect(frontendSignupError("no_id_token"));
       return fail(res, "No id_token returned", 400, "NO_ID_TOKEN");
     }
 
-    /* -------------------------
-       VERIFY GOOGLE TOKEN
-    -------------------------- */
     const ticket = await client.verifyIdToken({
       idToken,
       audience: process.env.GOOGLE_CLIENT_ID,
     });
 
     const payload = ticket.getPayload();
-
     if (!payload || !payload.email) {
+      if (isBrowserNavigation(req)) return res.redirect(frontendSignupError("invalid_token"));
       return fail(res, "Invalid Google token", 400, "INVALID_TOKEN");
     }
 
-    /* -------------------------
-       CREATE / LOGIN USER
-    -------------------------- */
     const result = await authService.oauthSignIn({
       provider: "google",
       providerId: payload.sub,
@@ -202,25 +234,16 @@ export const googleCallback = async (
       emailVerified: !!payload.email_verified,
     });
 
-    /* -------------------------
-       SET REFRESH COOKIE
-    -------------------------- */
-    res.cookie(
-      REFRESH_COOKIE_NAME,
-      result.refreshToken,
-      REFRESH_COOKIE_OPTIONS
-    );
+    res.cookie(REFRESH_COOKIE_NAME, result.refreshToken, REFRESH_COOKIE_OPTIONS);
 
-    /* -------------------------
-       RETURN RESPONSE
-    -------------------------- */
+    if (isBrowserNavigation(req)) {
+      return res.redirect(`${FRONTEND_URL.replace(/\/$/, "")}/signup?oauthSuccess=1`);
+    }
+
     return ok(res, {
       accessToken: result.accessToken,
       user: result.user,
     });
-
-    // OPTIONAL (better UX):
-    // return res.redirect(`${process.env.FRONTEND_URL}/auth/success?token=${result.accessToken}`);
   } catch (err) {
     return next(err);
   }
