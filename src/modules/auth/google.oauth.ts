@@ -12,7 +12,7 @@ const OAUTH_STATE_COOKIE_NAME = "oauth_state";
 
 //WITHOUT COOKIES
 const oauthStateStore = new Map<string, number>(); // state -> expiry timestamp
-
+const processedCodes = new Set<string>();
 const STATE_TTL = 10 * 60 * 1000; // 10 minutes
 
 const storeState = (state: string) => {
@@ -68,7 +68,7 @@ const REFRESH_COOKIE_OPTIONS = {
 export const googleRedirect = (req: Request, res: Response) => {
   const state = crypto.randomBytes(32).toString("hex");
 
-  res.cookie(OAUTH_STATE_COOKIE_NAME, state, getOauthStateCookieOptions(req));
+  //res.cookie(OAUTH_STATE_COOKIE_NAME, state, getOauthStateCookieOptions(req));
 
   // ✅ store state in memory (instead of cookies)
   storeState(state);
@@ -120,12 +120,17 @@ export const googleCallback = async (
     // }
     const stateFromGoogle = req.query.state ? String(req.query.state) : null;
 
+    console.log("STATE CHECK:", {
+      stateFromGoogle,
+      exists: stateFromGoogle ? oauthStateStore.has(stateFromGoogle) : false,
+    });
+
     if (!stateFromGoogle || !verifyAndConsumeState(stateFromGoogle)) {
       return fail(res, "Invalid state (CSRF DETECTED)", 400, "INVALID_STATE");
     }
 
     // clear state after validation
-    res.clearCookie(OAUTH_STATE_COOKIE_NAME, { path: "/" });
+    //res.clearCookie(OAUTH_STATE_COOKIE_NAME, { path: "/" });
 
     /* -------------------------
        EXCHANGE CODE FOR TOKENS
@@ -144,6 +149,10 @@ export const googleCallback = async (
         timeout: 5000,
       }
     );
+    if (processedCodes.has(code)) {
+      return fail(res, "Code already used", 400, "REUSED_CODE");
+    }
+    processedCodes.add(code);
 
     const idToken = tokenRes.data?.id_token;
 
