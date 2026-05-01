@@ -8,26 +8,42 @@ import crypto from "crypto";
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const REFRESH_COOKIE_NAME = "refreshToken";
-const OAUTH_STATE_COOKIE_NAME = "oauth_state";
 
-const getIsHttpsRequest = (req: Request) => {
-  if (req.secure) return true;
-  const forwardedProto = req.headers["x-forwarded-proto"];
-  if (typeof forwardedProto === "string")
-    return forwardedProto.includes("https");
-  if (Array.isArray(forwardedProto))
-    return forwardedProto.some((p) => p.includes("https"));
-  return false;
+/* =========================================================
+   STATE STORE (IN-MEMORY, COOKIE-FREE)
+========================================================= */
+const oauthStateStore = new Map<string, number>(); // state -> expiry timestamp
+
+const STATE_TTL = 10 * 60 * 1000; // 10 minutes
+
+const storeState = (state: string) => {
+  oauthStateStore.set(state, Date.now() + STATE_TTL);
 };
 
-const getOauthStateCookieOptions = (req: Request) => ({
-  httpOnly: true,
-  sameSite: "none" as const, // 🔥 CRITICAL
-  secure: true, // 🔥 REQUIRED with "none"
-  path: "/",
-  maxAge: 10 * 60 * 1000,
-});
+const verifyAndConsumeState = (state: string) => {
+  const expiry = oauthStateStore.get(state);
+  if (!expiry) return false;
 
+  if (Date.now() > expiry) {
+    oauthStateStore.delete(state);
+    return false;
+  }
+
+  oauthStateStore.delete(state); // one-time use
+  return true;
+};
+
+// cleanup expired states every minute
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, expiry] of oauthStateStore.entries()) {
+    if (expiry < now) oauthStateStore.delete(key);
+  }
+}, 60 * 1000);
+
+/* =========================================================
+   HELPERS
+========================================================= */
 const getGoogleRedirectUri = () => {
   if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
   const appUrl = process.env.APP_URL || "http://localhost:3000";
@@ -42,16 +58,18 @@ const REFRESH_COOKIE_OPTIONS = {
   path: "/",
 };
 
-/* -------------------------
+/* =========================================================
    REDIRECT TO GOOGLE
--------------------------- */
-export const googleRedirect = (req: Request, res: Response) => {
+========================================================= */
+export const googleRedirect = (_req: Request, res: Response) => {
   const state = crypto.randomBytes(32).toString("hex");
 
-  res.cookie(OAUTH_STATE_COOKIE_NAME, state, getOauthStateCookieOptions(req));
+  // ✅ store state in memory (instead of cookies)
+  storeState(state);
 
   const clientId = process.env.GOOGLE_CLIENT_ID || "";
   const redirectUri = getGoogleRedirectUri();
+
   const url =
     `https://accounts.google.com/o/oauth2/v2/auth?` +
     `client_id=${encodeURIComponent(clientId)}&` +
@@ -59,15 +77,15 @@ export const googleRedirect = (req: Request, res: Response) => {
     `response_type=code&` +
     `scope=${encodeURIComponent("openid email profile")}&` +
     `access_type=offline&` +
-    `prompt=consent&` + // <-- FIXED (& added)
+    `prompt=consent&` +
     `state=${state}`;
 
   return res.redirect(url);
 };
 
-/* -------------------------
-   GOOGLE CALLBACK (SECURE)
--------------------------- */
+/* =========================================================
+   GOOGLE CALLBACK
+========================================================= */
 export const googleCallback = async (
   req: Request,
   res: Response,
@@ -88,16 +106,13 @@ export const googleCallback = async (
     }
 
     /* -------------------------
-     VERIFY STATE (CSRF PROTECTION)
-  -------------------------- */
-    const stateFromGoogle = req.query.state;
-    const storedState = req.cookies?.[OAUTH_STATE_COOKIE_NAME];
-    if (!stateFromGoogle || stateFromGoogle !== storedState) {
+       VERIFY STATE (CSRF PROTECTION)
+    -------------------------- */
+    const stateFromGoogle = req.query.state ? String(req.query.state) : null;
+
+    if (!stateFromGoogle || !verifyAndConsumeState(stateFromGoogle)) {
       return fail(res, "Invalid state (CSRF DETECTED)", 400, "INVALID_STATE");
     }
-
-    // clear state after validation
-    res.clearCookie(OAUTH_STATE_COOKIE_NAME, { path: "/" });
 
     /* -------------------------
        EXCHANGE CODE FOR TOKENS
@@ -150,7 +165,7 @@ export const googleCallback = async (
     });
 
     /* -------------------------
-       SET REFRESH COOKIE
+       SET REFRESH TOKEN COOKIE (still fine)
     -------------------------- */
     res.cookie(
       REFRESH_COOKIE_NAME,
@@ -166,7 +181,7 @@ export const googleCallback = async (
       user: result.user,
     });
 
-    // OPTIONAL (better UX):
+    // Optional:
     // return res.redirect(`${process.env.FRONTEND_URL}/auth/success?token=${result.accessToken}`);
   } catch (err) {
     return next(err);
