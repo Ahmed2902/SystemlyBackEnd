@@ -37,6 +37,7 @@ const corsOptions = {
 };
 
 app.set("trust proxy", 1);
+
 app.disable("x-powered-by");
 
 app.use(helmet());

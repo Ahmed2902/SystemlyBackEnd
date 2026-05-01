@@ -22,8 +22,8 @@ const getIsHttpsRequest = (req: Request) => {
 
 const getOauthStateCookieOptions = (req: Request) => ({
   httpOnly: true,
-  sameSite: "lax" as const,
-  secure: getIsHttpsRequest(req),
+  sameSite: "none" as const, // 🔥 CRITICAL
+  secure: true, // 🔥 REQUIRED with "none"
   path: "/",
   maxAge: 10 * 60 * 1000,
 });
