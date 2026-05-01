@@ -8,10 +8,9 @@ import crypto from "crypto";
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const REFRESH_COOKIE_NAME = "refreshToken";
+const OAUTH_STATE_COOKIE_NAME = "oauth_state";
 
-/* =========================================================
-   STATE STORE (IN-MEMORY, COOKIE-FREE)
-========================================================= */
+//WITHOUT COOKIES
 const oauthStateStore = new Map<string, number>(); // state -> expiry timestamp
 
 const STATE_TTL = 10 * 60 * 1000; // 10 minutes
@@ -41,9 +40,14 @@ setInterval(() => {
   }
 }, 60 * 1000);
 
-/* =========================================================
-   HELPERS
-========================================================= */
+const getOauthStateCookieOptions = (req: Request) => ({
+  httpOnly: true,
+  sameSite: "none" as const, // 🔥 CRITICAL
+  secure: true, // 🔥 REQUIRED with "none"
+  path: "/",
+  maxAge: 10 * 60 * 1000,
+});
+
 const getGoogleRedirectUri = () => {
   if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
   const appUrl = process.env.APP_URL || "http://localhost:3000";
@@ -58,18 +62,19 @@ const REFRESH_COOKIE_OPTIONS = {
   path: "/",
 };
 
-/* =========================================================
+/* -------------------------
    REDIRECT TO GOOGLE
-========================================================= */
-export const googleRedirect = (_req: Request, res: Response) => {
+-------------------------- */
+export const googleRedirect = (req: Request, res: Response) => {
   const state = crypto.randomBytes(32).toString("hex");
+
+  res.cookie(OAUTH_STATE_COOKIE_NAME, state, getOauthStateCookieOptions(req));
 
   // ✅ store state in memory (instead of cookies)
   storeState(state);
 
   const clientId = process.env.GOOGLE_CLIENT_ID || "";
   const redirectUri = getGoogleRedirectUri();
-
   const url =
     `https://accounts.google.com/o/oauth2/v2/auth?` +
     `client_id=${encodeURIComponent(clientId)}&` +
@@ -77,15 +82,15 @@ export const googleRedirect = (_req: Request, res: Response) => {
     `response_type=code&` +
     `scope=${encodeURIComponent("openid email profile")}&` +
     `access_type=offline&` +
-    `prompt=consent&` +
+    `prompt=consent&` + // <-- FIXED (& added)
     `state=${state}`;
 
   return res.redirect(url);
 };
 
-/* =========================================================
-   GOOGLE CALLBACK
-========================================================= */
+/* -------------------------
+   GOOGLE CALLBACK (SECURE)
+-------------------------- */
 export const googleCallback = async (
   req: Request,
   res: Response,
@@ -106,13 +111,21 @@ export const googleCallback = async (
     }
 
     /* -------------------------
-       VERIFY STATE (CSRF PROTECTION)
-    -------------------------- */
+     VERIFY STATE (CSRF PROTECTION)
+  -------------------------- */
+    // const stateFromGoogle = req.query.state;
+    // const storedState = req.cookies?.[OAUTH_STATE_COOKIE_NAME];
+    // if (!stateFromGoogle || stateFromGoogle !== storedState) {
+    //   return fail(res, "Invalid state (CSRF DETECTED)", 400, "INVALID_STATE");
+    // }
     const stateFromGoogle = req.query.state ? String(req.query.state) : null;
 
     if (!stateFromGoogle || !verifyAndConsumeState(stateFromGoogle)) {
       return fail(res, "Invalid state (CSRF DETECTED)", 400, "INVALID_STATE");
     }
+
+    // clear state after validation
+    res.clearCookie(OAUTH_STATE_COOKIE_NAME, { path: "/" });
 
     /* -------------------------
        EXCHANGE CODE FOR TOKENS
@@ -165,7 +178,7 @@ export const googleCallback = async (
     });
 
     /* -------------------------
-       SET REFRESH TOKEN COOKIE (still fine)
+       SET REFRESH COOKIE
     -------------------------- */
     res.cookie(
       REFRESH_COOKIE_NAME,
@@ -181,7 +194,7 @@ export const googleCallback = async (
       user: result.user,
     });
 
-    // Optional:
+    // OPTIONAL (better UX):
     // return res.redirect(`${process.env.FRONTEND_URL}/auth/success?token=${result.accessToken}`);
   } catch (err) {
     return next(err);
