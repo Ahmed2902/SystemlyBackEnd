@@ -51,10 +51,9 @@ router.post(
    OAUTH (NO CSRF HERE)
    - CSRF does NOT apply to OAuth redirects
 -------------------------- */
-router.get("/oauth/google", csrfProtection, googleOauth.googleRedirect);
+router.get("/oauth/google", googleOauth.googleRedirect);
 router.get(
   "/oauth/google/callback",
-  csrfProtection,
   googleOauth.googleCallback
 );
 
