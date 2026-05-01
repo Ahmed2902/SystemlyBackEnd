@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import axios from "axios";
+import type { AxiosError } from "axios";
 import { OAuth2Client } from "google-auth-library";
 import * as authService from "./auth.service";
 import { ok, fail } from "../../shared/utils/response.util";
@@ -12,7 +13,6 @@ const OAUTH_STATE_COOKIE_NAME = "oauth_state";
 
 //WITHOUT COOKIES
 const oauthStateStore = new Map<string, number>(); // state -> expiry timestamp
-const processedCodes = new Set<string>();
 const STATE_TTL = 10 * 60 * 1000; // 10 minutes
 
 const storeState = (state: string) => {
@@ -135,24 +135,40 @@ export const googleCallback = async (
     /* -------------------------
        EXCHANGE CODE FOR TOKENS
     -------------------------- */
-    const tokenRes = await axios.post(
-      "https://oauth2.googleapis.com/token",
-      new URLSearchParams({
-        code,
-        client_id: process.env.GOOGLE_CLIENT_ID || "",
-        client_secret: process.env.GOOGLE_CLIENT_SECRET || "",
-        redirect_uri: getGoogleRedirectUri(),
-        grant_type: "authorization_code",
-      }).toString(),
-      {
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        timeout: 5000,
-      }
-    );
-    if (processedCodes.has(code)) {
-      return fail(res, "Code already used", 400, "REUSED_CODE");
+    const redirectUri = getGoogleRedirectUri();
+
+    let tokenRes: { data: any };
+    try {
+      tokenRes = await axios.post(
+        "https://oauth2.googleapis.com/token",
+        new URLSearchParams({
+          code,
+          client_id: process.env.GOOGLE_CLIENT_ID || "",
+          client_secret: process.env.GOOGLE_CLIENT_SECRET || "",
+          redirect_uri: redirectUri,
+          grant_type: "authorization_code",
+        }).toString(),
+        {
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          timeout: 5000,
+        }
+      );
+    } catch (e) {
+      const err = e as AxiosError<any>;
+      const status = err.response?.status;
+      const data = err.response?.data;
+
+      return res.status(400).json({
+        success: false,
+        error: "Google token exchange failed",
+        code: "GOOGLE_TOKEN_EXCHANGE_FAILED",
+        details: {
+          status: status ?? null,
+          googleError: data ?? null,
+          redirectUri,
+        },
+      });
     }
-    processedCodes.add(code);
 
     const idToken = tokenRes.data?.id_token;
 
