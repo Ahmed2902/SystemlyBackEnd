@@ -12,33 +12,50 @@ const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const REFRESH_COOKIE_NAME = "refreshToken";
 const OAUTH_STATE_COOKIE_NAME = "oauth_state";
 
-// Backup state store for setups that fail to persist cookies (not multi-instance safe)
-const oauthStateStore = new Map<string, number>(); // state -> expiry timestamp
+// Stateless HMAC-signed state (works across multiple instances / serverless)
 const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const STATE_SECRET =
+  process.env.OAUTH_STATE_SECRET || process.env.APP_SECRET || "";
 
-const storeState = (state: string) => {
-  oauthStateStore.set(state, Date.now() + STATE_TTL_MS);
+if (!STATE_SECRET) {
+  console.warn(
+    "OAUTH_STATE_SECRET not set — set process.env.OAUTH_STATE_SECRET for secure stateless state verification"
+  );
+}
+
+const createState = () => {
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const expiry = Date.now() + STATE_TTL_MS;
+  const data = `${nonce}.${expiry}`;
+  const sig = crypto
+    .createHmac("sha256", STATE_SECRET)
+    .update(data)
+    .digest("hex");
+  const state = `${nonce}.${expiry}.${sig}`;
+  return encodeURIComponent(state);
 };
 
-const verifyAndConsumeState = (state: string) => {
-  const expiry = oauthStateStore.get(state);
-  if (!expiry) return false;
-
-  if (Date.now() > expiry) {
-    oauthStateStore.delete(state);
+const verifyState = (encodedState: string) => {
+  try {
+    const state = decodeURIComponent(encodedState);
+    const parts = state.split(".");
+    if (parts.length !== 3) return false;
+    const [nonce, expiryStr, sig] = parts;
+    const data = `${nonce}.${expiryStr}`;
+    const expected = crypto
+      .createHmac("sha256", STATE_SECRET)
+      .update(data)
+      .digest("hex");
+    const expectedBuf = Buffer.from(expected, "hex");
+    const sigBuf = Buffer.from(sig, "hex");
+    if (expectedBuf.length !== sigBuf.length) return false;
+    if (!crypto.timingSafeEqual(expectedBuf, sigBuf)) return false;
+    if (Date.now() > Number(expiryStr)) return false;
+    return true;
+  } catch (err) {
     return false;
   }
-
-  oauthStateStore.delete(state); // one-time use
-  return true;
 };
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, expiry] of oauthStateStore.entries()) {
-    if (expiry < now) oauthStateStore.delete(key);
-  }
-}, 60 * 1000);
 
 const getIsHttpsRequest = (req: Request) => {
   if (req.secure) return true;
@@ -71,7 +88,7 @@ const getOauthStateCookieOptions = (req: Request) => ({
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
-  sameSite: "lax" as const,
+  sameSite: "none" as const,
   maxAge: 30 * 24 * 60 * 60 * 1000,
   path: "/",
 };
@@ -140,11 +157,8 @@ export const googleRedirect = (req: Request, res: Response) => {
     );
   }
 
-  const state = crypto.randomBytes(32).toString("hex");
+  const state = createState();
   const redirectUri = getGoogleRedirectUri(req);
-
-  res.cookie(OAUTH_STATE_COOKIE_NAME, state, getOauthStateCookieOptions(req));
-  storeState(state);
 
   const url =
     `https://accounts.google.com/o/oauth2/v2/auth?` +
@@ -192,18 +206,12 @@ export const googleCallback = async (
     }
 
     const stateFromGoogle = req.query.state ? String(req.query.state) : null;
-    const cookieState = req.cookies?.[OAUTH_STATE_COOKIE_NAME];
-    const cookieOk = !!stateFromGoogle && stateFromGoogle === cookieState;
-    const memoryOk =
-      !!stateFromGoogle && verifyAndConsumeState(stateFromGoogle);
 
-    if (!cookieOk && !memoryOk) {
+    if (!stateFromGoogle || !verifyState(stateFromGoogle)) {
       if (isBrowserNavigation(req))
         return res.redirect(frontendSignupError("invalid_state"));
       return fail(res, "Invalid state (CSRF DETECTED)", 400, "INVALID_STATE");
     }
-
-    res.clearCookie(OAUTH_STATE_COOKIE_NAME, { path: "/" });
 
     const redirectUri = getGoogleRedirectUri(req);
 
