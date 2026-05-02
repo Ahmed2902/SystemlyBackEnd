@@ -112,15 +112,36 @@ const frontendSignupError = (err: string) =>
     err
   )}`;
 
+const frontendSignupErrorWithDebug = (
+  err: string,
+  debug: Record<string, string | number | boolean | null | undefined>
+) => {
+  const base = frontendSignupError(err);
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(debug)) {
+    if (v === undefined) continue;
+    qs.set(k, String(v));
+  }
+  const extra = qs.toString();
+  return extra ? `${base}&${extra}` : base;
+};
+
 /* -------------------------
    REDIRECT TO GOOGLE
 -------------------------- */
 export const googleRedirect = (req: Request, res: Response) => {
   const clientId = process.env.GOOGLE_CLIENT_ID || "";
-  if (!clientId) return res.redirect(frontendSignupError("start_failed"));
+  if (!clientId) {
+    return res.redirect(
+      frontendSignupErrorWithDebug("start_failed", {
+        hasGoogleClientId: false,
+        env: process.env.NODE_ENV || "development",
+      })
+    );
+  }
 
   const state = crypto.randomBytes(32).toString("hex");
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI || "";
+  const redirectUri = getGoogleRedirectUri(req);
 
   res.cookie(OAUTH_STATE_COOKIE_NAME, state, getOauthStateCookieOptions(req));
   storeState(state);
