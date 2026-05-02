@@ -43,14 +43,16 @@ setInterval(() => {
 const getIsHttpsRequest = (req: Request) => {
   if (req.secure) return true;
   const forwardedProto = req.headers["x-forwarded-proto"];
-  if (typeof forwardedProto === "string") return forwardedProto.includes("https");
+  if (typeof forwardedProto === "string")
+    return forwardedProto.includes("https");
   if (Array.isArray(forwardedProto))
     return forwardedProto.some((p) => p.includes("https"));
   return false;
 };
 
 const isBrowserNavigation = (req: Request) => {
-  const accept = typeof req.headers.accept === "string" ? req.headers.accept : "";
+  const accept =
+    typeof req.headers.accept === "string" ? req.headers.accept : "";
   const fetchMode =
     typeof req.headers["sec-fetch-mode"] === "string"
       ? req.headers["sec-fetch-mode"]
@@ -82,15 +84,15 @@ const getBaseUrlFromRequest = (req: Request) => {
     typeof protoHeader === "string"
       ? protoHeader.split(",")[0].trim()
       : getIsHttpsRequest(req)
-        ? "https"
-        : "http";
+      ? "https"
+      : "http";
 
   const host =
     typeof hostHeader === "string"
       ? hostHeader.split(",")[0].trim()
       : Array.isArray(hostHeader)
-        ? hostHeader[0]
-        : undefined;
+      ? hostHeader[0]
+      : undefined;
 
   if (!host) return null;
   return `${proto}://${host}`;
@@ -99,12 +101,16 @@ const getBaseUrlFromRequest = (req: Request) => {
 const getGoogleRedirectUri = (req: Request) => {
   if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
   const baseUrl =
-    getBaseUrlFromRequest(req) || process.env.APP_URL || "http://localhost:3000";
+    getBaseUrlFromRequest(req) ||
+    process.env.APP_URL ||
+    "http://localhost:3000";
   return `${String(baseUrl).replace(/\/$/, "")}/api/auth/oauth/google/callback`;
 };
 
 const frontendSignupError = (err: string) =>
-  `${FRONTEND_URL.replace(/\/$/, "")}/signup?oauthError=${encodeURIComponent(err)}`;
+  `${FRONTEND_URL.replace(/\/$/, "")}/signup?oauthError=${encodeURIComponent(
+    err
+  )}`;
 
 /* -------------------------
    REDIRECT TO GOOGLE
@@ -114,7 +120,7 @@ export const googleRedirect = (req: Request, res: Response) => {
   if (!clientId) return res.redirect(frontendSignupError("start_failed"));
 
   const state = crypto.randomBytes(32).toString("hex");
-  const redirectUri = getGoogleRedirectUri(req);
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || "";
 
   res.cookie(OAUTH_STATE_COOKIE_NAME, state, getOauthStateCookieOptions(req));
   storeState(state);
@@ -152,23 +158,27 @@ export const googleCallback = async (
 ) => {
   try {
     if (req.query.error) {
-      if (isBrowserNavigation(req)) return res.redirect(frontendSignupError("oauth_error"));
+      if (isBrowserNavigation(req))
+        return res.redirect(frontendSignupError("oauth_error"));
       return fail(res, "OAuth error", 400, "OAUTH_ERROR");
     }
 
     const code = req.query?.code ? String(req.query.code) : null;
     if (!code) {
-      if (isBrowserNavigation(req)) return res.redirect(frontendSignupError("missing_code"));
+      if (isBrowserNavigation(req))
+        return res.redirect(frontendSignupError("missing_code"));
       return fail(res, "Missing authorization code", 400, "MISSING_CODE");
     }
 
     const stateFromGoogle = req.query.state ? String(req.query.state) : null;
     const cookieState = req.cookies?.[OAUTH_STATE_COOKIE_NAME];
     const cookieOk = !!stateFromGoogle && stateFromGoogle === cookieState;
-    const memoryOk = !!stateFromGoogle && verifyAndConsumeState(stateFromGoogle);
+    const memoryOk =
+      !!stateFromGoogle && verifyAndConsumeState(stateFromGoogle);
 
     if (!cookieOk && !memoryOk) {
-      if (isBrowserNavigation(req)) return res.redirect(frontendSignupError("invalid_state"));
+      if (isBrowserNavigation(req))
+        return res.redirect(frontendSignupError("invalid_state"));
       return fail(res, "Invalid state (CSRF DETECTED)", 400, "INVALID_STATE");
     }
 
@@ -194,7 +204,8 @@ export const googleCallback = async (
       );
     } catch (e) {
       const err = e as AxiosError<any>;
-      if (isBrowserNavigation(req)) return res.redirect(frontendSignupError("token_exchange_failed"));
+      if (isBrowserNavigation(req))
+        return res.redirect(frontendSignupError("token_exchange_failed"));
 
       return res.status(400).json({
         success: false,
@@ -210,7 +221,8 @@ export const googleCallback = async (
 
     const idToken = tokenRes.data?.id_token;
     if (!idToken) {
-      if (isBrowserNavigation(req)) return res.redirect(frontendSignupError("no_id_token"));
+      if (isBrowserNavigation(req))
+        return res.redirect(frontendSignupError("no_id_token"));
       return fail(res, "No id_token returned", 400, "NO_ID_TOKEN");
     }
 
@@ -221,7 +233,8 @@ export const googleCallback = async (
 
     const payload = ticket.getPayload();
     if (!payload || !payload.email) {
-      if (isBrowserNavigation(req)) return res.redirect(frontendSignupError("invalid_token"));
+      if (isBrowserNavigation(req))
+        return res.redirect(frontendSignupError("invalid_token"));
       return fail(res, "Invalid Google token", 400, "INVALID_TOKEN");
     }
 
@@ -234,10 +247,16 @@ export const googleCallback = async (
       emailVerified: !!payload.email_verified,
     });
 
-    res.cookie(REFRESH_COOKIE_NAME, result.refreshToken, REFRESH_COOKIE_OPTIONS);
+    res.cookie(
+      REFRESH_COOKIE_NAME,
+      result.refreshToken,
+      REFRESH_COOKIE_OPTIONS
+    );
 
     if (isBrowserNavigation(req)) {
-      return res.redirect(`${FRONTEND_URL.replace(/\/$/, "")}/signup?oauthSuccess=1`);
+      return res.redirect(
+        `${FRONTEND_URL.replace(/\/$/, "")}/signup?oauthSuccess=1`
+      );
     }
 
     return ok(res, {
