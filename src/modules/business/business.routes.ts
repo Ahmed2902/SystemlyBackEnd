@@ -7,12 +7,21 @@ import {
 } from "../../shared/middleware/auth.middleware";
 import validate from "../../shared/middleware/validate.middleware";
 import {
+  createBusinessSchema,
   publishBusinessSchema,
   slugParamsSchema,
   updateBusinessSchema,
 } from "./business.schema";
 
 const router = Router();
+
+// Auth: create business (first-time setup)
+router.post(
+  "/",
+  requireAuth,
+  validate.validateBody(createBusinessSchema),
+  businessController.create
+);
 
 router.get(
   "/check-slug/:slug",

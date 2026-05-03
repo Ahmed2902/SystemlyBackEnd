@@ -28,7 +28,6 @@ class WebsiteContentService {
       });
     }
     const createData: Prisma.WebsiteContentUncheckedCreateInput = {
-      businessId,
       ...rest,
       ...(sectionOrder !== undefined
         ? { sectionOrder: sectionOrder as Prisma.InputJsonValue }
@@ -41,7 +40,9 @@ class WebsiteContentService {
 const websiteContentService = new WebsiteContentService();
 export default websiteContentService;
 
-export const getByBusinessId =
-  websiteContentService.getByBusinessId.bind(websiteContentService);
-export const upsertByBusinessId =
-  websiteContentService.upsertByBusinessId.bind(websiteContentService);
+export const getByBusinessId = websiteContentService.getByBusinessId.bind(
+  websiteContentService
+);
+export const upsertByBusinessId = websiteContentService.upsertByBusinessId.bind(
+  websiteContentService
+);

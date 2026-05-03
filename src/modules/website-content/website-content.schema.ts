@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const websiteContentSchema = z.object({
+  businessId: z.string(),
   tagline: z.string().optional(),
   aboutText: z.string().optional(),
   template: z.string().optional(),
