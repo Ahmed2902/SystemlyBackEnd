@@ -39,7 +39,9 @@ class BusinessService {
     userRole: string | undefined,
     payload: CreateBusinessInput
   ) {
-    const user = await prisma.businessUser.findUnique({ where: { id: userId } });
+    const user = await prisma.businessUser.findUnique({
+      where: { id: userId },
+    });
     if (!user) throw buildErr("User not found", 404, "NOT_FOUND");
     if (user.businessId) {
       throw buildErr(
@@ -96,6 +98,37 @@ class BusinessService {
     });
 
     return result;
+  }
+
+  async getAllBusinesses() {
+    const businesses = await prisma.business.findMany({
+      include: {
+        websiteContent: true,
+        services: {
+          where: { isActive: true },
+          select: {
+            id: true,
+            name: true,
+            durationMin: true,
+            priceEgp: true,
+            description: true,
+          },
+        },
+        staff: {
+          where: { isActive: true },
+          select: { id: true, name: true, photoUrl: true },
+        },
+        faqs: { orderBy: { displayOrder: "asc" } },
+      },
+    });
+    if (!businesses) {
+      const err: any = new Error("Business not found");
+      err.statusCode = 404;
+      err.code = "NOT_FOUND";
+      throw err;
+    }
+
+    return businesses;
   }
 
   async getPublicBySlug(slug: string) {
@@ -159,14 +192,3 @@ class BusinessService {
 
 const businessService = new BusinessService();
 export default businessService;
-
-export const isSlugTaken = businessService.isSlugTaken.bind(businessService);
-export const createBusinessForUser =
-  businessService.createBusinessForUser.bind(businessService);
-export const getPublicBySlug =
-  businessService.getPublicBySlug.bind(businessService);
-export const updateBusiness =
-  businessService.updateBusiness.bind(businessService);
-export const publishBusiness =
-  businessService.publishBusiness.bind(businessService);
-export const getStats = businessService.getStats.bind(businessService);

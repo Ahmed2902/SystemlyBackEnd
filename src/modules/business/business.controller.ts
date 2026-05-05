@@ -33,6 +33,14 @@ class BusinessController {
     }
   }
 
+  async getAll(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await businessService.getAllBusinesses();
+      return ok(res, data);
+    } catch (err) {
+      return next(err);
+    }
+  }
   async getPublicBySlug(req: Request, res: Response, next: NextFunction) {
     try {
       const slug = String(req.params?.slug);
@@ -60,7 +68,10 @@ class BusinessController {
       const id = String(req.params?.id);
       const parsed = publishBusinessSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
-      const updated = await businessService.publishBusiness(id, parsed.data.isActive);
+      const updated = await businessService.publishBusiness(
+        id,
+        parsed.data.isActive
+      );
       return ok(res, updated);
     } catch (err) {
       return next(err);

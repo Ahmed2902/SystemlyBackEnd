@@ -12,6 +12,8 @@ import { notFoundHandler } from "./src/shared/middleware/notFound.middleware";
 import { errorHandler } from "./src/shared/middleware/errorHandler.middleware";
 import { globalRateLimit } from "./src/shared/middleware/rateLimit.middleware";
 import * as promClient from "prom-client";
+import swaggerUi from "swagger-ui-express";
+import swaggerSpec from "./src/shared/config/swagger.js";
 
 const app: Application = express();
 
@@ -59,7 +61,7 @@ app.get("/", (_req, res) => {
     },
   });
 });
-
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.get("/docs/openapi.json", (_req, res) => {
   const doc = getOpenApiDocument(app, {
     title: "Hgezli API",

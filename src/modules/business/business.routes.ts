@@ -1,5 +1,5 @@
 import { Router } from "express";
-import * as businessService from "./business.service";
+import businessService from "./business.service";
 import businessController from "./business.controller";
 import {
   requireAuth,
