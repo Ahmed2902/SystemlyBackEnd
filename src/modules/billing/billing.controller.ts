@@ -22,13 +22,23 @@ class BillingController {
 
   async webhook(req: Request, res: Response, next: NextFunction) {
     try {
-      const verification = await paymob.verifyWebhook(req.headers as any, req.body);
+      // express.raw() may put a Buffer in req.body for webhook HMAC verification
+      const bodyForVerify = Buffer.isBuffer(req.body)
+        ? req.body.toString("utf8")
+        : JSON.stringify(req.body);
+      const verification = await paymob.verifyWebhook(
+        req.headers as any,
+        bodyForVerify,
+      );
       // eslint-disable-next-line no-console
       console.log("[BillingWebhook] Received payload", verification.payload);
 
       if (verification.verified) {
-        const handled = await billingService.handlePaymobPayload(verification.payload);
-        if (handled && handled.handled) return res.status(200).json({ success: true });
+        const handled = await billingService.handlePaymobPayload(
+          verification.payload,
+        );
+        if (handled && handled.handled)
+          return res.status(200).json({ success: true });
       }
 
       return res.status(200).json({ success: true, handled: false });

@@ -4,6 +4,7 @@ import { ZodError } from "zod";
 type AppError = Error & {
   code?: string;
   details?: unknown;
+  fieldErrors?: Record<string, string>;
   statusCode?: number;
 };
 
@@ -53,11 +54,15 @@ export const errorHandler = (
   }
 
   if (error instanceof ZodError) {
+    const flattened = error.flatten();
     res.status(422).json({
+      ok: false,
       success: false,
+      fieldErrors: flattened.fieldErrors,
+      message: "Validation failed",
       error: "Validation failed",
       code: "VALIDATION_ERROR",
-      details: error.flatten(),
+      details: flattened,
     });
     return;
   }
@@ -66,7 +71,9 @@ export const errorHandler = (
     const prismaError = getPrismaErrorResponse(error);
 
     res.status(prismaError.statusCode).json({
+      ok: false,
       success: false,
+      message: prismaError.message,
       error: prismaError.message,
       code: prismaError.code,
     });
@@ -75,7 +82,9 @@ export const errorHandler = (
 
   if (error instanceof SyntaxError && "body" in error) {
     res.status(400).json({
+      ok: false,
       success: false,
+      message: "Invalid JSON payload.",
       error: "Invalid JSON payload.",
       code: "INVALID_JSON",
     });
@@ -83,9 +92,14 @@ export const errorHandler = (
   }
 
   res.status(error.statusCode || 500).json({
+    ok: false,
     success: false,
+    message: error.message || "Internal server error",
     error: error.message || "Internal server error",
     code: error.code || "INTERNAL_ERROR",
-    ...(process.env.NODE_ENV === "development" ? { details: error.details || error.stack } : {}),
+    ...(error.fieldErrors ? { fieldErrors: error.fieldErrors } : {}),
+    ...(process.env.NODE_ENV === "development"
+      ? { details: error.details || error.stack }
+      : {}),
   });
 };

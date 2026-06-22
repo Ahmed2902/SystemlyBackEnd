@@ -21,7 +21,6 @@ import type {
   VerifyEmailQuery,
 } from "./auth.schema";
 import { Roles } from "@prisma/client";
-import { date } from "zod";
 
 const buildErr = (message: string, statusCode: number, code: string) => {
   const err: any = new Error(message);
@@ -37,7 +36,7 @@ export const register = async (payload: RegisterBody) => {
     throw buildErr(
       "An account with this email already exists",
       409,
-      "EMAIL_TAKEN"
+      "EMAIL_TAKEN",
     );
   }
 
@@ -59,13 +58,13 @@ export const register = async (payload: RegisterBody) => {
   await redis.set(
     `email_verify:${token}`,
     user.email,
-    AUTH_CONSTANTS.EMAIL_TOKEN_TTL_SECONDS
+    AUTH_CONSTANTS.EMAIL_TOKEN_TTL_SECONDS,
   );
 
   setImmediate(() => {
     void emailService.sendVerificationEmail(
       { name: user.name, email: user.email },
-      token
+      token,
     );
   });
 
@@ -79,7 +78,7 @@ export const verifyEmail = async ({ token }: VerifyEmailQuery) => {
     throw buildErr(
       "This verification link is invalid or has expired. Please request a new one.",
       400,
-      "INVALID_TOKEN"
+      "INVALID_TOKEN",
     );
   }
   const user = await prisma.businessUser.findUnique({ where: { email } });
@@ -128,7 +127,7 @@ export const login = async (payload: LoginBody) => {
 
   if (!user.emailVerified) {
     const err: any = new Error(
-      "Please verify your email before logging in. Check your inbox for the verification link."
+      "Please verify your email before logging in. Check your inbox for the verification link.",
     );
     err.statusCode = 403;
     err.code = "EMAIL_NOT_VERIFIED";
@@ -164,7 +163,7 @@ export const login = async (payload: LoginBody) => {
 export const createRefreshToken = async (userId: string) => {
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(
-    Date.now() + AUTH_CONSTANTS.REFRESH_TOKEN_TTL_SECONDS * 1000
+    Date.now() + AUTH_CONSTANTS.REFRESH_TOKEN_TTL_SECONDS * 1000,
   );
   const row = await prisma.refreshToken.create({
     data: { userId, token, expiresAt },
@@ -208,14 +207,14 @@ export const rotateRefreshToken = async (oldToken: string) => {
     throw buildErr(
       "Invalid or expired refresh token",
       401,
-      "INVALID_REFRESH_TOKEN"
+      "INVALID_REFRESH_TOKEN",
     );
   }
   const userId = row.userId;
   // create new
   const newToken = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(
-    Date.now() + AUTH_CONSTANTS.REFRESH_TOKEN_TTL_SECONDS * 1000
+    Date.now() + AUTH_CONSTANTS.REFRESH_TOKEN_TTL_SECONDS * 1000,
   );
   const newRow = await prisma.refreshToken.create({
     data: { userId, token: newToken, expiresAt },
@@ -250,7 +249,7 @@ export const refreshToken = async ({
     throw buildErr(
       "Invalid or expired refresh token",
       401,
-      "INVALID_REFRESH_TOKEN"
+      "INVALID_REFRESH_TOKEN",
     );
   }
   const user = await prisma.businessUser.findUnique({
@@ -277,12 +276,12 @@ export const resendVerificationEmail = async ({ email }: EmailBody) => {
     await redis.set(
       `email_verify:${token}`,
       user.email,
-      AUTH_CONSTANTS.EMAIL_TOKEN_TTL_SECONDS
+      AUTH_CONSTANTS.EMAIL_TOKEN_TTL_SECONDS,
     );
     setImmediate(() => {
       void emailService.sendVerificationEmail(
         { name: user.name, email: user.email },
-        token
+        token,
       );
     });
   }
@@ -297,12 +296,12 @@ export const forgotPassword = async ({ email }: EmailBody) => {
     await redis.set(
       `pwd_reset:${token}`,
       user.id,
-      AUTH_CONSTANTS.PWD_RESET_TTL_SECONDS
+      AUTH_CONSTANTS.PWD_RESET_TTL_SECONDS,
     );
     setImmediate(() => {
       void emailService.sendPasswordResetEmail(
         { name: user.name, email: user.email },
-        token
+        token,
       );
     });
   }
@@ -319,7 +318,7 @@ export const resetPassword = async ({
     throw buildErr(
       "This password reset link is invalid or has expired.",
       400,
-      "INVALID_TOKEN"
+      "INVALID_TOKEN",
     );
   }
   const user = await prisma.businessUser.findUnique({ where: { id: userId } });
@@ -347,7 +346,6 @@ export const oauthSignIn = async ({
   providerId,
   email,
   name,
-  picture,
   emailVerified,
 }: OauthSignInInput) => {
   if (!email) {

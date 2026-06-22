@@ -10,6 +10,8 @@ import photosRoutes from "../modules/photos/photos.routes";
 import bookingRoutes from "../modules/bookings/bookings.routes";
 import appointmentsRoutes from "../modules/appointments/appointments.routes";
 import billingRoutes from "../modules/billing/billing.routes";
+import invoicesRoutes from "../modules/invoices/invoices.routes";
+import websiteSetupRoutes from "../modules/website-setup/website-setup.routes";
 import docsRoutes from "../shared/docs/docs.routes";
 
 const router = Router();
@@ -36,6 +38,8 @@ router.use("/appointments", appointmentsRoutes);
 router.use("/faqs", faqsRoutes);
 router.use("/photos", photosRoutes);
 router.use("/billing", billingRoutes);
+router.use("/invoices", invoicesRoutes);
+router.use("/owner/businesses/:businessId", websiteSetupRoutes);
 router.use("/docs", docsRoutes);
 
 export default router;

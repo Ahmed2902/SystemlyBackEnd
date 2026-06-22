@@ -47,11 +47,13 @@ class PhotosController {
 
   deleteGallery = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      // Placeholder: gallery not implemented yet
-      return ok(res, {
-        message: "NOT_IMPLEMENTED",
-        todo: "Delete gallery photo by id after adding Photo model",
-      });
+      return res
+        .status(501)
+        .json({
+          success: false,
+          error: "Not implemented",
+          code: "PHOTO_MODEL_MISSING",
+        });
     } catch (err) {
       return next(err);
     }

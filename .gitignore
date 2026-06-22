@@ -2,3 +2,4 @@
 .env.example
 /src/generated/prisma
 /dist
+node_modules
