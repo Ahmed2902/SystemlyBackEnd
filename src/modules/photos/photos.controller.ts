@@ -39,24 +39,23 @@ class PhotosController {
       const file = (req as any).file;
       if (!file) return fail(res, "No file uploaded", 400, "BAD_REQUEST");
       const photo = await photosService.uploadGallery(businessId, file);
-      return ok(res, photo);
+      return ok(res, { photo });
     } catch (err) {
       return next(err);
     }
   }
 
-  deleteGallery = async (req: Request, res: Response, next: NextFunction) => {
+  async deleteGallery(req: Request, res: Response, next: NextFunction) {
     try {
-      return res
-        .status(501)
-        .json({
-          success: false,
-          error: "Not implemented",
-          code: "PHOTO_MODEL_MISSING",
-        });
+      const businessId = (req as any).user?.businessId;
+      if (!businessId)
+        return fail(res, "Business id missing", 400, "BAD_REQUEST");
+      const id = String(req.params.id);
+      await photosService.deleteGallery(businessId, id);
+      return ok(res, { success: true });
     } catch (err) {
       return next(err);
     }
-  };
+  }
 }
 export default new PhotosController();

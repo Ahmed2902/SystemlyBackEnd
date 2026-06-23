@@ -1,4 +1,4 @@
-import { Router, raw } from "express";
+import { Router } from "express";
 import billingController from "./billing.controller";
 import {
   requireAuth,
@@ -28,8 +28,7 @@ router.post(
 );
 
 // Webhook endpoint for Paymob (no auth)
-// capture raw body for HMAC verification
-router.use(raw({ type: "application/json" }));
+// NOTE: raw body capture is done in app.ts (registered before app-wide json parser)
 router.post("/webhook", billingController.webhook);
 
 export default router;

@@ -430,6 +430,7 @@ model Photo {
   id         String   @id @default(uuid()) @db.Uuid
   businessId String   @map("business_id") @db.Uuid
   url        String   @db.Text
+  publicId   String?  @map("public_id") @db.VarChar(255)
   kind       String   @db.VarChar(30)
   position   Int      @default(0)
   createdAt  DateTime @default(now()) @map("created_at")

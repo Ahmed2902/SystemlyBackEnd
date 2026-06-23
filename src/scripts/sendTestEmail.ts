@@ -1,5 +1,5 @@
 import "./../../src/shared/config/env";
-import { sendWelcomeEmail } from "../shared/services/email.service";
+import { enqueueWelcomeEmail } from "../shared/services/email.service";
 
 const run = async () => {
   const to = process.env.EMAIL_TEST_RECIPIENT;
@@ -8,13 +8,14 @@ const run = async () => {
     process.exit(1);
   }
 
-  const res = await sendWelcomeEmail({ name: "Test", email: to });
-  if (res.sent) {
-    console.log("Test email sent", res.data);
+  try {
+    await enqueueWelcomeEmail({ name: "Test", email: to });
+    console.log("Enqueued test welcome email");
     process.exit(0);
+  } catch (err) {
+    console.error("Failed to enqueue test email", err);
+    process.exit(1);
   }
-  console.error("Failed to send test email", res.error);
-  process.exit(1);
 };
 
 void run();

@@ -62,7 +62,7 @@ export const register = async (payload: RegisterBody) => {
   );
 
   setImmediate(() => {
-    void emailService.sendVerificationEmail(
+    void emailService.enqueueVerificationEmail(
       { name: user.name, email: user.email },
       token,
     );
@@ -92,7 +92,10 @@ export const verifyEmail = async ({ token }: VerifyEmailQuery) => {
   await redis.del(key);
 
   setImmediate(() => {
-    void emailService.sendWelcomeEmail({ name: user.name, email: user.email });
+    void emailService.enqueueWelcomeEmail({
+      name: user.name,
+      email: user.email,
+    });
   });
 
   const accessToken = signAccessToken({
@@ -279,7 +282,7 @@ export const resendVerificationEmail = async ({ email }: EmailBody) => {
       AUTH_CONSTANTS.EMAIL_TOKEN_TTL_SECONDS,
     );
     setImmediate(() => {
-      void emailService.sendVerificationEmail(
+      void emailService.enqueueVerificationEmail(
         { name: user.name, email: user.email },
         token,
       );
@@ -299,7 +302,7 @@ export const forgotPassword = async ({ email }: EmailBody) => {
       AUTH_CONSTANTS.PWD_RESET_TTL_SECONDS,
     );
     setImmediate(() => {
-      void emailService.sendPasswordResetEmail(
+      void emailService.enqueuePasswordResetEmail(
         { name: user.name, email: user.email },
         token,
       );

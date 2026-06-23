@@ -48,14 +48,14 @@ const sendConfirmationFor = async (appt: any) => {
       // eslint-disable-next-line no-console
       console.log(
         "[ReminderJob] Enqueued confirmation for appointment",
-        appt.id
+        appt.id,
       );
     } catch (err: any) {
       // eslint-disable-next-line no-console
       console.error(
         "[ReminderJob] Failed to enqueue confirmation",
         appt.id,
-        err
+        err,
       );
     }
   } catch (err) {
@@ -67,7 +67,7 @@ const sendConfirmationFor = async (appt: any) => {
 const sendReminderFor = async (
   appt: any,
   whenLabel: string,
-  whenKey: string
+  whenKey: string,
 ) => {
   try {
     if (!appt.customer || !appt.customer.email) return;
@@ -125,7 +125,7 @@ const processCycle = async () => {
     });
 
     await Promise.all(
-      appts24.map((a) => sendReminderFor(a, "24 hours before", "24h"))
+      appts24.map((a) => sendReminderFor(a, "24 hours before", "24h")),
     );
 
     // 2 hours before reminders
@@ -140,7 +140,7 @@ const processCycle = async () => {
     });
 
     await Promise.all(
-      appts2.map((a) => sendReminderFor(a, "2 hours before", "2h"))
+      appts2.map((a) => sendReminderFor(a, "2 hours before", "2h")),
     );
 
     // Morning-of confirmations for PENDING appointments
@@ -167,7 +167,7 @@ const processCycle = async () => {
         console.error(
           "[ReminderJob] Error processing pending appointment",
           a.id,
-          err
+          err,
         );
       }
     }
@@ -187,7 +187,7 @@ const register = () => {
   console.log(
     "[ReminderJob] Registered - runs every",
     INTERVAL_MINUTES,
-    "minutes"
+    "minutes",
   );
 };
 

@@ -1,8 +1,8 @@
 import { prisma } from "../../shared/db/prisma";
 import {
-  sendTrialStartedEmail,
-  sendSubscriptionActivatedEmail,
-  sendSubscriptionPaymentFailedEmail,
+  enqueueTrialStartedEmail,
+  enqueueSubscriptionActivatedEmail,
+  enqueueSubscriptionPaymentFailedEmail,
 } from "../../shared/services/email.service";
 import paymob from "./paymob";
 
@@ -12,7 +12,8 @@ class BillingService {
   async startTrial(businessId: string, planId?: string) {
     let plan = null as any;
     if (planId) plan = await prisma.plan.findUnique({ where: { id: planId } });
-    if (!plan) plan = await prisma.plan.findFirst({ where: { name: "Starter" } });
+    if (!plan)
+      plan = await prisma.plan.findFirst({ where: { name: "Starter" } });
     if (!plan) throw new Error("Plan not found");
 
     const now = new Date();
@@ -30,7 +31,7 @@ class BillingService {
 
     const user = await prisma.businessUser.findFirst({ where: { businessId } });
     if (user && user.email) {
-      void sendTrialStartedEmail(
+      void enqueueTrialStartedEmail(
         { name: user.name, email: user.email },
         {
           businessName:
@@ -38,7 +39,7 @@ class BillingService {
               ?.name || "",
           planName: plan.name,
           trialEnd: periodEnd.toISOString(),
-        }
+        },
       );
     }
 
@@ -52,7 +53,8 @@ class BillingService {
   async createCheckout(businessId: string, planId?: string) {
     let plan = null as any;
     if (planId) plan = await prisma.plan.findUnique({ where: { id: planId } });
-    if (!plan) plan = await prisma.plan.findFirst({ where: { name: "Starter" } });
+    if (!plan)
+      plan = await prisma.plan.findFirst({ where: { name: "Starter" } });
     if (!plan) throw new Error("Plan not found");
 
     const amountCents = Math.round(Number(plan.priceEgp) * 100);
@@ -77,7 +79,7 @@ class BillingService {
     const order = await paymob.createPaymobOrder(
       amountCents,
       "EGP",
-      `Subscription ${plan.name} for ${businessId}`
+      `Subscription ${plan.name} for ${businessId}`,
     );
 
     await prisma.subscription.update({
@@ -106,7 +108,7 @@ class BillingService {
       const paymentKey = await paymob.createPaymentKey(
         order.orderId,
         amountCents,
-        billingData as any
+        billingData as any,
       );
 
       return { subscription: sub, payment: { ...order, paymentKey } };
@@ -160,13 +162,13 @@ class BillingService {
         const planObj = sub.planId
           ? await prisma.plan.findUnique({ where: { id: sub.planId } })
           : null;
-        void sendSubscriptionActivatedEmail(
+        void enqueueSubscriptionActivatedEmail(
           { name: user.name, email: user.email },
           {
             businessName: business?.name || "",
             planName: planObj?.name || "",
             periodEnd: periodEnd.toISOString(),
-          }
+          },
         );
       }
       return { handled: true };
@@ -191,9 +193,9 @@ class BillingService {
         const planObj = sub.planId
           ? await prisma.plan.findUnique({ where: { id: sub.planId } })
           : null;
-        void sendSubscriptionPaymentFailedEmail(
+        void enqueueSubscriptionPaymentFailedEmail(
           { name: user.name, email: user.email },
-          { businessName: business?.name || "", planName: planObj?.name || "" }
+          { businessName: business?.name || "", planName: planObj?.name || "" },
         );
       }
       return { handled: true };

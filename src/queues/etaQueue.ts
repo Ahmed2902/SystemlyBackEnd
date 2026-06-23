@@ -1,34 +1,40 @@
-import IORedis from "ioredis";
-import { Queue, QueueScheduler } from "bullmq";
+import { makeWorkerUtils, WorkerUtils } from "graphile-worker";
 
-const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
+let workerUtils: WorkerUtils | null = null;
 
-const connection = new IORedis(REDIS_URL);
+async function getWorkerUtils() {
+  if (!workerUtils) {
+    workerUtils = await makeWorkerUtils({
+      connectionString:
+        process.env.DATABASE_URL || process.env.DATABASE_URL_LOCAL!,
+    });
+  }
 
-const scheduler = new QueueScheduler("etaReceiptQueue", { connection });
-
-export const etaQueue = new Queue("etaReceiptQueue", { connection });
+  return workerUtils;
+}
 
 export const enqueueEtaJob = async (
   invoiceId: string,
   opts: Record<string, any> = {},
 ) => {
-  return etaQueue.add(
-    "eta_receipt",
-    { invoiceId },
-    {
-      attempts: opts.attempts ?? 5,
-      backoff: opts.backoff ?? { type: "exponential", delay: 60 * 1000 },
-      removeOnComplete: opts.removeOnComplete ?? true,
-      removeOnFail: opts.removeOnFail ?? false,
-      delay: opts.delay ?? 0,
-    },
-  );
+  const utils = await getWorkerUtils();
+
+  const jobOptions: any = {};
+
+  if (opts.attempts) {
+    jobOptions.maxAttempts = opts.attempts;
+  }
+
+  if (typeof opts.delay === "number") {
+    jobOptions.runAt = new Date(Date.now() + opts.delay);
+  }
+
+  return utils.addJob("eta_receipt", { invoiceId }, jobOptions);
 };
 
 export const initEtaQueue = async () => {
-  await scheduler.waitUntilReady();
-  return { scheduler, queue: etaQueue };
+  await getWorkerUtils(); // warm up connection pool
+  return { init: true };
 };
 
-export default { etaQueue, enqueueEtaJob, initEtaQueue };
+export default { enqueueEtaJob, initEtaQueue };

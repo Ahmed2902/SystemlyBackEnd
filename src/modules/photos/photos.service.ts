@@ -21,19 +21,55 @@ export const uploadCover = async (businessId: string, file: any) => {
 
 // Gallery endpoints require a Photo model to persist items. For now return TODO.
 export const uploadGallery = async (_businessId: string, _file: any) => {
-  // TODO: implement gallery model and persist uploaded urls
-  return {
-    message: "NOT_IMPLEMENTED",
-    todo: "Add Photo model and persist gallery entries",
-  };
+  const businessId = _businessId;
+  const file = _file;
+  const upload = await cloudinary.uploadFile(file.path || file.buffer || file);
+
+  // compute position as next available
+  const count = await prisma.photo.count({ where: { businessId } });
+
+  const created = await prisma.photo.create({
+    data: {
+      businessId,
+      url: upload.url,
+      kind: "gallery",
+      position: count + 1,
+      // store public id if available (schema may include publicId)
+      ...(upload.publicId ? { publicId: upload.publicId } : {}),
+    },
+  });
+
+  return created;
 };
 
-export const deleteGallery = async (_id: string) => {
-  // TODO: implement deletion once Photo model exists
-  return {
-    message: "NOT_IMPLEMENTED",
-    todo: "Delete gallery photo by id after adding Photo model",
-  };
+export const deleteGallery = async (businessId: string, id: string) => {
+  const photo = await prisma.photo.findUnique({ where: { id } });
+  if (!photo) {
+    const err: any = new Error("Photo not found");
+    err.statusCode = 404;
+    err.code = "NOT_FOUND";
+    throw err;
+  }
+  if (photo.businessId !== businessId) {
+    const err: any = new Error("Photo does not belong to this business");
+    err.statusCode = 403;
+    err.code = "FORBIDDEN";
+    throw err;
+  }
+
+  // Attempt Cloudinary cleanup if publicId present
+  try {
+    if ((photo as any).publicId) {
+      await cloudinary.deleteFile((photo as any).publicId);
+    }
+  } catch (e) {
+    // log and continue — we still delete DB row
+    // eslint-disable-next-line no-console
+    console.log("[Photos] Cloudinary delete failed", e);
+  }
+
+  await prisma.photo.delete({ where: { id } });
+  return { success: true };
 };
 
 export default { uploadLogo, uploadCover, uploadGallery, deleteGallery };

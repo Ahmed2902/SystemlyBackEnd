@@ -1,6 +1,6 @@
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import express, { Application } from "express";
+import express, { Application, raw } from "express";
 import helmet from "helmet";
 import routes from "./src/routes";
 import { APP_CONFIG } from "./src/shared/config/config";
@@ -16,6 +16,23 @@ import swaggerUi from "swagger-ui-express";
 import swaggerSpec from "./src/shared/config/swagger.js";
 
 const app: Application = express();
+
+// Paymob webhook: must capture raw bytes for HMAC verification.
+// Register this route BEFORE the app-wide JSON/body parsers so the
+// billing controller can compute HMAC against the original bytes.
+// Dynamically import the billing controller to avoid module load order issues.
+// The billing controller's `webhook` method expects (req,res,next).
+// Route is mounted at the full API path used by routes: /api/billing/webhook
+// (routes later mount billing routes at /api/billing).
+// This ensures compatibility with deployed webhook signer expectations.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const billingController = require("./src/modules/billing/billing.controller").default;
+
+app.post(
+  "/api/billing/webhook",
+  raw({ type: "application/json" }),
+  (req, res, next) => billingController.webhook(req, res, next),
+);
 
 const allowedOrigins = APP_CONFIG.corsOrigins;
 
