@@ -1,17 +1,4 @@
-import { makeWorkerUtils, WorkerUtils } from "graphile-worker";
-
-let workerUtils: WorkerUtils | null = null;
-
-async function getWorkerUtils() {
-  if (!workerUtils) {
-    workerUtils = await makeWorkerUtils({
-      connectionString:
-        process.env.DATABASE_URL || process.env.DATABASE_URL_LOCAL!,
-    });
-  }
-
-  return workerUtils;
-}
+import { getWorkerUtils } from "./queue";
 
 export const enqueueEtaJob = async (
   invoiceId: string,

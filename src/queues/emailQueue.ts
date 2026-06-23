@@ -1,6 +1,6 @@
-import { makeWorkerUtils, WorkerUtils } from "graphile-worker";
 import crypto from "crypto";
 import { prisma } from "../shared/db/prisma";
+import { getWorkerUtils } from "./queue";
 
 type EmailJobPayload = {
   type:
@@ -16,19 +16,6 @@ type EmailJobPayload = {
   tenantId?: string | number | null;
   idempotencyKey?: string;
 };
-
-let workerUtils: WorkerUtils | null = null;
-
-async function getWorkerUtils() {
-  if (!workerUtils) {
-    workerUtils = await makeWorkerUtils({
-      connectionString:
-        process.env.DATABASE_URL || process.env.DATABASE_URL_LOCAL!,
-    });
-  }
-
-  return workerUtils;
-}
 
 /**
  * Enqueue a single canonical `send_email` job with structured payload.

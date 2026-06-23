@@ -1,21 +1,4 @@
-// This module now only exposes email template helpers and enqueue helpers.
-// Actual sending is handled exclusively by Graphile Worker `send_email` task.
-import {
-  verificationEmail,
-  welcomeEmail,
-  passwordResetEmail,
-  appointmentConfirmationEmail,
-  appointmentReminderEmail,
-  staffInviteEmail,
-  trialStartedEmail,
-  trialEndingEmail,
-  trialExpiredEmail,
-  subscriptionActivatedEmail,
-  subscriptionPaymentFailedEmail,
-} from "../utils/email.templates";
-
 import { enqueueSendEmail } from "../../queues/emailQueue";
-import { EMAIL } from "../config/config";
 
 export const makeVerificationPayload = (
   user: { name: string; email: string },

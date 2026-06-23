@@ -380,7 +380,6 @@ enum InvoiceStatus {
   sent
   paid
   voided
-  overdue
 }
 
 model Invoice {
@@ -396,7 +395,6 @@ model Invoice {
   currency        String        @default("EGP") @db.VarChar(10)
   notes           String?       @db.Text
   issuedAt        DateTime      @default(now()) @map("issued_at")
-  dueAt           DateTime?     @map("due_at")
   paidAt          DateTime?     @map("paid_at")
   voidedAt        DateTime?     @map("voided_at")
   etaReceiptUid   String?       @map("eta_receipt_uid") @db.VarChar(255)

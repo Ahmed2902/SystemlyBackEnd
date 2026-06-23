@@ -1,9 +1,18 @@
 import { prisma } from "../../shared/db/prisma";
-import { AppointmentStatus, CommissionType, InvoiceStatus } from "@prisma/client";
-import { triggerEtaReceipt } from "../../jobs/etaReceipt.job";
+import {
+  AppointmentStatus,
+  CommissionType,
+  InvoiceStatus,
+} from "@prisma/client";
+// ETA receipt submission is enqueued via Graphile Worker
 import loyaltyService from "../loyalty/loyalty.service";
+import { enqueueEtaJob } from "../../queues/etaQueue";
 
-const buildErr = (message: string, statusCode: number, code = "BAD_REQUEST") => {
+const buildErr = (
+  message: string,
+  statusCode: number,
+  code = "BAD_REQUEST",
+) => {
   const err: any = new Error(message);
   err.statusCode = statusCode;
   err.code = code;
@@ -37,7 +46,11 @@ class InvoicesService {
 
     if (existing) {
       if (existing.businessId !== businessId) {
-        throw buildErr("Appointment does not belong to this business", 403, "FORBIDDEN");
+        throw buildErr(
+          "Appointment does not belong to this business",
+          403,
+          "FORBIDDEN",
+        );
       }
       return existing;
     }
@@ -51,7 +64,11 @@ class InvoicesService {
       throw buildErr("Appointment not found", 404, "NOT_FOUND");
     }
     if (appointment.businessId !== businessId) {
-      throw buildErr("Appointment does not belong to this business", 403, "FORBIDDEN");
+      throw buildErr(
+        "Appointment does not belong to this business",
+        403,
+        "FORBIDDEN",
+      );
     }
     if (
       appointment.status !== AppointmentStatus.confirmed &&
@@ -161,7 +178,11 @@ class InvoicesService {
         throw buildErr("Invoice not found", 404, "NOT_FOUND");
       }
       if (invoice.businessId !== businessId) {
-        throw buildErr("Invoice does not belong to this business", 403, "FORBIDDEN");
+        throw buildErr(
+          "Invoice does not belong to this business",
+          403,
+          "FORBIDDEN",
+        );
       }
       if (invoice.status === InvoiceStatus.paid) {
         return invoice;
@@ -177,7 +198,7 @@ class InvoicesService {
       throw buildErr("Invoice not found", 404, "NOT_FOUND");
     }
 
-    triggerEtaReceipt(updated).catch((err) =>
+    await enqueueEtaJob(invoiceId).catch((err) =>
       console.error("[Invoices] ETA trigger failed:", err),
     );
 
@@ -202,13 +223,21 @@ class InvoicesService {
       throw buildErr("Invoice not found", 404, "NOT_FOUND");
     }
     if (invoice.businessId !== businessId) {
-      throw buildErr("Invoice does not belong to this business", 403, "FORBIDDEN");
+      throw buildErr(
+        "Invoice does not belong to this business",
+        403,
+        "FORBIDDEN",
+      );
     }
     if (invoice.status === InvoiceStatus.voided) {
       throw buildErr("Invoice is already refunded", 400, "INVALID_STATE");
     }
     if (invoice.status !== InvoiceStatus.paid) {
-      throw buildErr("Only paid invoices can be refunded", 400, "INVALID_STATE");
+      throw buildErr(
+        "Only paid invoices can be refunded",
+        400,
+        "INVALID_STATE",
+      );
     }
 
     const refundAt = new Date();

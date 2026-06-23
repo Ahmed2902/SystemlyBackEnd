@@ -18,7 +18,9 @@ belongs in services.
 - All currency fields: Decimal @db.Decimal(10, 2), suffixed Egp
   (e.g. totalEgp, priceEgp). Never use Float for money.
 - Payment model: CASH ONLY between client and business. Do not add
-  payment gateway fields to Invoice for client-facing payments.
+  payment gateway fields to Invoice for client-facing payments. ALL customer-facing
+  payments are Cash On Delivery (COD). Do NOT call or attach payment gateway
+  metadata to `Invoice` or `InvoiceLineItem` for customer charges.
   Subscription.paymobSubscriptionId is the only real gateway integration
   and it covers business-to-Hgezli billing only.
 - Invoice.status lifecycle is: draft -> issued -> paid (or void).

@@ -424,7 +424,10 @@ curl -X POST "${BASE}/photos/logo" -H "Authorization: Bearer <ACCESS_TOKEN>" -F 
   - Body: `{ "businessId":"<uuid>","planId":"<uuid>" }` → starts a trial
 
 - POST /billing/checkout
-  - Body same as trial → returns `{ data: { payment, subscription } }` and is used to trigger Paymob checkout flow
+  - Body same as trial → returns `{ data: { payment, subscription } }`. NOTE: This endpoint
+    is used for Hgezli subscription billing (business owners paying Hgezli). All customer-facing
+    payments (invoices created via `/invoices/checkout`) are Cash On Delivery (COD) and do not
+    integrate with payment gateways.
 
 - POST /billing/webhook
   - Webhook endpoint used by Paymob. No auth — server verifies signature. Frontend does not call this.
