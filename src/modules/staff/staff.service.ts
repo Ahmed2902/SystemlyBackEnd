@@ -1,10 +1,12 @@
 import { prisma } from "../../shared/db/prisma";
 import crypto from "crypto";
 import { enqueueEmailJob } from "../../queues/emailQueue";
-import { Roles } from "@prisma/client";
+import { Prisma, Roles, CommissionType } from "@prisma/client";
 import type {
   StaffCreateInput,
   StaffUpdateInput,
+  AssignServiceInput,
+  UpdateServiceStaffInput,
   AvailabilityEntry,
   AvailabilityOverrideInput,
   StaffListResult,
@@ -21,7 +23,7 @@ class StaffService {
   async listByBusiness(
     businessId: string,
     page = 1,
-    perPage = 20
+    perPage = 20,
   ): Promise<StaffListResult> {
     const where = { businessId } as any;
     const skip = (page - 1) * perPage;
@@ -31,6 +33,15 @@ class StaffService {
         skip,
         take: perPage,
         orderBy: { updatedAt: "desc" },
+        include: {
+          serviceStaff: {
+            include: {
+              service: {
+                select: { id: true, name: true, priceEgp: true },
+              },
+            },
+          },
+        },
       }),
       prisma.staff.count({ where }),
     ]);
@@ -52,15 +63,64 @@ class StaffService {
     return { success: true };
   }
 
-  async assignService(staffId: string, serviceId: string) {
+  async assignService(staffId: string, payload: AssignServiceInput) {
     return prisma.serviceStaff.create({
-      data: { staffId, serviceId },
+      data: {
+        staffId,
+        serviceId: payload.serviceId,
+        commissionType: payload.commissionType,
+        commissionAmount: payload.commissionAmount,
+      },
+      include: {
+        service: {
+          select: { id: true, name: true, priceEgp: true },
+        },
+        staff: {
+          select: { id: true, name: true },
+        },
+      },
+    });
+  }
+
+  async updateServiceStaff(
+    staffId: string,
+    serviceId: string,
+    payload: UpdateServiceStaffInput,
+  ) {
+    return prisma.serviceStaff.update({
+      where: { serviceId_staffId: { serviceId, staffId } },
+      data: {
+        commissionType: payload.commissionType,
+        commissionAmount: payload.commissionAmount,
+      },
+      include: {
+        service: {
+          select: { id: true, name: true, priceEgp: true },
+        },
+        staff: {
+          select: { id: true, name: true },
+        },
+      },
     });
   }
 
   async unassignService(staffId: string, serviceId: string) {
     return prisma.serviceStaff.delete({
       where: { serviceId_staffId: { serviceId, staffId } },
+    });
+  }
+
+  async getServiceStaff(staffId: string, serviceId: string) {
+    return prisma.serviceStaff.findUnique({
+      where: { serviceId_staffId: { serviceId, staffId } },
+      include: {
+        service: {
+          select: { id: true, name: true, priceEgp: true },
+        },
+        staff: {
+          select: { id: true, name: true },
+        },
+      },
     });
   }
 
@@ -106,12 +166,12 @@ class StaffService {
     email: string,
     role: Roles | string,
     inviterId?: string,
-    expiresInDays = 7
+    expiresInDays = 7,
   ) {
     const token = crypto.randomBytes(32).toString("hex");
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const expiresAt = new Date(
-      Date.now() + expiresInDays * 24 * 60 * 60 * 1000
+      Date.now() + expiresInDays * 24 * 60 * 60 * 1000,
     );
 
     const invite = await prisma.staffInvite.create({
@@ -145,26 +205,30 @@ class StaffService {
 
   async acceptInvite(token: string, userId: string) {
     const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-    const invite = await prisma.staffInvite.findUnique({ where: { tokenHash } });
+    const invite = await prisma.staffInvite.findUnique({
+      where: { tokenHash },
+    });
     if (!invite) throw buildErr("Invalid invite token", 400, "INVALID_INVITE");
     if (invite.expiresAt.getTime() < Date.now())
       throw buildErr("Invite expired", 400, "INVITE_EXPIRED");
     if (invite.acceptedAt)
       throw buildErr("Invite already used", 400, "INVITE_ALREADY_USED");
 
-    const user = await prisma.businessUser.findUnique({ where: { id: userId } });
+    const user = await prisma.businessUser.findUnique({
+      where: { id: userId },
+    });
     if (!user) throw buildErr("User not found", 404, "NOT_FOUND");
     if (!user.email || user.email !== invite.email)
       throw buildErr(
         "Logged-in user email does not match invite email",
         403,
-        "INVITE_EMAIL_MISMATCH"
+        "INVITE_EMAIL_MISMATCH",
       );
     if (user.businessId && user.businessId !== invite.businessId)
       throw buildErr(
         "User already belongs to another business",
         403,
-        "USER_BUSINESS_MISMATCH"
+        "USER_BUSINESS_MISMATCH",
       );
 
     await prisma.businessUser.update({
@@ -188,6 +252,122 @@ class StaffService {
 
     return { staff, userId: user.id };
   }
+
+  async getCommission(
+    staffId: string,
+    businessId: string,
+    from?: string,
+    to?: string,
+  ) {
+    const staff = await prisma.staff.findUnique({
+      where: { id: staffId },
+    });
+
+    if (!staff) throw buildErr("Staff not found", 404, "NOT_FOUND");
+
+    if (staff.businessId !== businessId)
+      throw buildErr(
+        "Staff does not belong to this business",
+        403,
+        "FORBIDDEN",
+      );
+
+    const where: Prisma.InvoiceLineItemWhereInput = {
+      staffId,
+      invoice: {
+        is: {
+          businessId,
+          status: "paid",
+          appointment: {
+            is: {
+              status: "completed",
+            },
+          },
+        },
+      } as any,
+    };
+
+    if (from || to) {
+      (where.invoice as any) = {
+        ...(where.invoice as any),
+        is: {
+          ...((where.invoice as any)?.is ?? {}),
+          paidAt: {
+            ...(from && { gte: new Date(from) }),
+            ...(to && { lte: new Date(to) }),
+          },
+        },
+      };
+    }
+
+    const lineItems = await prisma.invoiceLineItem.findMany({
+      where,
+      orderBy: {
+        invoice: {
+          paidAt: "desc",
+        },
+      },
+      select: {
+        id: true,
+        description: true,
+        totalCents: true,
+        commissionType: true,
+        commissionAmount: true,
+        commissionEarnedCents: true,
+
+        invoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            paidAt: true,
+          },
+        },
+
+        service: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    const totalSalesCents = lineItems.reduce(
+      (sum, item) => sum + item.totalCents,
+      0,
+    );
+
+    const totalCommissionCents = lineItems.reduce(
+      (sum, item) => sum + (item.commissionEarnedCents ?? 0),
+      0,
+    );
+
+    return {
+      staffId,
+
+      totalSalesCents,
+
+      totalCommissionCents,
+
+      lineItems: lineItems.map((item) => ({
+        invoiceId: item.invoice.id,
+        invoiceNumber: item.invoice.invoiceNumber,
+        paidAt: item.invoice.paidAt,
+
+        serviceId: item.service?.id,
+        serviceName: item.service?.name,
+
+        description: item.description,
+
+        totalCents: item.totalCents,
+
+        commissionType: item.commissionType,
+        commissionAmount: item.commissionAmount,
+
+        commissionEarnedCents: item.commissionEarnedCents,
+      })),
+    };
+  }
 }
 
 const staffService = new StaffService();
@@ -199,6 +379,9 @@ export const updateStaff = staffService.updateStaff.bind(staffService);
 export const deleteStaff = staffService.deleteStaff.bind(staffService);
 export const assignService = staffService.assignService.bind(staffService);
 export const unassignService = staffService.unassignService.bind(staffService);
+export const updateServiceStaff =
+  staffService.updateServiceStaff.bind(staffService);
+export const getServiceStaff = staffService.getServiceStaff.bind(staffService);
 export const getAvailability = staffService.getAvailability.bind(staffService);
 export const replaceAvailability =
   staffService.replaceAvailability.bind(staffService);
@@ -206,3 +389,4 @@ export const addOverride = staffService.addOverride.bind(staffService);
 export const deleteOverride = staffService.deleteOverride.bind(staffService);
 export const createInvite = staffService.createInvite.bind(staffService);
 export const acceptInvite = staffService.acceptInvite.bind(staffService);
+export const getCommission = staffService.getCommission.bind(staffService);

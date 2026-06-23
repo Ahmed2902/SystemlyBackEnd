@@ -1,10 +1,7 @@
 import cron from "node-cron";
 import dayjs from "dayjs";
 import { prisma } from "../shared/db/prisma";
-import {
-  sendTrialEndingEmail,
-  sendTrialExpiredEmail,
-} from "../shared/services/email.service";
+import { enqueueTrialExpiredEmail } from "../shared/services/email.service";
 
 const INTERVAL_HOURS = 1; // run hourly to pick up near-expiry trials
 
@@ -29,17 +26,16 @@ const processCycle = async () => {
           where: { businessId: s.businessId },
         });
         if (user && user.email) {
-          await sendTrialEndingEmail(
+          await enqueueTrialExpiredEmail(
             { name: user.name, email: user.email },
             {
               businessName: s.business?.name || "",
               planName:
-                (
-                  await prisma.plan.findUnique({ where: { id: s.planId } })
-                )?.name || "",
+                (await prisma.plan.findUnique({ where: { id: s.planId } }))
+                  ?.name || "",
               trialEnd: s.currentPeriodEnd.toISOString(),
               daysLeft: 3,
-            }
+            },
           );
         }
         await prisma.subscription.update({
@@ -52,7 +48,7 @@ const processCycle = async () => {
         console.error(
           "[SubscriptionJob] Error notifying 3-day trial for",
           s.id,
-          err
+          err,
         );
       }
     }
@@ -74,17 +70,16 @@ const processCycle = async () => {
           where: { businessId: s.businessId },
         });
         if (user && user.email) {
-          await sendTrialEndingEmail(
+          await enqueueTrialExpiredEmail(
             { name: user.name, email: user.email },
             {
               businessName: s.business?.name || "",
               planName:
-                (
-                  await prisma.plan.findUnique({ where: { id: s.planId } })
-                )?.name || "",
+                (await prisma.plan.findUnique({ where: { id: s.planId } }))
+                  ?.name || "",
               trialEnd: s.currentPeriodEnd.toISOString(),
               daysLeft: 1,
-            }
+            },
           );
         }
         await prisma.subscription.update({
@@ -96,7 +91,7 @@ const processCycle = async () => {
         console.error(
           "[SubscriptionJob] Error notifying 1-day trial for",
           s.id,
-          err
+          err,
         );
       }
     }
@@ -117,16 +112,15 @@ const processCycle = async () => {
           where: { businessId: s.businessId },
         });
         if (user && user.email) {
-          await sendTrialExpiredEmail(
+          await enqueueTrialExpiredEmail(
             { name: user.name, email: user.email },
             {
               businessName: s.business?.name || "",
               planName:
-                (
-                  await prisma.plan.findUnique({ where: { id: s.planId } })
-                )?.name || "",
+                (await prisma.plan.findUnique({ where: { id: s.planId } }))
+                  ?.name || "",
               expiredAt: s.currentPeriodEnd.toISOString(),
-            }
+            },
           );
         }
         await prisma.subscription.update({
@@ -138,7 +132,7 @@ const processCycle = async () => {
         console.error(
           "[SubscriptionJob] Error handling expired trial for",
           s.id,
-          err
+          err,
         );
       }
     }
@@ -158,7 +152,7 @@ const register = () => {
   console.log(
     "[SubscriptionJob] Registered - runs every",
     INTERVAL_HOURS,
-    "hour(s)"
+    "hour(s)",
   );
 };
 

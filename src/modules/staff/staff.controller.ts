@@ -4,6 +4,8 @@ import { ok, fail } from "../../shared/utils/response.util";
 import {
   createStaffSchema,
   updateStaffSchema,
+  assignServiceSchema,
+  updateServiceStaffSchema,
   replaceAvailabilitySchema,
   overridesSchema,
   createInviteSchema,
@@ -61,9 +63,44 @@ class StaffController {
 
   async assignServices(req: Request, res: Response, next: NextFunction) {
     try {
-      const id = String(req.params?.id);
-      const { serviceId } = req.body;
-      const row = await staffService.assignService(id, serviceId);
+      const staffId = String(req.params?.id);
+      const parsed = assignServiceSchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      const row = await staffService.assignService(staffId, parsed.data);
+      return ok(res, row);
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async updateServiceCommission(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
+    try {
+      const staffId = String(req.params?.id);
+      const serviceId = String(req.params?.serviceId);
+      const parsed = updateServiceStaffSchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      const row = await staffService.updateServiceStaff(
+        staffId,
+        serviceId,
+        parsed.data,
+      );
+      return ok(res, row);
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async getServiceStaff(req: Request, res: Response, next: NextFunction) {
+    try {
+      const staffId = String(req.params?.id);
+      const serviceId = String(req.params?.serviceId);
+      const row = await staffService.getServiceStaff(staffId, serviceId);
+      if (!row)
+        return fail(res, "Service-staff relation not found", 404, "NOT_FOUND");
       return ok(res, row);
     } catch (err) {
       return next(err);
@@ -72,9 +109,9 @@ class StaffController {
 
   async unassignService(req: Request, res: Response, next: NextFunction) {
     try {
-      const id = String(req.params?.id);
+      const staffId = String(req.params?.id);
       const serviceId = String(req.params?.serviceId);
-      const row = await staffService.unassignService(id, serviceId);
+      const row = await staffService.unassignService(staffId, serviceId);
       return ok(res, row);
     } catch (err) {
       return next(err);
@@ -96,7 +133,10 @@ class StaffController {
       const id = String(req.params?.id);
       const arrayParsed = replaceAvailabilitySchema.safeParse(req.body);
       if (!arrayParsed.success) return next(arrayParsed.error);
-      const result = await staffService.replaceAvailability(id, arrayParsed.data);
+      const result = await staffService.replaceAvailability(
+        id,
+        arrayParsed.data,
+      );
       return ok(res, result);
     } catch (err) {
       return next(err);
@@ -138,7 +178,7 @@ class StaffController {
         parsed.data.email,
         parsed.data.role,
         inviterId,
-        parsed.data.expiresInDays
+        parsed.data.expiresInDays,
       );
       return ok(res, result);
     } catch (err) {
@@ -154,6 +194,22 @@ class StaffController {
       if (!userId) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
       const result = await staffService.acceptInvite(parsed.data.token, userId);
       return ok(res, result);
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async getCommission(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = (req as any).user?.businessId;
+      if (!businessId)
+        return fail(res, "Business id missing", 400, "BAD_REQUEST");
+
+      const id = String(req.params?.id);
+      const from = req.query.from as string | undefined;
+      const to = req.query.to as string | undefined;
+      const data = await staffService.getCommission(id, businessId, from, to);
+      return ok(res, data);
     } catch (err) {
       return next(err);
     }

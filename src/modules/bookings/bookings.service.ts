@@ -13,7 +13,7 @@ dayjs.extend(timezone);
 
 const CANCEL_TTL_DAYS = parseInt(
   process.env.BOOKING_CANCEL_TTL_DAYS || "30",
-  10
+  10,
 );
 
 class BookingsService {
@@ -103,7 +103,7 @@ class BookingsService {
     const map: Record<string, Slot> = {};
     for (const s of allSlots) map[s.time] = s;
     const uniq = Object.values(map).sort(
-      (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime()
+      (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
     );
     return uniq;
   }
@@ -213,7 +213,7 @@ class BookingsService {
 
       if (conflict) {
         const err: any = new Error(
-          "This slot was just taken. Please pick another time."
+          "This slot was just taken. Please pick another time.",
         );
         err.statusCode = 409;
         err.code = "SLOT_TAKEN";
@@ -223,7 +223,7 @@ class BookingsService {
       const customer = await upsertCustomer(
         businessId,
         payload.customerPhone,
-        payload.customerName
+        payload.customerName,
       );
 
       const appt = await tx.appointment.create({
@@ -245,4 +245,6 @@ class BookingsService {
   }
 }
 
-export default new BookingsService();
+const bookingsService = new BookingsService();
+
+export default bookingsService;

@@ -1,4 +1,4 @@
-import { createBooking } from "../src/modules/bookings/bookings.service";
+import bookingsService from "../src/modules/bookings/bookings.service";
 import { prisma } from "../src/shared/db/prisma";
 
 describe("booking integration (mocked prisma)", () => {
@@ -48,7 +48,7 @@ describe("booking integration (mocked prisma)", () => {
       customerPhone: "+2012345",
     };
 
-    const res = await createBooking(payload as any);
+    const res = await bookingsService.createBooking(payload as any);
     expect(res).toHaveProperty("appointment");
     expect(res).toHaveProperty("customer");
   });
@@ -86,7 +86,9 @@ describe("booking integration (mocked prisma)", () => {
       customerPhone: "+2012345",
     };
 
-    await expect(createBooking(payload as any)).rejects.toMatchObject({
+    await expect(
+      bookingsService.createBooking(payload as any),
+    ).rejects.toMatchObject({
       code: "SLOT_TAKEN",
     });
   });

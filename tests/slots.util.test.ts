@@ -8,6 +8,7 @@ describe("generateSlots", () => {
       endTime: "17:00",
       durationMin: 45,
       breakAfterMin: 0,
+      now: "2026-04-19T00:00:00Z",
       bookedSlots: [
         { starts_at: "2026-04-20T10:00:00Z", ends_at: "2026-04-20T10:30:00Z" },
         { starts_at: "2026-04-20T13:00:00Z", ends_at: "2026-04-20T14:00:00Z" },

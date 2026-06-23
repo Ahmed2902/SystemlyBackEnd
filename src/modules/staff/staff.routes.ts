@@ -8,6 +8,8 @@ import {
 import validate from "../../shared/middleware/validate.middleware";
 import {
   createStaffSchema,
+  assignServiceSchema,
+  updateServiceStaffSchema,
   overridesSchema,
   replaceAvailabilitySchema,
   updateStaffSchema,
@@ -22,55 +24,76 @@ router.post(
   "/",
   requireAuth,
   validate.validateBody(createStaffSchema),
-  staffController.create
+  staffController.create,
 );
 router.patch(
   "/:id",
   requireAuth,
   requireBusinessAccess,
   validate.validateBody(updateStaffSchema),
-  staffController.update
+  staffController.update,
 );
 router.delete(
   "/:id",
   requireAuth,
   requireBusinessAccess,
-  staffController.remove
+  staffController.remove,
 );
 
+// Service assignment & commission management
 router.post(
   "/:id/services",
   requireAuth,
   requireBusinessAccess,
-  staffController.assignServices
+  validate.validateBody(assignServiceSchema),
+  staffController.assignServices,
+);
+router.get(
+  "/:id/services/:serviceId",
+  requireAuth,
+  requireBusinessAccess,
+  staffController.getServiceStaff,
+);
+router.patch(
+  "/:id/services/:serviceId",
+  requireAuth,
+  requireBusinessAccess,
+  validate.validateBody(updateServiceStaffSchema),
+  staffController.updateServiceCommission,
 );
 router.delete(
   "/:id/services/:serviceId",
   requireAuth,
   requireBusinessAccess,
-  staffController.unassignService
+  staffController.unassignService,
 );
 
 router.get("/:id/availability", requireAuth, staffController.getAvailability);
+router.get(
+  "/:id/commission",
+  requireAuth,
+  requireBusinessAccess,
+  staffController.getCommission,
+);
 router.put(
   "/:id/availability",
   requireAuth,
   requireBusinessAccess,
   validate.validateBody(replaceAvailabilitySchema),
-  staffController.replaceAvailability
+  staffController.replaceAvailability,
 );
 router.post(
   "/:id/availability/overrides",
   requireAuth,
   requireBusinessAccess,
   validate.validateBody(overridesSchema),
-  staffController.addOverride
+  staffController.addOverride,
 );
 router.delete(
   "/:id/availability/overrides/:overrideId",
   requireAuth,
   requireBusinessAccess,
-  staffController.deleteOverride
+  staffController.deleteOverride,
 );
 
 router.post(
@@ -79,14 +102,14 @@ router.post(
   requireBusinessAccess,
   requireRole(["BusinessAdmin"]),
   validate.validateBody(createInviteSchema),
-  staffController.createInvite
+  staffController.createInvite,
 );
 
 router.post(
   "/invites/accept",
   requireAuth,
   validate.validateBody(acceptInviteSchema),
-  staffController.acceptInvite
+  staffController.acceptInvite,
 );
 
 export default router;

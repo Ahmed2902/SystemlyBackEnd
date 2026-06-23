@@ -34,6 +34,20 @@ class InvoicesController {
     }
   }
 
+  async refund(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = req.user?.businessId;
+      if (!businessId)
+        return fail(res, "Business id missing", 400, "BAD_REQUEST");
+
+      const id = req.params.id as string;
+      const result = await invoicesService.refund(id, businessId);
+      return ok(res, result);
+    } catch (err) {
+      return next(err);
+    }
+  }
+
   async getInvoice(req: Request, res: Response, next: NextFunction) {
     try {
       const businessId = req.user?.businessId;

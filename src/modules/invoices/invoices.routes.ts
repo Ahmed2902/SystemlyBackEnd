@@ -26,6 +26,13 @@ router.patch(
   invoicesController.markPaid,
 );
 
+// POST /invoices/:id/refund
+router.post(
+  "/:id/refund",
+  requireBusinessAccess,
+  invoicesController.refund,
+);
+
 // GET /invoices/:id — get invoice details
 router.get("/:id", requireBusinessAccess, invoicesController.getInvoice);
 

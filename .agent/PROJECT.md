@@ -345,14 +345,14 @@ resolved before Phase 0 starts.
       become possible later.
 - [x] Reminder deduplication exists (`ReminderLog` with
       `@@unique([appointmentId, whenKey])`) — working as designed.
-- [ ] Extend `GET /customers/:id/appointments` to join `Invoice` data,
+- [x] Extend `GET /customers/:id/appointments` to join `Invoice` data,
       rather than building a separate new endpoint — keep one source of
       truth for "everything about this client."
-- [ ] Loyalty points: `LoyaltyAccount` (customerId, businessId,
+- [x] Loyalty points: `LoyaltyAccount` (customerId, businessId,
       pointsBalance) + `LoyaltyTransaction` (accountId, invoiceId?,
       points, type). Keep v1 simple — flat points per EGP spent, no
       tiers, no expiry. Earned only on invoices with `status: paid`.
-- [ ] Staff commission calculation: start with `Staff.commissionPct`
+- [x] Staff commission calculation: start with `Staff.commissionPct`
       as a flat rate. Calculate commission earned as a query over a staff
       member's completed appointments' linked invoices within a date
       range — do not store a running balance that needs to be kept in
