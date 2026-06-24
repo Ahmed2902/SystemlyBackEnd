@@ -20,92 +20,164 @@ class BookingsService {
   async getAvailability(opts: AvailabilityQuery) {
     const { businessId, serviceId, staffId, date, timezone = undefined } = opts;
 
-    const business = await prisma.business.findUnique({
-      where: { id: businessId },
-    });
+    const [business, service] = await Promise.all([
+      prisma.business.findUnique({
+        where: { id: businessId },
+      }),
+      prisma.service.findUnique({
+        where: { id: serviceId },
+      }),
+    ]);
+
+    if (!service) {
+      throw new Error("Service not found");
+    }
+
     const tz = timezone || (business?.timezone as string) || "UTC";
 
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
-    });
-    if (!service) throw new Error("Service not found");
-
     let staffIds: string[] = [];
-    if (staffId) staffIds = [staffId];
-    else {
+
+    if (staffId) {
+      staffIds = [staffId];
+    } else {
       const rows = await prisma.serviceStaff.findMany({
         where: { serviceId },
-        include: { staff: true },
+        include: {
+          staff: true,
+        },
       });
+
       staffIds = rows.filter((r) => r.staff?.isActive).map((r) => r.staffId);
+    }
+
+    if (staffIds.length === 0) {
+      return [];
+    }
+
+    const dayOfWeek = dayjs.tz(date, tz).day();
+
+    const dayStart = dayjs.tz(date, tz).startOf("day").toDate();
+
+    const dayEnd = dayjs.tz(date, tz).endOf("day").toDate();
+
+    const [overrides, availabilities, appointments] = await Promise.all([
+      prisma.availabilityOverride.findMany({
+        where: {
+          staffId: {
+            in: staffIds,
+          },
+          overrideDate: new Date(date),
+        },
+      }),
+
+      prisma.availability.findMany({
+        where: {
+          staffId: {
+            in: staffIds,
+          },
+          dayOfWeek,
+        },
+      }),
+
+      prisma.appointment.findMany({
+        where: {
+          businessId,
+          staffId: {
+            in: staffIds,
+          },
+          status: {
+            notIn: ["cancelled_by_customer", "cancelled_by_business"],
+          },
+          AND: [
+            {
+              startsAt: {
+                lt: dayEnd,
+              },
+            },
+            {
+              endsAt: {
+                gt: dayStart,
+              },
+            },
+          ],
+        },
+      }),
+    ]);
+
+    const overrideMap = new Map(overrides.map((o) => [o.staffId, o]));
+
+    const availabilityMap = new Map(availabilities.map((a) => [a.staffId, a]));
+
+    const appointmentsMap = new Map<string, typeof appointments>();
+
+    for (const appt of appointments) {
+      const arr = appointmentsMap.get(appt.staffId) ?? [];
+
+      arr.push(appt);
+
+      appointmentsMap.set(appt.staffId, arr);
     }
 
     const allSlots: Slot[] = [];
 
     for (const sId of staffIds) {
-      const override = await prisma.availabilityOverride.findFirst({
-        where: { staffId: sId, overrideDate: new Date(date) },
-      });
+      const override = overrideMap.get(sId);
 
-      const dayOfWeek = dayjs.tz(date, tz).day();
-      const avail = await prisma.availability.findFirst({
-        where: { staffId: sId, dayOfWeek },
-      });
+      if (override?.isDayOff) {
+        continue;
+      }
 
-      if (override && override.isDayOff) continue;
+      const avail = availabilityMap.get(sId);
 
       let startTimeStr: string | undefined;
       let endTimeStr: string | undefined;
       let breakAfterMin = 0;
 
-      if (override && override.startTime && override.endTime) {
+      if (override?.startTime && override?.endTime) {
         startTimeStr = dayjs(override.startTime).tz(tz).format("HH:mm");
+
         endTimeStr = dayjs(override.endTime).tz(tz).format("HH:mm");
       } else if (avail) {
         startTimeStr = dayjs(avail.startTime).tz(tz).format("HH:mm");
+
         endTimeStr = dayjs(avail.endTime).tz(tz).format("HH:mm");
+
         breakAfterMin = avail.breakAfterMin ?? 0;
       } else {
         continue;
       }
 
-      const dayStart = dayjs.tz(date, tz).startOf("day").toDate();
-      const dayEnd = dayjs.tz(date, tz).endOf("day").toDate();
+      const staffAppointments = appointmentsMap.get(sId) ?? [];
 
-      const appointments = await prisma.appointment.findMany({
-        where: {
-          staffId: sId,
-          businessId,
-          status: { notIn: ["cancelled_by_customer", "cancelled_by_business"] },
-          AND: [{ startsAt: { lt: dayEnd } }, { endsAt: { gt: dayStart } }],
-        },
-      });
-
-      const bookedSlots = appointments.map((a) => ({
+      const bookedSlots = staffAppointments.map((a) => ({
         starts_at: a.startsAt,
         ends_at: a.endsAt,
       }));
 
       const slots = generateSlots({
         date,
-        startTime: startTimeStr as string,
-        endTime: endTimeStr as string,
+        startTime: startTimeStr,
+        endTime: endTimeStr,
         durationMin: service.durationMin,
         breakAfterMin,
         bookedSlots,
         staffId: sId,
         timezone: tz,
+        slotIntervalMin: 15,
       });
 
       allSlots.push(...slots);
     }
 
     const map: Record<string, Slot> = {};
-    for (const s of allSlots) map[s.time] = s;
-    const uniq = Object.values(map).sort(
+
+    for (const slot of allSlots) {
+      map[slot.time] = slot;
+    }
+
+    return Object.values(map).sort(
       (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
     );
-    return uniq;
   }
 
   async getByCancelToken(token: string) {

@@ -12,22 +12,30 @@ export interface BookedSlot {
 }
 
 export interface GenerateSlotsParams {
-  date: string; // YYYY-MM-DD
-  startTime: string; // HH:mm
-  endTime: string; // HH:mm
+  date: string;
+  startTime: string;
+  endTime: string;
   durationMin: number;
   breakAfterMin?: number;
-  bookedSlots: BookedSlot[];
+  bookedSlots?: BookedSlot[];
   staffId?: string | number;
-  timezone?: string; // IANA tz
+  timezone?: string;
   now?: string | Date;
+
+  // 15 is a good default for salons
+  slotIntervalMin?: number;
 }
 
 export interface Slot {
-  time: string; // ISO string (UTC)
-  display: string; // human-friendly in business tz
+  time: string;
+  display: string;
   staffId?: string | number;
 }
+
+type Interval = {
+  start: dayjs.Dayjs;
+  end: dayjs.Dayjs;
+};
 
 export const generateSlots = (params: GenerateSlotsParams): Slot[] => {
   const {
@@ -40,63 +48,111 @@ export const generateSlots = (params: GenerateSlotsParams): Slot[] => {
     staffId,
     timezone = "UTC",
     now,
+    slotIntervalMin = 15,
   } = params;
-
-  const slots: Slot[] = [];
 
   const businessNow = now ? dayjs(now).tz(timezone) : dayjs().tz(timezone);
 
-  let current = buildDateTime(date, startTime, timezone);
-  const dayEnd = buildDateTime(date, endTime, timezone);
+  const workingStart = buildDateTime(date, startTime, timezone);
 
-  while (true) {
-    const slotEnd = current.add(durationMin, "minute");
-    if (slotEnd.isAfter(dayEnd)) break;
+  const workingEnd = buildDateTime(date, endTime, timezone);
 
-    const slotStart = current;
+  const busyIntervals: Interval[] = bookedSlots
+    .map((booked) => {
+      const rawStart = (booked as any).starts_at || (booked as any).startsAt;
 
-    // Skip slots in the past
-    if (slotStart.isAfter(businessNow)) {
-      // Check overlap against every existing appointment (including buffer)
-      const conflicts = bookedSlots
-        .map((booked) => {
-          const rawStart: any =
-            (booked as any).starts_at || (booked as any).startsAt;
-          const rawEnd: any = (booked as any).ends_at || (booked as any).endsAt;
-          const bookedStart = parseISOToTZ(rawStart, timezone);
-          const bookedEnd = parseISOToTZ(rawEnd, timezone).add(
-            breakAfterMin,
-            "minute"
-          );
-          return { bookedStart, bookedEnd };
-        })
-        .filter(
-          ({ bookedStart, bookedEnd }) =>
-            slotStart.isBefore(bookedEnd) && slotEnd.isAfter(bookedStart)
-        );
+      const rawEnd = (booked as any).ends_at || (booked as any).endsAt;
 
-      if (conflicts.length === 0) {
-        slots.push({
-          time: slotStart.toISOString(),
-          display: slotStart.format("HH:mm"),
-          staffId,
-        });
-        // advance by service duration
-        current = current.add(durationMin, "minute");
-        continue;
+      let start = parseISOToTZ(rawStart, timezone);
+
+      let end = parseISOToTZ(rawEnd, timezone).add(breakAfterMin, "minute");
+
+      if (start.isBefore(workingStart)) {
+        start = workingStart;
       }
 
-      // If there is a conflict, jump to the end of the latest conflicting appointment (including buffer)
-      const latestEnd = conflicts.reduce(
-        (max, c) => (c.bookedEnd.isAfter(max) ? c.bookedEnd : max),
-        conflicts[0].bookedEnd
-      );
-      current = latestEnd;
-      continue;
+      if (end.isAfter(workingEnd)) {
+        end = workingEnd;
+      }
+
+      return { start, end };
+    })
+    .filter((i) => i.end.isAfter(workingStart) && i.start.isBefore(workingEnd))
+    .sort((a, b) => a.start.valueOf() - b.start.valueOf());
+
+  const mergedBusy: Interval[] = [];
+
+  for (const current of busyIntervals) {
+    const last = mergedBusy[mergedBusy.length - 1];
+
+    if (
+      last &&
+      (current.start.isBefore(last.end) || current.start.isSame(last.end))
+    ) {
+      if (current.end.isAfter(last.end)) {
+        last.end = current.end;
+      }
+    } else {
+      mergedBusy.push({
+        start: current.start,
+        end: current.end,
+      });
+    }
+  }
+
+  const freeIntervals: Interval[] = [];
+
+  let cursor = workingStart;
+
+  for (const busy of mergedBusy) {
+    if (busy.start.isAfter(cursor)) {
+      freeIntervals.push({
+        start: cursor,
+        end: busy.start,
+      });
     }
 
-    // Advance by service duration
-    current = current.add(durationMin, "minute");
+    if (busy.end.isAfter(cursor)) {
+      cursor = busy.end;
+    }
+  }
+
+  if (cursor.isBefore(workingEnd)) {
+    freeIntervals.push({
+      start: cursor,
+      end: workingEnd,
+    });
+  }
+
+  const slots: Slot[] = [];
+
+  for (const free of freeIntervals) {
+    let slotStart = free.start.isBefore(businessNow) ? businessNow : free.start;
+
+    const remainder = slotStart.minute() % slotIntervalMin;
+
+    if (remainder !== 0) {
+      slotStart = slotStart
+        .add(slotIntervalMin - remainder, "minute")
+        .second(0)
+        .millisecond(0);
+    }
+
+    while (true) {
+      const appointmentEnd = slotStart.add(durationMin, "minute");
+
+      if (appointmentEnd.isAfter(free.end)) {
+        break;
+      }
+
+      slots.push({
+        time: slotStart.toISOString(),
+        display: slotStart.format("HH:mm"),
+        staffId,
+      });
+
+      slotStart = slotStart.add(slotIntervalMin, "minute");
+    }
   }
 
   return slots;
