@@ -25,7 +25,7 @@ business gets:
 
 The business model: businesses pay Hgezli a monthly subscription
 (via Paymob). Hgezli does not process payments between the business
-and its own clients — see section 4, Money flow, for why this matters
+and its own clients — see section 5, Money flow, for why this matters
 and what NOT to build.
 
 Target market: Egypt only. This is intentional, not a gap to fill later.
@@ -73,6 +73,48 @@ salon, with no other vertical-specific business yet imagined?"**
   a retail business should be able to issue an `Invoice` with no
   `appointmentId` at all, which the schema already supports
   (`Invoice.appointmentId` is nullable for exactly this reason).
+
+### Scheduling engine design
+
+Availability is generated from free intervals, not from forward-scanning
+time slots.
+
+For a given staff member and day:
+
+1. Determine working hours from `Availability`.
+2. Apply `AvailabilityOverride` if one exists.
+3. Load all non-cancelled appointments for that day.
+4. Convert appointments into busy intervals.
+5. Extend busy intervals by `breakAfterMin`.
+6. Merge overlapping or adjacent busy intervals.
+7. Compute free gaps as the inverse of busy intervals within working
+   hours.
+8. Offer start times only where the full
+   `service.durationMin + breakAfterMin`
+   fits inside a free gap.
+
+This interval-based approach avoids the inefficiencies and edge cases
+of forward-scanning slot generation and scales better as appointment
+volume grows.
+
+Availability generation is read-only. Booking conflicts are always
+validated again during appointment creation.
+
+### Booking concurrency
+
+Availability responses are advisory only.
+
+A returned slot is never guaranteed to remain available.
+
+Every booking creation request must perform a final overlap check
+inside the same database transaction that creates the appointment.
+
+If a conflict is detected:
+
+HTTP 409
+code: SLOT_TAKEN
+
+The client must refresh availability and select another slot.
 
 ### Layer 2 — Shared appointment-business modules
 
@@ -196,17 +238,27 @@ explicitly instructed.
 - Table: `Invoice`, `InvoiceLineItem`
 - Payment method: **cash on delivery, always.** No Fawry, no Vodafone
   Cash, no card terminal, no online payment of any kind between a
-  client and the business they're booking with.
-- `Invoice.status` lifecycle: `draft → issued → paid` (or `void`).
-  There is no `partially_paid` state and there is no `Payment` table —
-  cash is collected in full, in person, and a staff member taps
-  "mark as paid" to record that fact. This is a deliberate
-  simplification, not an oversight.
-- **Do not build Fawry, Vodafone Cash, or any payment gateway
-  integration for Relationship B unless explicitly instructed to
-  reverse this decision.** If a future ticket asks for this, treat it
-  as a significant architecture change, not a small addition — flag
-  it for human confirmation before starting.
+  client and the business they're booking with. This is the current
+  state of the product — Visa/card payment may be added later once
+  enough paying customers explicitly ask for it, but that is a future
+  decision requiring explicit sign-off, not something to build
+  speculatively now (see decisions log, section 10).
+- `Invoice.status` lifecycle: **`draft → sent → paid`** (or `voided`).
+  There is no `overdue` status and no `dueAt`-driven dunning logic —
+  **a due date implies the client owes money over time, which doesn't
+  apply to cash-on-delivery.** The client pays in full, in person, at
+  the moment of service. A staff member taps "mark as paid" to record
+  that fact; there is nothing to chase up later. If `dueAt` or
+  `overdue` appear in the live schema or code, they are leftover from
+  an earlier draft and should be removed, not built around.
+- There is no `Payment` table and no partial-payment state — cash is
+  collected in full in a single transaction.
+- **Do not build Fawry, Vodafone Cash, card processing, or any
+  due-date/overdue/dunning logic for Relationship B unless explicitly
+  instructed to reverse this decision.** If a future ticket asks for
+  this (e.g. "add Visa payments"), treat it as a significant
+  architecture change, not a small addition — flag it for human
+  confirmation before starting.
 
 ### Why Invoice exists even though payment is just cash
 
@@ -221,6 +273,19 @@ Even with no gateway, a structured invoice is required for:
   in section 7 for the full scope of what gets built on top of this)
 
 ---
+
+### Revenue ownership
+
+Revenue is considered earned only when:
+
+Invoice.status = paid
+
+All reporting, loyalty points, commissions, business revenue totals,
+customer lifetime value calculations, and analytics dashboards must
+read only from paid invoices unless a report explicitly states
+otherwise.
+
+Draft and sent invoices are operational records, not realized revenue.
 
 ## 6. Notifications — read this before touching messaging
 
@@ -263,12 +328,12 @@ Update the checkboxes as work completes — do not let this drift out
 of sync with reality, since a future agent session will trust this
 file over re-deriving status from scratch.
 
-### Phase 0a — Fix before building (COMPLETE)
+### Phase 0a — Fix before building (IN PROGRESS)
 
 Bugs in existing, already-running code. Not new features. Must be
 resolved before Phase 0 starts.
 
-- [x] **Paymob webhook raw body verification.** The webhook handler
+- [ ] **Paymob webhook raw body verification.** The webhook handler
       currently verifies the HMAC signature against `req.body`, which has
       already been parsed into a JS object by Express's JSON middleware by
       the time the handler runs. Paymob signs the raw bytes it sends, not
@@ -280,63 +345,73 @@ resolved before Phase 0 starts.
       security issue — until fixed, webhook authenticity may not actually
       be verified, meaning a forged "payment succeeded" callback could be
       possible.
-- [x] **Gallery delete fake-success bug.**
+- [ ] **Gallery delete fake-success bug.**
       `DELETE /photos/gallery/:id` returns HTTP 200 but does not delete
       anything (no `Photo` model exists yet to delete a row from, and
       Cloudinary cleanup isn't implemented). Fix: until the `Photo` model
       exists, return a real `501 Not Implemented` instead of a fake `200`,
       so frontend error handling triggers instead of false-success UI.
-- [x] **Business.isActive flip path.** New businesses default to
+- [ ] **Business.isActive flip path.** New businesses default to
       `isActive: false`. Verify whether `PATCH /businesses/:id/publish`
       sets it to `true`. If it already does, close this with no code
       change. If not, add it there.
 
-### Phase 0 — Financial core (COMPLETE)
+### Phase 0 — Financial core (DONE — verify against this spec)
 
-- [x] Add `Invoice` model: `businessId`, `customerId`,
+The real schema now has `Invoice` and `InvoiceLineItem` built. This
+phase is recorded here as a checklist to verify what's built matches
+the cash-on-delivery decision, not as a from-scratch task list.
+
+- [x] `Invoice` model exists: `businessId`, `customerId`,
       `appointmentId` (nullable + unique — not every invoice originates
-      from a booked appointment), `invoiceNumber`, `status` enum
-      (`draft`/`issued`/`paid`/`void`), `totalEgp` as `Decimal` (never
-      `Float` — floating point introduces rounding errors in money
-      arithmetic), `etaReceiptUid`, `etaSubmittedAt`, `paidAt`.
-- [x] Add `InvoiceLineItem` model: `invoiceId`, `description`,
-      `serviceId` (nullable), `quantity`, `unitPriceEgp`, `totalEgp`. One
-      invoice can have multiple line items — e.g. a service plus a retail
-      product sold in the same checkout.
-- [x] Rename `SmsLog` → `NotificationLog`, add `channel` enum
-      (`whatsapp_link` / `sms` / `email` / `whatsapp_api`) defaulting to
-      `whatsapp_link`. See section 5.
-- [x] Confirm `Customer.email` uses `@@unique([businessId, email])`,
-      not a global `@unique`. A global constraint incorrectly prevents two
-      different businesses from both having a customer with the same
-      email — verify the live schema directly, don't trust prose
-      summaries of it.
-- [x] Add `Photo` model: `businessId`, `url`, `type`
-      (`logo`/`cover`/`gallery`), `displayOrder`, timestamps. Consolidates
-      tracking for all three upload types, which currently have no
-      database record at all — only the Cloudinary upload itself happens.
+      from a booked appointment), `invoiceNumber`, `status` enum,
+      `subtotalCents`/`taxCents`/`totalCents` as `Int` (not `Decimal` —
+      see Conventions, section 9), `currency` (defaults `"EGP"`),
+      `etaReceiptUid`, `etaSubmittedAt`, `paidAt`.
+      **Action needed:** confirm `status` enum is `draft`/`sent`/`paid`/
+      `voided` only — remove `overdue` if present, since cash-on-delivery
+      has no concept of an overdue invoice. Confirm `dueAt` is either
+      removed or simply unused/always-null — a due date implies money
+      owed over time, which doesn't apply here.
+- [x] `InvoiceLineItem` model exists: `invoiceId`, `description`,
+      `serviceId` (nullable), `staffId` (nullable), `quantity`,
+      `unitPriceCents`, `taxCents`, `totalCents`, plus a commission
+      snapshot (`commissionType`, `commissionAmount`,
+      `commissionEarnedCents`) copied from `ServiceStaff` at invoice time
+      so a later change to a staff member's commission rate doesn't
+      retroactively alter historical invoices. This snapshot pattern is
+      good practice — keep it.
+- [x] `SmsLog` → `NotificationLog` rename done, `channel` enum exists
+      (`SMS`/`EMAIL`/`WHATSAPP`). See section 6 for which channel should
+      actually be in active use today.
+- [x] `Customer.email` uses `@@unique([businessId, email])` — fixed.
+- [x] `Photo` model exists (`businessId`, `url`, `publicId`, `kind`,
+      `position`).
 
-### Phase 1 — Cash checkout flow (COMPLETE)
+### Phase 1 — Cash checkout flow (DONE — verify against this spec)
 
-- [x] `POST /appointments/:id/checkout` — reads `Service.priceEgp`,
-      creates `Invoice` (status: `issued`) + `InvoiceLineItem` inside a
-      Prisma `$transaction` (so invoice and line items are never created
+- [x] Checkout endpoint — reads `Service`/line item pricing, creates
+      `Invoice` (status: `sent`) + `InvoiceLineItem` inside a Prisma
+      `$transaction` (so invoice and line items are never created
       inconsistently — one without the other).
-- [x] `PATCH /invoices/:id/mark-paid` — sets `status: paid`,
-      `paidAt: now()`. No payment method selection, no partial amounts —
-      cash is collected in full, this is a single explicit confirmation.
-- [x] ETA e-receipt background job — triggered via BullMQ on
+- [x] Mark-as-paid endpoint — sets `status: paid`, `paidAt: now()`.
+      No payment method selection, no partial amounts — cash is collected
+      in full, this is a single explicit confirmation. Confirm no
+      due-date or overdue logic exists anywhere in this flow.
+- [ ] ETA e-receipt background job — triggered via BullMQ on
       mark-paid, NOT synchronously inside the request (government APIs
       can be slow; a hung request at checkout is the worst possible
       moment for a receptionist with a client waiting). Writes
       `etaReceiptUid` + `etaSubmittedAt` back onto `Invoice` on success,
-      with retry logic for transient failures.
-- [x] `GET /invoices/:id/receipt` — renders `Invoice` +
+      with retry logic for transient failures. **Verify whether this is
+      actually built yet — schema fields exist but the background job
+      itself may still be outstanding.**
+- [ ] `GET /invoices/:id/receipt` — renders `Invoice` +
       `InvoiceLineItem` as a PDF on demand. No need to persist the PDF;
       regenerate fresh each time since the underlying data doesn't change
       once `status: paid`.
 
-### Phase 2 — Shared appointment modules (PARTIALLY STARTED)
+### Phase 2 — Shared appointment modules (DONE — verify against this spec)
 
 - [x] No-show cron job exists (`markNoShows()`) — **needs a review
       pass, not a rebuild.** Verify it correctly compares appointment
@@ -345,25 +420,72 @@ resolved before Phase 0 starts.
       become possible later.
 - [x] Reminder deduplication exists (`ReminderLog` with
       `@@unique([appointmentId, whenKey])`) — working as designed.
-- [x] Extend `GET /customers/:id/appointments` to join `Invoice` data,
+- [ ] Extend `GET /customers/:id/appointments` to join `Invoice` data,
       rather than building a separate new endpoint — keep one source of
-      truth for "everything about this client."
+      truth for "everything about this client." **Verify this extension
+      was actually done, not just the underlying Invoice model.**
 - [x] Loyalty points: `LoyaltyAccount` (customerId, businessId,
       pointsBalance) + `LoyaltyTransaction` (accountId, invoiceId?,
-      points, type). Keep v1 simple — flat points per EGP spent, no
-      tiers, no expiry. Earned only on invoices with `status: paid`.
-- [x] Staff commission calculation: start with `Staff.commissionPct`
-      as a flat rate. Calculate commission earned as a query over a staff
-      member's completed appointments' linked invoices within a date
-      range — do not store a running balance that needs to be kept in
-      sync; compute on read.
+      points, type) — built. Confirm points only accrue on invoices with
+      `status: paid`, never on `draft` or `sent`.
+- [x] Staff commission calculation: built at the `ServiceStaff` level
+      (`commissionType`: `NONE`/`FLAT`/`PERCENT`, `commissionAmount`),
+      with the resulting earned amount snapshotted onto
+      `InvoiceLineItem.commissionEarnedCents` at invoice time. This is a
+      better design than originally sketched here — snapshotting at
+      invoice time means a later change to a staff member's commission
+      rate doesn't retroactively alter historical invoices or commission
+      reports. Keep this pattern for any future commission-adjacent
+      feature.
 
 (Analytics dashboard moved to its own dedicated Phase 3 — see below.
 The data this phase produces — paid invoices, commissions, no-show
 counts — is what Phase 3's reporting reads from, so this phase should
 still land first.)
 
-### Phase 3 — Owner analytics dashboard (NOT STARTED, blocked by Phase 0–2)
+### Appointment lifecycle
+
+Appointment status progression:
+
+pending
+→ confirmed
+→ completed
+
+Alternative terminal states:
+
+pending
+→ cancelled_by_customer
+
+pending
+→ cancelled_by_business
+
+confirmed
+→ no_show
+
+Appointments are created as `pending` by default.
+
+Business staff are responsible for confirming appointments.
+
+Invoices remain independent from appointment status and may exist
+without an appointment relation.
+
+### Phase 3 — Owner analytics dashboard (IN PROGRESS)
+
+### Analytics architecture
+
+Analytics should be implemented through a dedicated
+`AnalyticsService`.
+
+Prefer extending existing business statistics endpoints rather than
+creating a new endpoint per chart.
+
+A dashboard requesting ten metrics should ideally trigger one service
+aggregation workflow rather than ten independent API calls.
+
+Generic analytics belong in shared Layer 2 modules.
+
+Vertical-specific analytics belong in their respective plug-ins and
+must not be merged into shared reporting services.
 
 This phase exists because a business owner needs visibility into their
 own business, not just the tools to run it day to day. Everything here
@@ -377,26 +499,47 @@ this needs to be built from scratch — extend the existing endpoint
 rather than fragmenting reporting across many new routes where one
 endpoint family will do.
 
+**Generic vs. vertical-specific split — read this before building
+any report.** Roughly 70% of analytics (revenue trend, new vs.
+returning customers, no-show rate, staff utilization, commission
+earned) reads from `Invoice`/`Appointment`/`Customer`/`Staff` without
+caring what the service was — build this as a single shared
+`AnalyticsService` with zero vertical branching. About 20% (e.g.
+"revenue by category") is structurally generic but needs a
+vertical-aware _grouping key_ — the query is identical, but a salon's
+categories ("Hair"/"Nails"/"Skin") differ from a clinic's
+("Consultation"/"Procedure"/"Follow-up"). This requires adding
+`Service.category` as a nullable plain string (same pattern as
+`Business.vertical` — no enum, since the vocabulary differs per
+vertical and shouldn't need a migration to extend). The remaining
+~10% is genuinely vertical-specific (insurance claim approval rate,
+package redemption rate) and depends on tables that don't exist until
+Phase 5/6 — leave room for these as separate query modules called
+alongside the generic dashboard, never merged into it, following the
+same plug-in discipline as the rest of the schema.
+
 **Money analytics**
 
 - [ ] Revenue trend over time (daily/weekly/monthly), computed from
-      `Invoice` where `status: paid`, grouped by `paidAt`.
-- [ ] Revenue by service category — requires `Service` to carry or
-      relate to a category grouping if it doesn't already; check schema
-      before assuming this field exists.
+      `Invoice` where `status: paid`, grouped by `paidAt`. Sum
+      `totalCents`, divide by 100 only at display time.
+- [ ] Revenue by service category — requires adding `Service.category`
+      (see split note above) before this is buildable; currently absent
+      from the schema.
 - [ ] Revenue by day of week (averaged) — useful for salons
       specifically, which see strong weekend/weekday swings in Egypt.
-- [ ] Average invoice value, and its trend over time.
+- [ ] Average invoice value (`totalCents`), and its trend over time.
 - [ ] Outstanding/unpaid invoice count and total — invoices sitting in
-      `status: issued` for longer than a defined window (e.g. same-day
-      cash collection rate, since this product is cash-only).
+      `status: sent` for longer than a defined window (e.g. same-day cash
+      collection rate, since this product is cash-only and "outstanding"
+      here means "not yet marked paid today," not a due-date concept).
 
 **Customer analytics**
 
 - [ ] New vs. returning customers per period — "new" defined as
       `Customer.createdAt` falling inside the period; "returning" as an
       existing customer with an `Appointment` in the period.
-- [ ] Customer lifetime value — sum of `Invoice.totalEgp` where
+- [ ] Customer lifetime value — sum of `Invoice.totalCents` where
       `status: paid`, grouped by `customerId`.
 - [ ] At-risk / lapsed customer list — customers whose `lastVisitAt`
       exceeds a configurable threshold (suggest 45 days as a starting
@@ -408,24 +551,39 @@ endpoint family will do.
 - [ ] Top customers by lifetime spend — a simple ranked query, no new
       table needed.
 - [ ] **Customer acquisition source — requires a new field.** Add
-      `Customer.acquisitionSource` (nullable string, e.g.
-      `walk_in`/`instagram`/`referral`/`booking_page`/`google`/`other`).
-      This cannot be backfilled retroactively for existing customers once
-      they exist without this field, so add it in this phase even though
-      the reporting that uses it is read-only — the cost of waiting is
-      permanent data loss for every customer created before the field
-      exists.
+      `Customer.acquisitionSource` (nullable string).
+
+      Recommended values:
+
+      - walk_in
+      - instagram
+      - facebook
+      - google
+      - referral
+      - booking_page
+      - other
+
+      Store as a string rather than an enum to avoid schema
+      migrations when acquisition channels change.
+
+      This cannot be backfilled retroactively for existing customers
+      once they exist without this field, so add it in this phase even
+      though the reporting that uses it is read-only — the cost of
+      waiting is permanent data loss for every customer created before
+      the field exists.
 
 **Staff analytics**
 
-- [ ] Revenue generated per staff member — sum of `Invoice.totalEgp`
-      for invoices tied to that staff member's appointments.
+- [ ] Revenue generated per staff member — sum of `Invoice.totalCents`
+      for invoices tied to that staff member's appointments (via
+      `InvoiceLineItem.staffId`).
 - [ ] Utilization rate per staff member — booked hours (from
       `Appointment` durations) against available hours (from
       `Availability` minus `AvailabilityOverride` day-off entries).
-- [ ] Commission earned per staff member per period — reads from the
-      Phase 2 commission calculation logic; this phase is purely the
-      reporting view on top of it, not a new calculation.
+- [ ] Commission earned per staff member per period — sum
+      `InvoiceLineItem.commissionEarnedCents` for that staff member within
+      a date range; this phase is purely the reporting view on top of the
+      Phase 2 commission snapshot, not a new calculation.
 
 **Operations analytics**
 
@@ -476,7 +634,7 @@ endpoint family will do.
 
 - [ ] `AppointmentPhoto` (appointmentId, photoId, type:
       before/after) — reuses the `Photo` model from Phase 0.
-- [ ] `Package` (businessId, name, sessionsIncluded, priceEgp) +
+- [ ] `Package` (businessId, name, sessionsIncluded, priceCents) +
       `CustomerPackage` (customerId, packageId, sessionsRemaining) —
       pre-paid bundles. Checkout needs a vertical-aware branch here: if a
       client has an active package covering the service, deduct a session
@@ -490,7 +648,7 @@ endpoint family will do.
       prescriptionJson) — specialty-varying fields stored as JSON to
       avoid a different table per specialty.
 - [ ] `InsuranceClaim` (invoiceId, insurerName, status, claimRef) —
-      decoupled from how the patient paid (always cash per section 4);
+      decoupled from how the patient paid (always cash per section 5);
       this tracks the clinic's separate claim against an insurer for
       reimbursement after the fact.
 - [ ] `ClinicVisitRecordHistory` (recordId, changedFields, changedAt,
@@ -544,9 +702,22 @@ code.
   snake_case via Prisma `@map()` on every field. Database tables in
   snake_case plural via `@@map()`. IDs are UUIDs everywhere
   (`@default(uuid()) @db.Uuid`).
-- **Money:** always `Decimal @db.Decimal(10, 2)`, never `Float`.
-  Field names end in `Egp` (e.g. `totalEgp`, `priceEgp`) since this
-  product has one currency, one market.
+- **Money:** stored as `Int` in cents (e.g. `totalCents`,
+  `unitPriceCents`, `subtotalCents`), never `Float` and never
+  `Decimal`. Working in integer cents avoids floating-point rounding
+  errors without needing Prisma's `Decimal` type. `Invoice.currency`
+  defaults to `"EGP"` as a string field rather than being hardcoded,
+  even though this product is Egypt-only today — this costs nothing
+  now and avoids a schema change if that ever needs to be visible
+  per-invoice later. When displaying money, divide by 100 and format
+  with the currency — do not display raw cents to a user.
+- **No due dates, no overdue status.** Cash-on-delivery means a
+  client pays in full at the moment of service — there is no concept
+  of an invoice being "overdue" because nothing is owed after the
+  transaction completes. `InvoiceStatus` should only have
+  `draft`/`sent`/`paid`/`voided`. If you see `dueAt` or `overdue`
+  anywhere, treat it as leftover scope creep to remove, not a feature
+  to implement.
 - **Background jobs:** BullMQ for anything that shouldn't block a
   request — ETA e-receipt submission is the canonical example.
   Jobs call through services, not directly through Prisma, if a
@@ -565,11 +736,21 @@ code.
 Recorded so a future session (human or agent) doesn't re-propose
 something already explicitly rejected.
 
-- **2026-06 — Cash-only payments.** No payment gateway between
-  client and business. No Fawry, no Vodafone Cash, no card
-  processing for Relationship B (section 4). If this needs to change,
-  treat it as a significant architecture decision requiring explicit
-  sign-off, not an incremental addition.
+- **2026-06 — Cash-only payments, with an explicit future trigger.**
+  No payment gateway between client and business. No Fawry, no
+  Vodafone Cash, no Visa/card processing, no due-date or overdue
+  invoice logic for Relationship B (section 5) — the entire product
+  currently models payment as a single in-person cash transaction.
+  **This will change**, but only once a meaningful number of paying
+  Hgezli customers explicitly ask for card/Visa support — not
+  speculatively. When that happens, treat it as a significant
+  architecture decision requiring explicit sign-off (likely:
+  reintroducing a `Payment` table decoupled from `Invoice.status`,
+  since "paid" can no longer be a single boolean-like state once a
+  gateway with pending/failed/refunded states is involved). Until
+  then, any schema field implying otherwise — `dueAt`, `overdue`, a
+  `Payment` table, gateway IDs on `Invoice` — should be treated as
+  scope creep to remove, not a feature to build toward.
 - **2026-06 — WhatsApp Business API deferred, and deliberately not
   phase-scheduled.** Originally planned as "build once profitable,"
   refined further: full API integration is now treated as a future
@@ -595,6 +776,15 @@ something already explicitly rejected.
 - **Auth — email confirmation, not OTP.** If OTP-based auth comes up
   as a suggestion, it's a reversal of an existing decision, not a
   neutral option.
+
+- **2026-06 — Single staff ownership per appointment.**
+  An appointment currently belongs to exactly one staff member.
+
+  Multi-staff appointments (e.g. stylist + assistant,
+  doctor + technician) are intentionally out of scope.
+
+  If required later, implement through a join table rather than
+  adding multiple staff columns to `Appointment`.
 
 ---
 
