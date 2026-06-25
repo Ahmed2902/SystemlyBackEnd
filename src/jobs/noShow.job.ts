@@ -1,11 +1,5 @@
 import cron from "node-cron";
-import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-import timezone from "dayjs/plugin/timezone";
 import appointmentService from "../modules/appointments/appointments.service";
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 const CRON_EXPRESSION = "30 * * * *"; // every hour at minute 30
 const TZ = "Africa/Cairo";
@@ -31,7 +25,7 @@ const register = () => {
         console.error("[NoShowJob] Scheduled run error", err);
       });
     },
-    { timezone: TZ }
+    { timezone: TZ },
   );
 
   // eslint-disable-next-line no-console

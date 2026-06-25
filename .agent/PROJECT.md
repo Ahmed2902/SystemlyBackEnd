@@ -328,12 +328,12 @@ Update the checkboxes as work completes — do not let this drift out
 of sync with reality, since a future agent session will trust this
 file over re-deriving status from scratch.
 
-### Phase 0a — Fix before building (IN PROGRESS)
+### Phase 0a — Fix before building (DONE)
 
 Bugs in existing, already-running code. Not new features. Must be
 resolved before Phase 0 starts.
 
-- [ ] **Paymob webhook raw body verification.** The webhook handler
+- [x] **Paymob webhook raw body verification.** The webhook handler
       currently verifies the HMAC signature against `req.body`, which has
       already been parsed into a JS object by Express's JSON middleware by
       the time the handler runs. Paymob signs the raw bytes it sends, not
@@ -345,13 +345,13 @@ resolved before Phase 0 starts.
       security issue — until fixed, webhook authenticity may not actually
       be verified, meaning a forged "payment succeeded" callback could be
       possible.
-- [ ] **Gallery delete fake-success bug.**
+- [x] **Gallery delete fake-success bug.**
       `DELETE /photos/gallery/:id` returns HTTP 200 but does not delete
       anything (no `Photo` model exists yet to delete a row from, and
       Cloudinary cleanup isn't implemented). Fix: until the `Photo` model
       exists, return a real `501 Not Implemented` instead of a fake `200`,
       so frontend error handling triggers instead of false-success UI.
-- [ ] **Business.isActive flip path.** New businesses default to
+- [x] **Business.isActive flip path.** New businesses default to
       `isActive: false`. Verify whether `PATCH /businesses/:id/publish`
       sets it to `true`. If it already does, close this with no code
       change. If not, add it there.
@@ -396,31 +396,29 @@ the cash-on-delivery decision, not as a from-scratch task list.
       inconsistently — one without the other).
 - [x] Mark-as-paid endpoint — sets `status: paid`, `paidAt: now()`.
       No payment method selection, no partial amounts — cash is collected
-      in full, this is a single explicit confirmation. Confirm no
-      due-date or overdue logic exists anywhere in this flow.
-- [ ] ETA e-receipt background job — triggered via BullMQ on
+      in full, this is a single explicit confirmation. No due-date or
+      overdue logic exists anywhere in this flow.
+- [x] ETA e-receipt background job — triggered via Graphile-worker on
       mark-paid, NOT synchronously inside the request (government APIs
       can be slow; a hung request at checkout is the worst possible
       moment for a receptionist with a client waiting). Writes
       `etaReceiptUid` + `etaSubmittedAt` back onto `Invoice` on success,
-      with retry logic for transient failures. **Verify whether this is
-      actually built yet — schema fields exist but the background job
-      itself may still be outstanding.**
-- [ ] `GET /invoices/:id/receipt` — renders `Invoice` +
+      with retry logic for transient failures.
+- [x] `GET /invoices/:id/receipt` — renders `Invoice` +
       `InvoiceLineItem` as a PDF on demand. No need to persist the PDF;
       regenerate fresh each time since the underlying data doesn't change
       once `status: paid`.
 
-### Phase 2 — Shared appointment modules (DONE — verify against this spec)
+### Phase 2 — Shared appointment modules (IN PROGRESS — verify against this spec)
 
-- [x] No-show cron job exists (`markNoShows()`) — **needs a review
+- [ ] No-show cron job exists (`markNoShows()`) — **needs a review
       pass, not a rebuild.** Verify it correctly compares appointment
       times using each `Business.timezone` rather than a hardcoded
       assumption, especially as multi-branch / multi-timezone businesses
       become possible later.
 - [x] Reminder deduplication exists (`ReminderLog` with
       `@@unique([appointmentId, whenKey])`) — working as designed.
-- [ ] Extend `GET /customers/:id/appointments` to join `Invoice` data,
+- [x] Extend `GET /customers/:id/appointments` to join `Invoice` data,
       rather than building a separate new endpoint — keep one source of
       truth for "everything about this client." **Verify this extension
       was actually done, not just the underlying Invoice model.**

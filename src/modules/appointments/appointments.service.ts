@@ -1,10 +1,10 @@
 import { prisma } from "../../shared/db/prisma";
-import dayjs from "dayjs";
 import { Roles, AppointmentStatus } from "@prisma/client";
 import type {
   CreateManualAppointmentBody,
   ListAppointmentsQuery,
 } from "./appointments.schema";
+import { getBusinessDayRange } from "../../shared/utils/timezone";
 
 type ListAppointmentsInput = ListAppointmentsQuery & {
   user: Express.Request["user"];
@@ -14,14 +14,25 @@ class AppointmentsService {
   async listAppointments(opts: ListAppointmentsInput) {
     const { user, date, from, to, page = 1, perPage = 20 } = opts;
     const where: any = {};
+    let businessTimezone = "UTC";
 
     if (user.role !== Roles.SuperAdmin.toString()) {
       where.businessId = user.businessId;
+
+      if (user.businessId) {
+        const business = await prisma.business.findUnique({
+          where: { id: user.businessId },
+          select: { timezone: true },
+        });
+        businessTimezone = business?.timezone || "UTC";
+      }
     }
 
     if (date) {
-      const dayStart = dayjs(date).startOf("day").toDate();
-      const dayEnd = dayjs(date).endOf("day").toDate();
+      const { start: dayStart, end: dayEnd } = getBusinessDayRange(
+        businessTimezone,
+        date,
+      );
       where.AND = [{ startsAt: { lt: dayEnd } }, { endsAt: { gt: dayStart } }];
     } else if (from || to) {
       where.AND = [];
@@ -229,7 +240,10 @@ class AppointmentsService {
         status: "confirmed",
         endsAt: { lt: cutoff },
       },
-      select: { id: true, customerId: true },
+      select: {
+        id: true,
+        customerId: true,
+      },
     });
 
     if (!appointments || appointments.length === 0) {
@@ -250,7 +264,7 @@ class AppointmentsService {
         acc[appt.customerId] = (acc[appt.customerId] || 0) + 1;
         return acc;
       },
-      {} as Record<string, number>
+      {} as Record<string, number>,
     );
 
     for (const [customerId, count] of Object.entries(customerCounts)) {
@@ -261,7 +275,7 @@ class AppointmentsService {
     }
 
     console.log(
-      `[NoShowJob] No-show job: ${updated.count} appointments marked as no_show`
+      `[NoShowJob] No-show job: ${updated.count} appointments marked as no_show`,
     );
 
     return { count: updated.count };

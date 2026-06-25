@@ -1,31 +1,48 @@
-import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-import timezone from "dayjs/plugin/timezone";
-import customParseFormat from "dayjs/plugin/customParseFormat";
+import { DateTime } from "luxon";
 
-dayjs.extend(utc);
-dayjs.extend(timezone);
-dayjs.extend(customParseFormat);
+const DEFAULT_TIMEZONE = "UTC";
+
+const assertValid = (dateTime: DateTime, input: string) => {
+  if (!dateTime.isValid) {
+    throw new Error(
+      `Invalid date/time value: ${dateTime.invalidExplanation || input}`,
+    );
+  }
+
+  return dateTime;
+};
 
 export const buildDateTime = (date: string, time: string, tz = "UTC") => {
   // date: YYYY-MM-DD, time: HH:mm
-  return dayjs.tz(`${date} ${time}`, "YYYY-MM-DD HH:mm", tz);
+  const dateTime = DateTime.fromFormat(`${date} ${time}`, "yyyy-MM-dd HH:mm", {
+    zone: tz || DEFAULT_TIMEZONE,
+  });
+
+  return assertValid(dateTime, `${date} ${time}`);
 };
 
 export const parseISOToTZ = (iso: string | Date, tz = "UTC") => {
-  return dayjs(iso).tz(tz);
+  const zone = tz || DEFAULT_TIMEZONE;
+  const dateTime =
+    iso instanceof Date
+      ? DateTime.fromJSDate(iso, { zone: "utc" }).setZone(zone)
+      : DateTime.fromISO(iso, { setZone: true }).setZone(zone);
+
+  return assertValid(dateTime, String(iso));
 };
 
-export const toUTCDate = (d: dayjs.Dayjs) => {
-  return d.toDate();
+export const toUTCDate = (d: DateTime) => {
+  return d.toUTC().toJSDate();
 };
 
 export const startOfDay = (date: string, tz = "UTC") => {
-  return dayjs.tz(date, "YYYY-MM-DD", tz).startOf("day");
+  const dateTime = DateTime.fromISO(date, { zone: tz || DEFAULT_TIMEZONE });
+  return assertValid(dateTime.startOf("day"), date);
 };
 
 export const endOfDay = (date: string, tz = "UTC") => {
-  return dayjs.tz(date, "YYYY-MM-DD", tz).endOf("day");
+  const dateTime = DateTime.fromISO(date, { zone: tz || DEFAULT_TIMEZONE });
+  return assertValid(dateTime.endOf("day"), date);
 };
 
 export default {

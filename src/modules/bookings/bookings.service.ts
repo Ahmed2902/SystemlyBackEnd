@@ -1,15 +1,16 @@
 import { prisma } from "../../shared/db/prisma";
 import { generateSlots } from "../../shared/utils/slots.util";
-import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-import timezone from "dayjs/plugin/timezone";
+import { DateTime } from "luxon";
 import { upsertByPhone as upsertCustomer } from "../customers/customers.service";
 import { generateCancelToken } from "../../shared/utils/token.util";
 import type { AvailabilityQuery, CreateBookingBody } from "./bookings.schema";
 import type { Slot } from "../../shared/utils/slots.util";
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
+import {
+  getBusinessDayOfWeek,
+  getBusinessDayRange,
+  toBusinessTime,
+  toUtcFromBusinessTime,
+} from "../../shared/utils/timezone";
 
 const CANCEL_TTL_DAYS = parseInt(
   process.env.BOOKING_CANCEL_TTL_DAYS || "30",
@@ -54,11 +55,9 @@ class BookingsService {
       return [];
     }
 
-    const dayOfWeek = dayjs.tz(date, tz).day();
+    const dayOfWeek = getBusinessDayOfWeek(date, tz);
 
-    const dayStart = dayjs.tz(date, tz).startOf("day").toDate();
-
-    const dayEnd = dayjs.tz(date, tz).endOf("day").toDate();
+    const { start: dayStart, end: dayEnd } = getBusinessDayRange(tz, date);
 
     const [overrides, availabilities, appointments] = await Promise.all([
       prisma.availabilityOverride.findMany({
@@ -134,13 +133,13 @@ class BookingsService {
       let breakAfterMin = 0;
 
       if (override?.startTime && override?.endTime) {
-        startTimeStr = dayjs(override.startTime).tz(tz).format("HH:mm");
+        startTimeStr = toBusinessTime(override.startTime, tz).toFormat("HH:mm");
 
-        endTimeStr = dayjs(override.endTime).tz(tz).format("HH:mm");
+        endTimeStr = toBusinessTime(override.endTime, tz).toFormat("HH:mm");
       } else if (avail) {
-        startTimeStr = dayjs(avail.startTime).tz(tz).format("HH:mm");
+        startTimeStr = toBusinessTime(avail.startTime, tz).toFormat("HH:mm");
 
-        endTimeStr = dayjs(avail.endTime).tz(tz).format("HH:mm");
+        endTimeStr = toBusinessTime(avail.endTime, tz).toFormat("HH:mm");
 
         breakAfterMin = avail.breakAfterMin ?? 0;
       } else {
@@ -196,8 +195,11 @@ class BookingsService {
       throw err;
     }
 
-    const createdAt = dayjs(appt.createdAt);
-    if (createdAt.add(CANCEL_TTL_DAYS, "day").isBefore(dayjs())) {
+    const createdAt = DateTime.fromJSDate(appt.createdAt, { zone: "utc" });
+    if (
+      createdAt.plus({ days: CANCEL_TTL_DAYS }).toMillis() <
+      DateTime.utc().toMillis()
+    ) {
       const err: any = new Error("Cancel link expired");
       err.statusCode = 410;
       throw err;
@@ -248,8 +250,10 @@ class BookingsService {
         throw err;
       }
 
-      const dayStart = dayjs.tz(startsAt, tz).startOf("day").toDate();
-      const dayEnd = dayjs.tz(startsAt, tz).endOf("day").toDate();
+      const { start: dayStart, end: dayEnd } = getBusinessDayRange(
+        tz,
+        startsAt,
+      );
       let best: { id: string; count: number } | null = null;
       for (const c of candidates) {
         const cnt = await prisma.appointment.count({
@@ -269,17 +273,16 @@ class BookingsService {
 
     return prisma.$transaction(async (tx) => {
       const svc = await tx.service.findUnique({ where: { id: serviceId } });
-      const starts = dayjs.tz(startsAt, tz);
-      const ends = starts.add(svc!.durationMin, "minute");
+      const starts = /(?:Z|[+-]\d\d:\d\d)$/.test(startsAt)
+        ? new Date(startsAt)
+        : toUtcFromBusinessTime(startsAt, tz);
+      const ends = new Date(starts.getTime() + svc!.durationMin * 60 * 1000);
 
       const conflict = await tx.appointment.findFirst({
         where: {
           staffId,
           status: { notIn: ["cancelled_by_customer", "cancelled_by_business"] },
-          AND: [
-            { startsAt: { lt: ends.toDate() } },
-            { endsAt: { gt: starts.toDate() } },
-          ],
+          AND: [{ startsAt: { lt: ends } }, { endsAt: { gt: starts } }],
         },
       });
 
@@ -304,8 +307,8 @@ class BookingsService {
           staffId,
           serviceId,
           customerId: customer.id,
-          startsAt: starts.toDate(),
-          endsAt: ends.toDate(),
+          startsAt: starts,
+          endsAt: ends,
           status: "pending",
           cancelToken: generateCancelToken(),
           notes: payload.notes || null,

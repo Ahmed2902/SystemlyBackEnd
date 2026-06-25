@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import dayjs from "dayjs";
+import { DateTime } from "luxon";
 import { prisma } from "../shared/db/prisma";
 import { enqueueTrialExpiredEmail } from "../shared/services/email.service";
 
@@ -7,14 +7,14 @@ const INTERVAL_HOURS = 1; // run hourly to pick up near-expiry trials
 
 const processCycle = async () => {
   try {
-    const now = dayjs();
+    const now = DateTime.utc();
 
     // 3 days before
-    const in3 = now.add(3, "day");
+    const in3 = now.plus({ days: 3 });
     const subs3 = await prisma.subscription.findMany({
       where: {
         status: "trialing",
-        currentPeriodEnd: { gte: now.toDate(), lte: in3.toDate() },
+        currentPeriodEnd: { gte: now.toJSDate(), lte: in3.toJSDate() },
         trialNotified3Days: false,
       },
       include: { business: true },
@@ -54,11 +54,11 @@ const processCycle = async () => {
     }
 
     // 1 day before
-    const in1 = now.add(1, "day");
+    const in1 = now.plus({ days: 1 });
     const subs1 = await prisma.subscription.findMany({
       where: {
         status: "trialing",
-        currentPeriodEnd: { gte: now.toDate(), lte: in1.toDate() },
+        currentPeriodEnd: { gte: now.toJSDate(), lte: in1.toJSDate() },
         trialNotified1Day: false,
       },
       include: { business: true },
@@ -100,7 +100,7 @@ const processCycle = async () => {
     const expired = await prisma.subscription.findMany({
       where: {
         status: "trialing",
-        currentPeriodEnd: { lte: now.toDate() },
+        currentPeriodEnd: { lte: now.toJSDate() },
         expiredHandled: false,
       },
       include: { business: true },

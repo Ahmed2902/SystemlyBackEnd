@@ -1,10 +1,5 @@
-import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-import timezone from "dayjs/plugin/timezone";
+import { DateTime } from "luxon";
 import { buildDateTime, parseISOToTZ } from "./dates.util";
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 export interface BookedSlot {
   starts_at: string | Date;
@@ -33,8 +28,8 @@ export interface Slot {
 }
 
 type Interval = {
-  start: dayjs.Dayjs;
-  end: dayjs.Dayjs;
+  start: DateTime;
+  end: DateTime;
 };
 
 export const generateSlots = (params: GenerateSlotsParams): Slot[] => {
@@ -51,7 +46,9 @@ export const generateSlots = (params: GenerateSlotsParams): Slot[] => {
     slotIntervalMin = 15,
   } = params;
 
-  const businessNow = now ? dayjs(now).tz(timezone) : dayjs().tz(timezone);
+  const businessNow = now
+    ? parseISOToTZ(now, timezone)
+    : DateTime.now().setZone(timezone);
 
   const workingStart = buildDateTime(date, startTime, timezone);
 
@@ -65,31 +62,32 @@ export const generateSlots = (params: GenerateSlotsParams): Slot[] => {
 
       let start = parseISOToTZ(rawStart, timezone);
 
-      let end = parseISOToTZ(rawEnd, timezone).add(breakAfterMin, "minute");
+      let end = parseISOToTZ(rawEnd, timezone).plus({ minutes: breakAfterMin });
 
-      if (start.isBefore(workingStart)) {
+      if (start < workingStart) {
         start = workingStart;
       }
 
-      if (end.isAfter(workingEnd)) {
+      if (end > workingEnd) {
         end = workingEnd;
       }
 
       return { start, end };
     })
-    .filter((i) => i.end.isAfter(workingStart) && i.start.isBefore(workingEnd))
-    .sort((a, b) => a.start.valueOf() - b.start.valueOf());
+    .filter(
+      (i) =>
+        i.end.toMillis() > workingStart.toMillis() &&
+        i.start.toMillis() < workingEnd.toMillis(),
+    )
+    .sort((a, b) => a.start.toMillis() - b.start.toMillis());
 
   const mergedBusy: Interval[] = [];
 
   for (const current of busyIntervals) {
     const last = mergedBusy[mergedBusy.length - 1];
 
-    if (
-      last &&
-      (current.start.isBefore(last.end) || current.start.isSame(last.end))
-    ) {
-      if (current.end.isAfter(last.end)) {
+    if (last && (current.start < last.end || current.start.equals(last.end))) {
+      if (current.end > last.end) {
         last.end = current.end;
       }
     } else {
@@ -105,19 +103,19 @@ export const generateSlots = (params: GenerateSlotsParams): Slot[] => {
   let cursor = workingStart;
 
   for (const busy of mergedBusy) {
-    if (busy.start.isAfter(cursor)) {
+    if (busy.start > cursor) {
       freeIntervals.push({
         start: cursor,
         end: busy.start,
       });
     }
 
-    if (busy.end.isAfter(cursor)) {
+    if (busy.end > cursor) {
       cursor = busy.end;
     }
   }
 
-  if (cursor.isBefore(workingEnd)) {
+  if (cursor < workingEnd) {
     freeIntervals.push({
       start: cursor,
       end: workingEnd,
@@ -127,31 +125,31 @@ export const generateSlots = (params: GenerateSlotsParams): Slot[] => {
   const slots: Slot[] = [];
 
   for (const free of freeIntervals) {
-    let slotStart = free.start.isBefore(businessNow) ? businessNow : free.start;
+    let slotStart = free.start < businessNow ? businessNow : free.start;
 
-    const remainder = slotStart.minute() % slotIntervalMin;
+    const remainder = slotStart.minute % slotIntervalMin;
 
     if (remainder !== 0) {
-      slotStart = slotStart
-        .add(slotIntervalMin - remainder, "minute")
-        .second(0)
-        .millisecond(0);
+      slotStart = slotStart.plus({ minutes: slotIntervalMin - remainder }).set({
+        second: 0,
+        millisecond: 0,
+      });
     }
 
     while (true) {
-      const appointmentEnd = slotStart.add(durationMin, "minute");
+      const appointmentEnd = slotStart.plus({ minutes: durationMin });
 
-      if (appointmentEnd.isAfter(free.end)) {
+      if (appointmentEnd > free.end) {
         break;
       }
 
       slots.push({
-        time: slotStart.toISOString(),
-        display: slotStart.format("HH:mm"),
+        time: slotStart.toUTC().toJSDate().toISOString(),
+        display: slotStart.toFormat("HH:mm"),
         staffId,
       });
 
-      slotStart = slotStart.add(slotIntervalMin, "minute");
+      slotStart = slotStart.plus({ minutes: slotIntervalMin });
     }
   }
 

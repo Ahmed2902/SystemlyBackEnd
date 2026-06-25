@@ -1,13 +1,8 @@
 import cron from "node-cron";
-import dayjs from "dayjs";
-import utc from "dayjs/plugin/utc";
-import timezone from "dayjs/plugin/timezone";
+import { DateTime } from "luxon";
 import { prisma } from "../shared/db/prisma";
 import redis from "../shared/config/redis";
 import { enqueueEmailJob } from "../queues/emailQueue";
-
-dayjs.extend(utc);
-dayjs.extend(timezone);
 
 const INTERVAL_MINUTES = 15;
 
@@ -111,15 +106,15 @@ const sendReminderFor = async (
 
 const processCycle = async () => {
   try {
-    const now = dayjs();
+    const now = DateTime.utc();
 
     // 24 hours before reminders (for confirmed appointments)
-    const start24 = now.add(24, "hour");
-    const end24 = start24.add(INTERVAL_MINUTES, "minute");
+    const start24 = now.plus({ hours: 24 });
+    const end24 = start24.plus({ minutes: INTERVAL_MINUTES });
     const appts24 = await prisma.appointment.findMany({
       where: {
         status: "confirmed",
-        startsAt: { gte: start24.toDate(), lt: end24.toDate() },
+        startsAt: { gte: start24.toJSDate(), lt: end24.toJSDate() },
       },
       include: { customer: true, business: true, service: true, staff: true },
     });
@@ -129,12 +124,12 @@ const processCycle = async () => {
     );
 
     // 2 hours before reminders
-    const start2 = now.add(2, "hour");
-    const end2 = start2.add(INTERVAL_MINUTES, "minute");
+    const start2 = now.plus({ hours: 2 });
+    const end2 = start2.plus({ minutes: INTERVAL_MINUTES });
     const appts2 = await prisma.appointment.findMany({
       where: {
         status: "confirmed",
-        startsAt: { gte: start2.toDate(), lt: end2.toDate() },
+        startsAt: { gte: start2.toJSDate(), lt: end2.toJSDate() },
       },
       include: { customer: true, business: true, service: true, staff: true },
     });
@@ -148,7 +143,10 @@ const processCycle = async () => {
     const pending = await prisma.appointment.findMany({
       where: {
         status: "pending",
-        startsAt: { gte: now.toDate(), lt: now.add(24, "hour").toDate() },
+        startsAt: {
+          gte: now.toJSDate(),
+          lt: now.plus({ hours: 24 }).toJSDate(),
+        },
       },
       include: { customer: true, business: true, service: true, staff: true },
     });
@@ -156,10 +154,12 @@ const processCycle = async () => {
     for (const a of pending) {
       try {
         const bizTz = a.business?.timezone || "UTC";
-        const bizNow = dayjs().tz(bizTz);
-        const apptLocal = dayjs(a.startsAt).tz(bizTz);
+        const bizNow = DateTime.utc().setZone(bizTz);
+        const apptLocal = DateTime.fromJSDate(a.startsAt, {
+          zone: "utc",
+        }).setZone(bizTz);
         // if it's the same day in business timezone and time is >= 08:00
-        if (bizNow.isSame(apptLocal, "day") && bizNow.hour() >= 8) {
+        if (bizNow.hasSame(apptLocal, "day") && bizNow.hour >= 8) {
           await sendConfirmationFor(a);
         }
       } catch (err) {
