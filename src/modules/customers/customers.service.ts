@@ -5,7 +5,7 @@ class CustomersService {
     businessId: string,
     search?: string,
     page = 1,
-    perPage = 20
+    perPage = 20,
   ) {
     const where: any = { businessId };
     if (search) {
@@ -43,7 +43,12 @@ class CustomersService {
     });
   }
 
-  async upsertByPhone(businessId: string, phone: string, name?: string) {
+  async upsertByPhone(
+    businessId: string,
+    phone: string,
+    name?: string,
+    acquisitionSource?: string,
+  ) {
     const existing = await prisma.customer.findUnique({
       where: { businessId_phone: { businessId, phone } } as any,
     });
@@ -54,6 +59,7 @@ class CustomersService {
           visitCount: { increment: 1 },
           lastVisitAt: new Date(),
           name: name || existing.name,
+          acquisitionSource: acquisitionSource || existing.acquisitionSource,
         } as any,
       });
       return updated;
@@ -65,6 +71,7 @@ class CustomersService {
         name: name || "",
         visitCount: 1,
         lastVisitAt: new Date(),
+        acquisitionSource,
       },
     });
     return created;
@@ -75,7 +82,8 @@ const customersService = new CustomersService();
 export default customersService;
 
 // Backwards-compatible named exports (prefer default export going forward)
-export const listCustomers = customersService.listCustomers.bind(customersService);
+export const listCustomers =
+  customersService.listCustomers.bind(customersService);
 export const getCustomerById =
   customersService.getCustomerById.bind(customersService);
 export const updateNotes = customersService.updateNotes.bind(customersService);

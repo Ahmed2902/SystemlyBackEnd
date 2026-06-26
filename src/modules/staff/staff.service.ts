@@ -372,21 +372,3 @@ class StaffService {
 
 const staffService = new StaffService();
 export default staffService;
-
-export const listByBusiness = staffService.listByBusiness.bind(staffService);
-export const createStaff = staffService.createStaff.bind(staffService);
-export const updateStaff = staffService.updateStaff.bind(staffService);
-export const deleteStaff = staffService.deleteStaff.bind(staffService);
-export const assignService = staffService.assignService.bind(staffService);
-export const unassignService = staffService.unassignService.bind(staffService);
-export const updateServiceStaff =
-  staffService.updateServiceStaff.bind(staffService);
-export const getServiceStaff = staffService.getServiceStaff.bind(staffService);
-export const getAvailability = staffService.getAvailability.bind(staffService);
-export const replaceAvailability =
-  staffService.replaceAvailability.bind(staffService);
-export const addOverride = staffService.addOverride.bind(staffService);
-export const deleteOverride = staffService.deleteOverride.bind(staffService);
-export const createInvite = staffService.createInvite.bind(staffService);
-export const acceptInvite = staffService.acceptInvite.bind(staffService);
-export const getCommission = staffService.getCommission.bind(staffService);

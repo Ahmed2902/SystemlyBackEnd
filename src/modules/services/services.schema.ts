@@ -6,6 +6,7 @@ export const createServiceSchema = z.object({
   priceEgp: z.number().nonnegative(),
   description: z.string().optional(),
   isActive: z.boolean().optional(),
+  category: z.string().max(80).optional(),
 });
 
 export const updateServiceSchema = z.object({
@@ -14,6 +15,7 @@ export const updateServiceSchema = z.object({
   priceEgp: z.number().nonnegative().optional(),
   description: z.string().optional(),
   isActive: z.boolean().optional(),
+  category: z.string().max(80).optional(),
 });
 
 export type CreateServiceBody = z.infer<typeof createServiceSchema>;

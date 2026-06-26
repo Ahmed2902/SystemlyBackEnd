@@ -24,8 +24,3 @@ class ServicesService {
 
 const servicesService = new ServicesService();
 export default servicesService;
-
-export const listByBusiness = servicesService.listByBusiness.bind(servicesService);
-export const createService = servicesService.createService.bind(servicesService);
-export const updateService = servicesService.updateService.bind(servicesService);
-export const deleteService = servicesService.deleteService.bind(servicesService);

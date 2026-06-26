@@ -411,7 +411,7 @@ the cash-on-delivery decision, not as a from-scratch task list.
 
 ### Phase 2 — Shared appointment modules (IN PROGRESS — verify against this spec)
 
-- [ ] No-show cron job exists (`markNoShows()`) — **needs a review
+- [x] No-show cron job exists (`markNoShows()`) — **needs a review
       pass, not a rebuild.** Verify it correctly compares appointment
       times using each `Business.timezone` rather than a hardcoded
       assumption, especially as multi-branch / multi-timezone businesses
@@ -479,6 +479,11 @@ creating a new endpoint per chart.
 
 A dashboard requesting ten metrics should ideally trigger one service
 aggregation workflow rather than ten independent API calls.
+
+Short-lived caching (30–300 seconds) is acceptable for expensive
+aggregations because analytics are observational rather than
+transactional. Real-time correctness matters for booking and checkout,
+not for owner dashboards.
 
 Generic analytics belong in shared Layer 2 modules.
 
@@ -575,9 +580,13 @@ same plug-in discipline as the rest of the schema.
 - [ ] Revenue generated per staff member — sum of `Invoice.totalCents`
       for invoices tied to that staff member's appointments (via
       `InvoiceLineItem.staffId`).
-- [ ] Utilization rate per staff member — booked hours (from
-      `Appointment` durations) against available hours (from
+- [ ] Utilization rate per staff member — booked hours (from completed
+      or confirmed appointments) against available hours (from
       `Availability` minus `AvailabilityOverride` day-off entries).
+      Exclude cancelled and no-show appointments from utilization
+      calculations. Future support for breaks inside a working day
+      should reduce available hours accordingly without changing the
+      reporting API.
 - [ ] Commission earned per staff member per period — sum
       `InvoiceLineItem.commissionEarnedCents` for that staff member within
       a date range; this phase is purely the reporting view on top of the
@@ -609,6 +618,11 @@ same plug-in discipline as the rest of the schema.
       model existing, so this specific item is blocked until that phase
       lands; sequence it last within Phase 3's growth section, or revisit
       once Phase 5 is done.
+- [ ] Customer retention cohorts — percentage of customers acquired in
+      a given month that return within 30/60/90 days. This is derived
+      from `Customer.createdAt` and subsequent `Appointment` activity,
+      not a new table. Build after the simpler new-vs-returning metrics
+      are complete.
 
 ---
 

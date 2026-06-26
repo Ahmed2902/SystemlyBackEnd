@@ -299,6 +299,7 @@ class BookingsService {
         businessId,
         payload.customerPhone,
         payload.customerName,
+        payload.acquisitionSource,
       );
 
       const appt = await tx.appointment.create({

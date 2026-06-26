@@ -178,11 +178,14 @@ model Service {
   isActive     Boolean        @default(true) @map("is_active")
   createdAt    DateTime       @default(now()) @map("created_at")
   updatedAt    DateTime       @updatedAt @map("updated_at")
+  category     String?        @db.VarChar(80) @map("category")
+
   appointments Appointment[]
   business     Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   serviceStaff ServiceStaff[]
   invoiceLineItems InvoiceLineItem[]
 
+  @@index([businessId, category])
   @@index([businessId])
   @@map("services")
 }
@@ -244,6 +247,8 @@ model Customer {
   lastVisitAt  DateTime?     @map("last_visit_at")
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
+  acquisitionSource String? @map("acquisition_source")
+
   appointments Appointment[]
   invoices     Invoice[]
   loyaltyAccounts LoyaltyAccount[]
@@ -252,6 +257,7 @@ model Customer {
 
   @@unique([businessId, phone])
   @@unique([businessId, email])
+  @@index([businessId, acquisitionSource])
   @@index([businessId])
   @@map("customers")
 }

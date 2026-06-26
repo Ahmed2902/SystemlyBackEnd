@@ -28,6 +28,7 @@ export const createManualAppointmentSchema = z.object({
   customerName: z.string().min(1),
   customerPhone: z.string().min(4),
   notes: z.string().optional(),
+  acquisitionSource: z.string().optional(),
 });
 
 export const appointmentIdParamsSchema = z.object({
@@ -35,9 +36,15 @@ export const appointmentIdParamsSchema = z.object({
 });
 
 export type ListAppointmentsQuery = z.infer<typeof listAppointmentsQuerySchema>;
-export type UpdateAppointmentStatusBody = z.infer<typeof updateAppointmentStatusSchema>;
-export type UpdateAppointmentNotesBody = z.infer<typeof updateAppointmentNotesSchema>;
-export type CreateManualAppointmentBody = z.infer<typeof createManualAppointmentSchema>;
+export type UpdateAppointmentStatusBody = z.infer<
+  typeof updateAppointmentStatusSchema
+>;
+export type UpdateAppointmentNotesBody = z.infer<
+  typeof updateAppointmentNotesSchema
+>;
+export type CreateManualAppointmentBody = z.infer<
+  typeof createManualAppointmentSchema
+>;
 
 export const appointmentsSchemas = {
   listAppointmentsQuerySchema,

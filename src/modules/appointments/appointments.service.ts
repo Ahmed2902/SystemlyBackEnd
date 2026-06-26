@@ -107,6 +107,7 @@ class AppointmentsService {
       customerName,
       customerPhone,
       notes,
+      acquisitionSource,
     } = payload;
 
     return prisma.$transaction(async (tx) => {
@@ -148,6 +149,7 @@ class AppointmentsService {
             visitCount: { increment: 1 },
             lastVisitAt: new Date(),
             name: customerName || existing.name,
+            acquisitionSource: acquisitionSource,
           } as any,
         });
       } else {
@@ -158,6 +160,7 @@ class AppointmentsService {
             name: customerName || "",
             visitCount: 1,
             lastVisitAt: new Date(),
+            acquisitionSource: acquisitionSource,
           } as any,
         });
       }

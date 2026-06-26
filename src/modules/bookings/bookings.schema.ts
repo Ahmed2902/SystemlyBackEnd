@@ -17,6 +17,7 @@ export const createBookingSchema = z.object({
   customerName: z.string().min(1),
   customerPhone: z.string().min(4),
   notes: z.string().optional(),
+  acquisitionSource: z.string().optional(),
 });
 
 export const bookingTokenParamsSchema = z.object({
