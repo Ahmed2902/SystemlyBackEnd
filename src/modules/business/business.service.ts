@@ -7,6 +7,7 @@ import type {
   CreateBusinessInput,
 } from "./business.schema";
 import type { WebsiteContentInput } from "../website-content/website-content.schema";
+import analyticsService from "../analytics/analytics.service";
 
 const buildErr = (message: string, statusCode: number, code: string) => {
   const err: any = new Error(message);
@@ -16,7 +17,7 @@ const buildErr = (message: string, statusCode: number, code: string) => {
 };
 
 const toWebsiteContentCreateInput = (
-  payload?: WebsiteContentInput
+  payload?: WebsiteContentInput,
 ): Prisma.WebsiteContentCreateWithoutBusinessInput => {
   if (!payload) return {};
   const { sectionOrder, ...rest } = payload;
@@ -37,7 +38,7 @@ class BusinessService {
   async createBusinessForUser(
     userId: string,
     userRole: string | undefined,
-    payload: CreateBusinessInput
+    payload: CreateBusinessInput,
   ) {
     const user = await prisma.businessUser.findUnique({
       where: { id: userId },
@@ -47,7 +48,7 @@ class BusinessService {
       throw buildErr(
         "User already has a business",
         409,
-        "ALREADY_HAS_BUSINESS"
+        "ALREADY_HAS_BUSINESS",
       );
     }
 
@@ -179,14 +180,8 @@ class BusinessService {
   }
 
   async getStats(id: string): Promise<BusinessStats> {
-    const [customersCount, appointmentsCount, servicesCount, staffCount] =
-      await Promise.all([
-        prisma.customer.count({ where: { businessId: id } }),
-        prisma.appointment.count({ where: { businessId: id } }),
-        prisma.service.count({ where: { businessId: id } }),
-        prisma.staff.count({ where: { businessId: id } }),
-      ]);
-    return { customersCount, appointmentsCount, servicesCount, staffCount };
+    const dashboard = await analyticsService.getDashboardOverview(id);
+    return dashboard.summary;
   }
 }
 

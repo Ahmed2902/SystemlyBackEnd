@@ -12,6 +12,7 @@ import appointmentsRoutes from "../modules/appointments/appointments.routes";
 import billingRoutes from "../modules/billing/billing.routes";
 import invoicesRoutes from "../modules/invoices/invoices.routes";
 import websiteSetupRoutes from "../modules/website-setup/website-setup.routes";
+import analyticsRoutes from "../modules/analytics/analytics.routes";
 import docsRoutes from "../shared/docs/docs.routes";
 
 const router = Router();
@@ -39,6 +40,7 @@ router.use("/faqs", faqsRoutes);
 router.use("/photos", photosRoutes);
 router.use("/billing", billingRoutes);
 router.use("/invoices", invoicesRoutes);
+router.use("/analytics", analyticsRoutes);
 router.use("/owner/businesses/:businessId", websiteSetupRoutes);
 router.use("/docs", docsRoutes);
 

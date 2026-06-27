@@ -39,6 +39,14 @@ export const businessStatsSchema = z.object({
   appointmentsCount: z.number().int().nonnegative(),
   servicesCount: z.number().int().nonnegative(),
   staffCount: z.number().int().nonnegative(),
+  paidInvoiceCount: z.number().int().nonnegative(),
+  revenueCents: z.number().int().nonnegative(),
+  averageInvoiceValueCents: z.number().int().nonnegative(),
+  outstandingInvoiceCount: z.number().int().nonnegative(),
+  outstandingInvoiceTotalCents: z.number().int().nonnegative(),
+  newCustomersCount: z.number().int().nonnegative(),
+  returningCustomersCount: z.number().int().nonnegative(),
+  lapsedCustomersCount: z.number().int().nonnegative(),
 });
 
 export type BusinessStats = z.infer<typeof businessStatsSchema>;
