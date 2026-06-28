@@ -1,7 +1,7 @@
 import { Router } from "express";
 import analyticsController from "./analytics.controller";
 import validate from "../../shared/middleware/validate.middleware";
-import { analyticsBusinessQuerySchema } from "./analytics.schema";
+import { AnalyticsStatsQuerySchema } from "./analytics.schema";
 import {
   requireAuth,
   requireBusinessAccess,
@@ -13,50 +13,50 @@ router.get(
   "/dashboard",
   requireAuth,
   requireBusinessAccess,
-  validate.validateQuery(analyticsBusinessQuerySchema),
-  analyticsController.dashboard,
+  validate.validateQuery(AnalyticsStatsQuerySchema),
+  analyticsController.getOverview,
 );
 router.get(
   "/revenue",
   requireAuth,
   requireBusinessAccess,
-  validate.validateQuery(analyticsBusinessQuerySchema),
-  analyticsController.revenue,
+  validate.validateQuery(AnalyticsStatsQuerySchema),
+  analyticsController.getRevenue,
 );
 router.get(
   "/customers",
   requireAuth,
   requireBusinessAccess,
-  validate.validateQuery(analyticsBusinessQuerySchema),
-  analyticsController.customers,
+  validate.validateQuery(AnalyticsStatsQuerySchema),
+  analyticsController.getCustomers,
 );
 router.get(
   "/staff",
   requireAuth,
   requireBusinessAccess,
-  validate.validateQuery(analyticsBusinessQuerySchema),
-  analyticsController.staff,
+  validate.validateQuery(AnalyticsStatsQuerySchema),
+  analyticsController.getStaff,
 );
 router.get(
   "/operations",
   requireAuth,
   requireBusinessAccess,
-  validate.validateQuery(analyticsBusinessQuerySchema),
-  analyticsController.operations,
+  validate.validateQuery(AnalyticsStatsQuerySchema),
+  analyticsController.getOperations,
 );
 router.get(
   "/growth",
   requireAuth,
   requireBusinessAccess,
-  validate.validateQuery(analyticsBusinessQuerySchema),
-  analyticsController.growth,
+  validate.validateQuery(AnalyticsStatsQuerySchema),
+  analyticsController.getGrowth,
 );
-router.get(
-  "/businesses/:businessId/stats",
-  requireAuth,
-  requireBusinessAccess,
-  validate.validateQuery(analyticsBusinessQuerySchema),
-  analyticsController.legacyStats,
-);
+// router.get(
+//   "/businesses/:businessId/stats",
+//   requireAuth,
+//   requireBusinessAccess,
+//   validate.validateQuery(AnalyticsStatsQuerySchema),
+//   analyticsController,
+// );
 
 export default router;

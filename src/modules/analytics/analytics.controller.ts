@@ -1,161 +1,100 @@
-import type { NextFunction, Request, Response } from "express";
-import { ok } from "../../shared/utils/response.util";
-import analyticsService from "./analytics.service";
-import { analyticsBusinessQuerySchema } from "./analytics.schema";
+import type { Request, Response, NextFunction } from "express";
+import analyticsService, { AnalyticsError } from "./analytics.service";
+import { AnalyticsStatsQuerySchema } from "./analytics.schema";
 
-class AnalyticsController {
-  private resolveBusinessId(req: Request) {
-    return String(
-      req.params?.businessId ??
-        req.params?.id ??
-        req.user?.businessId ??
-        req.query?.businessId ??
-        "",
-    );
+function parsePreset(req: Request) {
+  const { preset } = AnalyticsStatsQuerySchema.parse(req.query);
+  return preset;
+}
+
+function handleError(err: unknown, res: Response, next: NextFunction) {
+  if (err instanceof AnalyticsError) {
+    return res
+      .status(err.statusCode)
+      .json({ error: err.message, code: err.code });
   }
+  return next(err);
+}
 
-  private parseQuery(req: Request) {
-    const parsed = analyticsBusinessQuerySchema.safeParse(req.query);
-    if (!parsed.success) throw parsed.error;
-    return parsed.data;
-  }
-
-  async dashboard(req: Request, res: Response, next: NextFunction) {
+class analyticsController {
+  async getOverview(req: Request, res: Response, next: NextFunction) {
     try {
-      const query = this.parseQuery(req);
-      const businessId = this.resolveBusinessId(req);
-      if (!businessId)
-        return next(
-          Object.assign(new Error("Business id missing"), {
-            statusCode: 400,
-            code: "BAD_REQUEST",
-          }),
-        );
-      return ok(
-        res,
-        await analyticsService.getDashboardOverview(businessId, query),
+      const preset = parsePreset(req);
+      const data = await analyticsService.getDashboardOverview(
+        String(req.params.businessId),
+        preset,
       );
+      res.json(data);
     } catch (err) {
-      return next(err);
+      handleError(err, res, next);
     }
   }
 
-  async revenue(req: Request, res: Response, next: NextFunction) {
+  async getRevenue(req: Request, res: Response, next: NextFunction) {
     try {
-      const query = this.parseQuery(req);
-      const businessId = this.resolveBusinessId(req);
-      if (!businessId)
-        return next(
-          Object.assign(new Error("Business id missing"), {
-            statusCode: 400,
-            code: "BAD_REQUEST",
-          }),
-        );
-      return ok(
-        res,
-        await analyticsService.getRevenueAnalytics(businessId, query),
+      const preset = parsePreset(req);
+      const data = await analyticsService.getRevenueAnalytics(
+        String(req.params.businessId),
+        preset,
       );
+      res.json(data);
     } catch (err) {
-      return next(err);
+      handleError(err, res, next);
     }
   }
 
-  async customers(req: Request, res: Response, next: NextFunction) {
+  async getCustomers(req: Request, res: Response, next: NextFunction) {
     try {
-      const query = this.parseQuery(req);
-      const businessId = this.resolveBusinessId(req);
-      if (!businessId)
-        return next(
-          Object.assign(new Error("Business id missing"), {
-            statusCode: 400,
-            code: "BAD_REQUEST",
-          }),
-        );
-      return ok(
-        res,
-        await analyticsService.getCustomerAnalytics(businessId, query),
+      const preset = parsePreset(req);
+      const data = await analyticsService.getCustomerAnalytics(
+        String(req.params.businessId),
+        preset,
       );
+      res.json(data);
     } catch (err) {
-      return next(err);
+      handleError(err, res, next);
     }
   }
 
-  async staff(req: Request, res: Response, next: NextFunction) {
+  async getStaff(req: Request, res: Response, next: NextFunction) {
     try {
-      const query = this.parseQuery(req);
-      const businessId = this.resolveBusinessId(req);
-      if (!businessId)
-        return next(
-          Object.assign(new Error("Business id missing"), {
-            statusCode: 400,
-            code: "BAD_REQUEST",
-          }),
-        );
-      return ok(
-        res,
-        await analyticsService.getStaffAnalytics(businessId, query),
+      const preset = parsePreset(req);
+      const data = await analyticsService.getStaffAnalytics(
+        String(req.params.businessId),
+        preset,
       );
+      res.json(data);
     } catch (err) {
-      return next(err);
+      handleError(err, res, next);
     }
   }
 
-  async operations(req: Request, res: Response, next: NextFunction) {
+  async getOperations(req: Request, res: Response, next: NextFunction) {
     try {
-      const query = this.parseQuery(req);
-      const businessId = this.resolveBusinessId(req);
-      if (!businessId)
-        return next(
-          Object.assign(new Error("Business id missing"), {
-            statusCode: 400,
-            code: "BAD_REQUEST",
-          }),
-        );
-      return ok(
-        res,
-        await analyticsService.getOperationsAnalytics(businessId, query),
+      const preset = parsePreset(req);
+      const data = await analyticsService.getOperationsAnalytics(
+        String(req.params.businessId),
+        preset,
       );
+      res.json(data);
     } catch (err) {
-      return next(err);
+      handleError(err, res, next);
     }
   }
 
-  async growth(req: Request, res: Response, next: NextFunction) {
+  async getGrowth(req: Request, res: Response, next: NextFunction) {
     try {
-      const query = this.parseQuery(req);
-      const businessId = this.resolveBusinessId(req);
-      if (!businessId)
-        return next(
-          Object.assign(new Error("Business id missing"), {
-            statusCode: 400,
-            code: "BAD_REQUEST",
-          }),
-        );
-      return ok(
-        res,
-        await analyticsService.getGrowthAnalytics(businessId, query),
+      const preset = parsePreset(req);
+      const data = await analyticsService.getGrowthAnalytics(
+        String(req.params.businessId),
+        preset,
       );
+      res.json(data);
     } catch (err) {
-      return next(err);
-    }
-  }
-
-  async legacyStats(req: Request, res: Response, next: NextFunction) {
-    try {
-      const query = this.parseQuery(req);
-      const businessId = this.resolveBusinessId(req);
-      if (!businessId)
-        return next(
-          Object.assign(new Error("Business id missing"), {
-            statusCode: 400,
-            code: "BAD_REQUEST",
-          }),
-        );
-      return ok(res, await analyticsService.getLegacyStats(businessId, query));
-    } catch (err) {
-      return next(err);
+      handleError(err, res, next);
     }
   }
 }
 
-export default new AnalyticsController();
+const analyticsControllerInstance = new analyticsController();
+export default analyticsControllerInstance;

@@ -37,6 +37,13 @@ enum CommissionType {
   PERCENT
 }
 
+enum InvoiceStatus {
+  draft
+  sent
+  paid
+  voided
+}
+
 model Business {
   id             String          @id @default(uuid()) @db.Uuid
   name           String          @db.VarChar(255)
@@ -381,12 +388,6 @@ model Subscription {
   @@map("subscriptions")
 }
 
-enum InvoiceStatus {
-  draft
-  sent
-  paid
-  voided
-}
 
 model Invoice {
   id              String        @id @default(uuid()) @db.Uuid
