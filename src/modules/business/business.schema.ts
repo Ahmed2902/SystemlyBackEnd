@@ -15,7 +15,7 @@ export const createBusinessSchema = z.object({
   name: z.string().min(1).max(255),
   slug: z.string().min(1).max(120),
   phone: z.string().min(1).max(30),
-  vertical: z.string().max(80).optional(),
+  vertical: z.string().max(80),
   address: z.string().optional(),
   city: z.string().max(120).optional(),
   timezone: z.string().max(80).optional(),

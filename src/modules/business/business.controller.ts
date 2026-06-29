@@ -25,7 +25,7 @@ class BusinessController {
       const created = await businessService.createBusinessForUser(
         String(userId),
         typeof userRole === "string" ? userRole : undefined,
-        parsed.data
+        parsed.data,
       );
       return ok(res, created, 201);
     } catch (err) {
@@ -70,7 +70,7 @@ class BusinessController {
       if (!parsed.success) return next(parsed.error);
       const updated = await businessService.publishBusiness(
         id,
-        parsed.data.isActive
+        parsed.data.isActive,
       );
       return ok(res, updated);
     } catch (err) {
@@ -78,15 +78,15 @@ class BusinessController {
     }
   }
 
-  async stats(req: Request, res: Response, next: NextFunction) {
-    try {
-      const id = String(req.params?.id);
-      const data = await businessService.getStats(id);
-      return ok(res, data);
-    } catch (err) {
-      return next(err);
-    }
-  }
+  // async stats(req: Request, res: Response, next: NextFunction) {
+  //   try {
+  //     const id = String(req.params?.id);
+  //     const data = await businessService.getStats(id);
+  //     return ok(res, data);
+  //   } catch (err) {
+  //     return next(err);
+  //   }
+  // }
 }
 
 export default new BusinessController();

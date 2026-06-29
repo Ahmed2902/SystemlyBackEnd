@@ -8,6 +8,10 @@ import type {
 } from "./business.schema";
 import type { WebsiteContentInput } from "../website-content/website-content.schema";
 import analyticsService from "../analytics/analytics.service";
+import {
+  getVerticalConfig,
+  isValidVertical,
+} from "../../shared/config/verticals.config";
 
 const buildErr = (message: string, statusCode: number, code: string) => {
   const err: any = new Error(message);
@@ -40,6 +44,10 @@ class BusinessService {
     userRole: string | undefined,
     payload: CreateBusinessInput,
   ) {
+    if (!isValidVertical(payload.vertical)) {
+      throw buildErr("Invalid vertical", 400, "INVALID_VERTICAL");
+    }
+
     const user = await prisma.businessUser.findUnique({
       where: { id: userId },
     });
@@ -98,7 +106,7 @@ class BusinessService {
       return { business, user: updatedUser, accessToken };
     });
 
-    return result;
+    return { ...result, verticalConfig: getVerticalConfig(payload.vertical) };
   }
 
   async getAllBusinesses() {
@@ -179,10 +187,10 @@ class BusinessService {
     });
   }
 
-  async getStats(id: string): Promise<BusinessStats> {
-    const dashboard = await analyticsService.getDashboardOverview(id);
-    return dashboard.summary;
-  }
+  // async getStats(id: string): Promise<BusinessStats> {
+  //   const dashboard = await analyticsService.getDashboardOverview(id);
+  //   return dashboard.summary;
+  // }
 }
 
 const businessService = new BusinessService();

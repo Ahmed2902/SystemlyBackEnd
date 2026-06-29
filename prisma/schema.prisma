@@ -48,7 +48,7 @@ model Business {
   id             String          @id @default(uuid()) @db.Uuid
   name           String          @db.VarChar(255)
   slug           String          @unique @db.VarChar(120)
-  vertical       String?         @db.VarChar(80)
+  vertical       String         @db.VarChar(80)
   phone          String          @db.VarChar(30)
   address        String?         @db.Text
   city           String?         @db.VarChar(120)

@@ -523,37 +523,37 @@ same plug-in discipline as the rest of the schema.
 
 **Money analytics**
 
-- [ ] Revenue trend over time (daily/weekly/monthly), computed from
+- [x] Revenue trend over time (daily/weekly/monthly), computed from
       `Invoice` where `status: paid`, grouped by `paidAt`. Sum
       `totalCents`, divide by 100 only at display time.
-- [ ] Revenue by service category — requires adding `Service.category`
+- [x] Revenue by service category — requires adding `Service.category`
       (see split note above) before this is buildable; currently absent
       from the schema.
-- [ ] Revenue by day of week (averaged) — useful for salons
+- [x] Revenue by day of week (averaged) — useful for salons
       specifically, which see strong weekend/weekday swings in Egypt.
-- [ ] Average invoice value (`totalCents`), and its trend over time.
-- [ ] Outstanding/unpaid invoice count and total — invoices sitting in
+- [x] Average invoice value (`totalCents`), and its trend over time.
+- [x] Outstanding/unpaid invoice count and total — invoices sitting in
       `status: sent` for longer than a defined window (e.g. same-day cash
       collection rate, since this product is cash-only and "outstanding"
       here means "not yet marked paid today," not a due-date concept).
 
 **Customer analytics**
 
-- [ ] New vs. returning customers per period — "new" defined as
+- [x] New vs. returning customers per period — "new" defined as
       `Customer.createdAt` falling inside the period; "returning" as an
       existing customer with an `Appointment` in the period.
-- [ ] Customer lifetime value — sum of `Invoice.totalCents` where
+- [x] Customer lifetime value — sum of `Invoice.totalCents` where
       `status: paid`, grouped by `customerId`.
-- [ ] At-risk / lapsed customer list — customers whose `lastVisitAt`
+- [x] At-risk / lapsed customer list — customers whose `lastVisitAt`
       exceeds a configurable threshold (suggest 45 days as a starting
       default; this directly powers a future lapsed-client WhatsApp
       reactivation flow once that's built, but the list itself is useful
       to a human receptionist regardless).
-- [ ] No-show and cancellation rate over time, from
+- [x] No-show and cancellation rate over time, from
       `Appointment.status` and `Customer.noShowCount`.
-- [ ] Top customers by lifetime spend — a simple ranked query, no new
+- [x] Top customers by lifetime spend — a simple ranked query, no new
       table needed.
-- [ ] **Customer acquisition source — requires a new field.** Add
+- [x] **Customer acquisition source — requires a new field.** Add
       `Customer.acquisitionSource` (nullable string).
 
       Recommended values:
@@ -577,32 +577,32 @@ same plug-in discipline as the rest of the schema.
 
 **Staff analytics**
 
-- [ ] Revenue generated per staff member — sum of `Invoice.totalCents`
+- [x] Revenue generated per staff member — sum of `Invoice.totalCents`
       for invoices tied to that staff member's appointments (via
       `InvoiceLineItem.staffId`).
-- [ ] Utilization rate per staff member — booked hours (from completed
+- [x] Utilization rate per staff member — booked hours (from completed
       or confirmed appointments) against available hours (from
       `Availability` minus `AvailabilityOverride` day-off entries).
       Exclude cancelled and no-show appointments from utilization
       calculations. Future support for breaks inside a working day
       should reduce available hours accordingly without changing the
       reporting API.
-- [ ] Commission earned per staff member per period — sum
+- [x] Commission earned per staff member per period — sum
       `InvoiceLineItem.commissionEarnedCents` for that staff member within
       a date range; this phase is purely the reporting view on top of the
       Phase 2 commission snapshot, not a new calculation.
 
 **Operations analytics**
 
-- [ ] Booking heatmap by hour and day of week — appointment volume
+- [x] Booking heatmap by hour and day of week — appointment volume
       grouped by `startsAt` hour, to help an owner see peak demand windows
       for staffing decisions.
-- [ ] Most-booked services — count of `Appointment` grouped by
+- [x] Most-booked services — count of `Appointment` grouped by
       `serviceId`.
-- [ ] Booking lead time distribution — difference between
+- [x] Booking lead time distribution — difference between
       `Appointment.createdAt` and `Appointment.startsAt`, bucketed (same
       day / 1-2 days / 3-7 days / 1 week+).
-- [ ] Service duration accuracy — compares scheduled `Service.durationMin`
+- [x] Service duration accuracy — compares scheduled `Service.durationMin`
       against actual elapsed time if/when actual start and end timestamps
       are captured at checkout; if this data doesn't exist yet, this item
       is a placeholder for once Phase 1 checkout flow is live and stable,
@@ -610,15 +610,15 @@ same plug-in discipline as the rest of the schema.
 
 **Growth analytics**
 
-- [ ] Month-over-month revenue growth — derived from the money
+- [x] Month-over-month revenue growth — derived from the money
       analytics above, not a new query.
-- [ ] Customer acquisition by source — reads `Customer.acquisitionSource`
+- [x] Customer acquisition by source — reads `Customer.acquisitionSource`
       from above, grouped and counted.
-- [ ] Package/bundle uptake trend — depends on the Phase 5 `Package`
+- [x] Package/bundle uptake trend — depends on the Phase 5 `Package`
       model existing, so this specific item is blocked until that phase
       lands; sequence it last within Phase 3's growth section, or revisit
       once Phase 5 is done.
-- [ ] Customer retention cohorts — percentage of customers acquired in
+- [x] Customer retention cohorts — percentage of customers acquired in
       a given month that return within 30/60/90 days. This is derived
       from `Customer.createdAt` and subsequent `Appointment` activity,
       not a new table. Build after the simpler new-vs-returning metrics

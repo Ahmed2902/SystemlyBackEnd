@@ -20,7 +20,7 @@ router.post(
   "/",
   requireAuth,
   validate.validateBody(createBusinessSchema),
-  businessController.create
+  businessController.create,
 );
 
 router.get(
@@ -36,7 +36,7 @@ router.get(
     } catch (err) {
       return next(err);
     }
-  }
+  },
 );
 
 // Public: full website data by slug
@@ -48,7 +48,7 @@ router.patch(
   requireAuth,
   requireBusinessAccess,
   validate.validateBody(updateBusinessSchema),
-  businessController.update
+  businessController.update,
 );
 
 // Auth: publish/unpublish business
@@ -57,15 +57,15 @@ router.patch(
   requireAuth,
   requireBusinessAccess,
   validate.validateBody(publishBusinessSchema),
-  businessController.publish
+  businessController.publish,
 );
 
 // Auth: business stats
-router.get(
-  "/:id/stats",
-  requireAuth,
-  requireBusinessAccess,
-  businessController.stats
-);
+// router.get(
+//   "/:id/stats",
+//   requireAuth,
+//   requireBusinessAccess,
+//   businessController.stats
+// );
 
 export default router;
