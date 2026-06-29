@@ -27,6 +27,12 @@ export interface AverageInvoiceValue {
   invoiceCount: number;
 }
 
+export interface AverageInvoiceValueTrendRow {
+  bucket: Date;
+  averageCents: number;
+  invoiceCount: number;
+}
+
 export interface OutstandingInvoices {
   count: number;
   totalCents: number;
@@ -159,6 +165,46 @@ export async function getAverageInvoiceValue(
     averageCents: Math.round(result._avg.totalCents ?? 0),
     invoiceCount: result._count,
   };
+}
+
+/**
+ * Average invoice value bucketed over time, zero-filled via generate_series.
+ * Mirrors getRevenueTrend's shape but averages instead of sums.
+ */
+export async function getAverageInvoiceValueTrend(
+  businessId: string,
+  from: Date,
+  to: Date,
+  granularity: Granularity,
+): Promise<AverageInvoiceValueTrendRow[]> {
+  const safeGranularity = assertSafeGranularity(granularity);
+
+  const rows = await prisma.$queryRaw<
+    { bucket: Date; average_cents: number | null; invoice_count: bigint }[]
+  >(Prisma.sql`
+    SELECT
+      buckets.bucket,
+      AVG(i.total_cents)::float AS average_cents,
+      COUNT(i.id) AS invoice_count
+    FROM generate_series(
+      DATE_TRUNC(${safeGranularity}, ${from}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}),
+      DATE_TRUNC(${safeGranularity}, ${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}),
+      ${`1 ${safeGranularity}`}::interval
+    ) AS buckets(bucket)
+    LEFT JOIN invoices i
+      ON DATE_TRUNC(${safeGranularity}, i.paid_at AT TIME ZONE ${BUSINESS_TIMEZONE}) = buckets.bucket
+      AND i.business_id = ${businessId}::uuid
+      AND i.status = 'paid'
+      AND i.paid_at BETWEEN ${from} AND ${to}
+    GROUP BY buckets.bucket
+    ORDER BY buckets.bucket
+  `);
+
+  return rows.map((r) => ({
+    bucket: r.bucket,
+    averageCents: Math.round(r.average_cents ?? 0),
+    invoiceCount: Number(r.invoice_count),
+  }));
 }
 
 /**

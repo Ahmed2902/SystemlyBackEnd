@@ -38,6 +38,21 @@ export interface RetentionCohortRow {
   retained90: number;
 }
 
+export interface NoShowRateRow {
+  bucket: Date;
+  noShowCount: number;
+  completedCount: number;
+  rate: number;
+}
+
+export interface CancellationRateRow {
+  bucket: Date;
+  customerCancelled: number;
+  businessCancelled: number;
+  totalCancelled: number;
+  rate: number;
+}
+
 /**
  * Per bucket: how many distinct customers booked, split by whether their
  * Customer.createdAt falls in the SAME bucket as the appointment (new) or
@@ -91,10 +106,17 @@ export async function getNewVsReturningCustomers(
  */
 export async function getCustomerLifetimeValue(
   businessId: string,
-  from: Date,
-  to: Date,
+  from?: Date,
+  to?: Date,
   limit = 20,
 ): Promise<CustomerLifetimeValueRow[]> {
+  const dateFilter =
+    from && to
+      ? Prisma.sql`
+          AND i.paid_at BETWEEN ${from} AND ${to}
+        `
+      : Prisma.empty;
+
   const rows = await prisma.$queryRaw<
     { id: string; name: string; total_cents: bigint; invoice_count: bigint }[]
   >(Prisma.sql`
@@ -104,10 +126,11 @@ export async function getCustomerLifetimeValue(
       SUM(i.total_cents) AS total_cents,
       COUNT(*) AS invoice_count
     FROM invoices i
-    JOIN customers c ON c.id = i.customer_id
+    JOIN customers c
+      ON c.id = i.customer_id
     WHERE i.business_id = ${businessId}::uuid
       AND i.status = 'paid'
-      AND i.paid_at BETWEEN ${from} AND ${to}
+      ${dateFilter}
     GROUP BY c.id, c.name
     ORDER BY total_cents DESC
     LIMIT ${limit}
@@ -227,4 +250,149 @@ export async function computeRetentionCohorts(
   return Array.from(cohorts.values()).sort(
     (a, b) => a.cohortStart.getTime() - b.cohortStart.getTime(),
   );
+}
+
+export async function getNoShowRateOverTime(
+  businessId: string,
+  from: Date,
+  to: Date,
+  granularity: Granularity,
+): Promise<NoShowRateRow[]> {
+  const safeGranularity = assertSafeGranularity(granularity);
+
+  const rows = await prisma.$queryRaw<
+    {
+      bucket: Date;
+      no_show_count: bigint;
+      completed_count: bigint;
+    }[]
+  >(Prisma.sql`
+    SELECT
+      buckets.bucket,
+
+      COUNT(*) FILTER (
+        WHERE a.status = 'no_show'
+      ) AS no_show_count,
+
+      COUNT(*) FILTER (
+        WHERE a.status = 'completed'
+      ) AS completed_count
+
+    FROM generate_series(
+      DATE_TRUNC(
+        ${safeGranularity},
+        ${from}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}
+      ),
+      DATE_TRUNC(
+        ${safeGranularity},
+        ${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}
+      ),
+      ${`1 ${safeGranularity}`}::interval
+    ) AS buckets(bucket)
+
+    LEFT JOIN appointments a
+      ON DATE_TRUNC(
+           ${safeGranularity},
+           a.starts_at AT TIME ZONE ${BUSINESS_TIMEZONE}
+         ) = buckets.bucket
+      AND a.business_id = ${businessId}::uuid
+      AND a.starts_at BETWEEN ${from} AND ${to}
+
+    GROUP BY buckets.bucket
+    ORDER BY buckets.bucket
+  `);
+
+  return rows.map((r) => {
+    const noShowCount = Number(r.no_show_count);
+    const completedCount = Number(r.completed_count);
+
+    const denominator = noShowCount + completedCount;
+
+    return {
+      bucket: r.bucket,
+      noShowCount,
+      completedCount,
+      rate: denominator === 0 ? 0 : (noShowCount / denominator) * 100,
+    };
+  });
+}
+
+export async function getCancellationRateOverTime(
+  businessId: string,
+  from: Date,
+  to: Date,
+  granularity: Granularity,
+): Promise<CancellationRateRow[]> {
+  const safeGranularity = assertSafeGranularity(granularity);
+
+  const rows = await prisma.$queryRaw<
+    {
+      bucket: Date;
+      customer_cancelled: bigint;
+      business_cancelled: bigint;
+      completed_count: bigint;
+      no_show_count: bigint;
+    }[]
+  >(Prisma.sql`
+    SELECT
+      buckets.bucket,
+
+      COUNT(*) FILTER (
+        WHERE a.status = 'cancelled_by_customer'
+      ) AS customer_cancelled,
+
+      COUNT(*) FILTER (
+        WHERE a.status = 'cancelled_by_business'
+      ) AS business_cancelled,
+
+      COUNT(*) FILTER (
+        WHERE a.status = 'completed'
+      ) AS completed_count,
+
+      COUNT(*) FILTER (
+        WHERE a.status = 'no_show'
+      ) AS no_show_count
+
+    FROM generate_series(
+      DATE_TRUNC(
+        ${safeGranularity},
+        ${from}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}
+      ),
+      DATE_TRUNC(
+        ${safeGranularity},
+        ${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}
+      ),
+      ${`1 ${safeGranularity}`}::interval
+    ) AS buckets(bucket)
+
+    LEFT JOIN appointments a
+      ON DATE_TRUNC(
+           ${safeGranularity},
+           a.starts_at AT TIME ZONE ${BUSINESS_TIMEZONE}
+         ) = buckets.bucket
+      AND a.business_id = ${businessId}::uuid
+      AND a.starts_at BETWEEN ${from} AND ${to}
+
+    GROUP BY buckets.bucket
+    ORDER BY buckets.bucket
+  `);
+
+  return rows.map((r) => {
+    const customerCancelled = Number(r.customer_cancelled);
+    const businessCancelled = Number(r.business_cancelled);
+    const completedCount = Number(r.completed_count);
+    const noShowCount = Number(r.no_show_count);
+
+    const totalCancelled = customerCancelled + businessCancelled;
+
+    const denominator = totalCancelled + completedCount + noShowCount;
+
+    return {
+      bucket: r.bucket,
+      customerCancelled,
+      businessCancelled,
+      totalCancelled,
+      rate: denominator === 0 ? 0 : (totalCancelled / denominator) * 100,
+    };
+  });
 }

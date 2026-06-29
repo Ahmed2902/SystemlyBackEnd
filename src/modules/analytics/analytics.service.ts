@@ -76,14 +76,26 @@ class AnalyticsService {
         business.createdAt,
       );
 
-      const [trend, byCategory, byWeekday, averageInvoiceValue, outstanding] =
-        await Promise.all([
-          revenueQueries.getRevenueTrend(businessId, from, to, granularity),
-          revenueQueries.getRevenueByCategory(businessId, from, to),
-          revenueQueries.getRevenueByWeekday(businessId, from, to),
-          revenueQueries.getAverageInvoiceValue(businessId, from, to),
-          revenueQueries.getOutstandingInvoices(businessId),
-        ]);
+      const [
+        trend,
+        byCategory,
+        byWeekday,
+        averageInvoiceValue,
+        outstanding,
+        averageInvoiceValueTrend,
+      ] = await Promise.all([
+        revenueQueries.getRevenueTrend(businessId, from, to, granularity),
+        revenueQueries.getRevenueByCategory(businessId, from, to),
+        revenueQueries.getRevenueByWeekday(businessId, from, to),
+        revenueQueries.getAverageInvoiceValue(businessId, from, to),
+        revenueQueries.getOutstandingInvoices(businessId),
+        revenueQueries.getAverageInvoiceValueTrend(
+          businessId,
+          from,
+          to,
+          granularity,
+        ),
+      ]);
 
       return {
         range: { from, to, granularity },
@@ -92,6 +104,7 @@ class AnalyticsService {
         byWeekday,
         averageInvoiceValue,
         outstanding,
+        averageInvoiceValueTrend,
       };
     });
   }
@@ -113,9 +126,12 @@ class AnalyticsService {
       const [
         newVsReturning,
         lifetimeValue,
+        lifetimeValueAllTime,
         acquisitionSources,
         lapsedCustomers,
         retentionCohorts,
+        noShowRate,
+        cancellationRate,
       ] = await Promise.all([
         customerQueries.getNewVsReturningCustomers(
           businessId,
@@ -123,19 +139,37 @@ class AnalyticsService {
           to,
           granularity,
         ),
+        // Current preset (30d, 90d, custom, etc.)
         customerQueries.getCustomerLifetimeValue(businessId, from, to),
+        // All-time leaderboard
+        customerQueries.getCustomerLifetimeValue(businessId),
         customerQueries.getAcquisitionSources(businessId),
         customerQueries.getLapsedCustomers(businessId, lapsedThreshold),
         customerQueries.computeRetentionCohorts(businessId),
+        customerQueries.getNoShowRateOverTime(
+          businessId,
+          from,
+          to,
+          granularity,
+        ),
+        customerQueries.getCancellationRateOverTime(
+          businessId,
+          from,
+          to,
+          granularity,
+        ),
       ]);
 
       return {
         range: { from, to, granularity },
         newVsReturning,
-        lifetimeValue,
+        lifetimeValue, // respects current preset
+        lifetimeValueAllTime, // all historical data
         acquisitionSources,
         lapsedCustomers,
         retentionCohorts,
+        noShowRate,
+        cancellationRate,
       };
     });
   }
