@@ -7,7 +7,9 @@ import {
   listAppointmentsQuerySchema,
   updateAppointmentNotesSchema,
   updateAppointmentStatusSchema,
+  finishAppointmentSchema,
 } from "./appointments.schema";
+import { isModuleEnabled } from "../../shared/config/verticals.config";
 
 class AppointmentsController {
   async listAppointments(req: Request, res: Response, next: NextFunction) {
@@ -50,7 +52,7 @@ class AppointmentsController {
       if (!bodyParsed.success) return next(bodyParsed.error);
       const updated = await appointmentsService.updateStatus(
         paramsParsed.data.id,
-        bodyParsed.data.status
+        bodyParsed.data.status,
       );
       return ok(res, updated);
     } catch (err) {
@@ -66,7 +68,7 @@ class AppointmentsController {
       if (!bodyParsed.success) return next(bodyParsed.error);
       const updated = await appointmentsService.updateNotes(
         paramsParsed.data.id,
-        bodyParsed.data.notes
+        bodyParsed.data.notes,
       );
       return ok(res, updated);
     } catch (err) {
@@ -78,7 +80,9 @@ class AppointmentsController {
     try {
       const parsed = createManualAppointmentSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
-      const created = await appointmentsService.createManualAppointment(parsed.data);
+      const created = await appointmentsService.createManualAppointment(
+        parsed.data,
+      );
       return ok(res, created, 201);
     } catch (err) {
       return next(err);
@@ -89,12 +93,32 @@ class AppointmentsController {
     try {
       const paramsParsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!paramsParsed.success) return next(paramsParsed.error);
-      const bodyParsed = (await import("./appointments.schema"))
-        .rescheduleAppointmentSchema.safeParse(req.body);
+      const bodyParsed = (
+        await import("./appointments.schema")
+      ).rescheduleAppointmentSchema.safeParse(req.body);
       if (!bodyParsed.success) return next(bodyParsed.error);
       const updated = await appointmentsService.rescheduleAppointment(
         paramsParsed.data.id,
-        bodyParsed.data.startsAt
+        bodyParsed.data.startsAt,
+      );
+      return ok(res, updated);
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async finishAppointment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const paramsParsed = appointmentIdParamsSchema.safeParse(req.params);
+      if (!paramsParsed.success) return next(paramsParsed.error);
+
+      const bodyParsed = await finishAppointmentSchema.safeParse(req.body);
+      if (!bodyParsed.success) return next(bodyParsed.error);
+
+      const updated = await appointmentsService.finishAppointment(
+        paramsParsed.data.id,
+        String(req.user?.businessId),
+        bodyParsed.data,
       );
       return ok(res, updated);
     } catch (err) {

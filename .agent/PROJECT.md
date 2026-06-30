@@ -652,7 +652,8 @@ same plug-in discipline as the rest of the schema.
       client has an active package covering the service, deduct a session
       instead of generating a full invoice. This branch belongs behind
       the Phase 4 vertical config, not hardcoded into the core checkout
-      endpoint.
+      endpoint.  
+       ### ana msh h3ml el 3abat bta3 el customer da delwaaty
 
 ### Phase 6 — Clinic plug-in (NOT STARTED)
 

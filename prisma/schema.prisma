@@ -283,14 +283,16 @@ model Appointment {
   cancelToken  String            @unique @default(uuid()) @map("cancel_token") @db.Uuid
   notes        String?           @db.Text
   createdAt    DateTime          @default(now()) @map("created_at")
-  updatedAt    DateTime          @updatedAt @map("updated_at")
+  updatedAt    DateTime?          @updatedAt @map("updated_at")
+
   business     Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   customer     Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
   service      Service           @relation(fields: [serviceId], references: [id], onDelete: Restrict)
   notificationLogs NotificationLog[]
   staff        Staff             @relation(fields: [staffId], references: [id], onDelete: Restrict)
   invoice      Invoice?
-
+  appointmentPhotos AppointmentPhoto[]
+  clinicVisitRecord ClinicVisitRecord?
   @@index([businessId, startsAt])
   @@index([staffId, startsAt])
   @@index([customerId])
@@ -408,11 +410,13 @@ model Invoice {
   etaSubmittedAt  DateTime?     @map("eta_submitted_at")
   createdAt       DateTime      @default(now()) @map("created_at")
   updatedAt       DateTime      @updatedAt
+
   business        Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
   customer        Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
   appointment     Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   lineItems       InvoiceLineItem[]
   loyaltyTransactions LoyaltyTransaction[]
+  insuranceClaim   InsuranceClaim?
 
   @@unique([businessId, invoiceNumber])
   @@unique([appointmentId])
@@ -503,12 +507,58 @@ model Photo {
   url        String   @db.Text
   publicId   String?  @map("public_id") @db.VarChar(255)
   kind       String   @db.VarChar(30)
+  type       String?   @db.VarChar(30)
   position   Int      @default(0)
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt
+
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  appointmentPhotos AppointmentPhoto[]
 
   @@index([businessId, kind])
   @@index([businessId])
   @@map("photos")
+}
+
+model AppointmentPhoto {
+  id            String   @id @default(uuid()) @db.Uuid
+  appointmentId String   @map("appointment_id") @db.Uuid
+  photoId       String   @map("photo_id") @db.Uuid
+  type          String   @db.VarChar(10) // "before" | "after"
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  photo       Photo       @relation(fields: [photoId], references: [id], onDelete: Cascade)
+
+  @@index([appointmentId])
+  @@map("appointment_photos")
+}
+
+model ClinicVisitRecord {
+  id               String   @id @default(uuid()) @db.Uuid
+  appointmentId    String   @unique @map("appointment_id") @db.Uuid
+  notes            String?  @db.Text
+  diagnosis        String?  @db.Text
+  prescriptionJson Json?    @map("prescription_json")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@map("clinic_visit_records")
+}
+
+model InsuranceClaim {
+  id          String   @id @default(uuid()) @db.Uuid
+  invoiceId   String   @map("invoice_id") @db.Uuid @unique
+  insurerName String   @map("insurer_name") @db.VarChar(255)
+  status      String   @db.VarChar(50)
+  claimRef    String?  @map("claim_ref") @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("insurance_claims")
 }

@@ -2,21 +2,23 @@
 
 export const VERTICAL_CONFIG = {
   salon: {
-    modules: { scheduling: true, crm: true, inventory: false },
-    serviceCategories: ["Hair", "Nails", "Skin", "Makeup"],
+    modules: {
+      scheduling: true,
+      clinicalRecords: false,
+      appointmentPhotos: true,
+    },
   },
   clinic: {
-    modules: { scheduling: true, crm: true, inventory: false },
-    serviceCategories: ["Consultation", "Procedure", "Follow-up"],
-  },
-  retail: {
-    modules: { scheduling: false, crm: false, inventory: true },
-    serviceCategories: [],
+    modules: {
+      scheduling: true,
+      clinicalRecords: true,
+      appointmentPhotos: true,
+    },
   },
 } as const;
 
 export type Vertical = keyof typeof VERTICAL_CONFIG;
-export type ModuleName = "scheduling" | "crm" | "inventory";
+export type ModuleName = "scheduling" | "clinicalRecords" | "appointmentPhotos";
 
 export function isValidVertical(vertical: string): vertical is Vertical {
   return Object.prototype.hasOwnProperty.call(VERTICAL_CONFIG, vertical);

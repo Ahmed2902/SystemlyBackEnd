@@ -5,6 +5,8 @@ import type {
   ListAppointmentsQuery,
 } from "./appointments.schema";
 import { getBusinessDayRange } from "../../shared/utils/timezone";
+import { isModuleEnabled } from "../../shared/config/verticals.config";
+import { FinishAppointmentInput } from "./appointments.schema";
 
 type ListAppointmentsInput = ListAppointmentsQuery & {
   user: Express.Request["user"];
@@ -282,6 +284,79 @@ class AppointmentsService {
     );
 
     return { count: updated.count };
+  }
+
+  async finishAppointment(
+    appointmentId: string,
+    businessId: string,
+    payload: FinishAppointmentInput,
+  ) {
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: appointmentId, businessId },
+      include: { business: true },
+    });
+
+    if (!appointment) {
+      const err: any = new Error("Appointment not found");
+      err.statusCode = 404;
+      err.code = "NOT_FOUND";
+      throw err;
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const updated = await tx.appointment.update({
+        where: { id: appointmentId },
+        data: { status: AppointmentStatus.completed, notes: payload?.notes },
+      });
+
+      if (payload.photos?.length) {
+        for (const photo of payload.photos) {
+          const photoRow = await tx.photo.create({
+            data: {
+              businessId,
+              url: photo.url,
+              publicId: photo.publicId,
+              kind: "appointment",
+              type: photo.type,
+            },
+          });
+
+          await tx.appointmentPhoto.create({
+            data: {
+              appointmentId,
+              photoId: photoRow.id,
+              type: photo.type,
+            },
+          });
+        }
+      }
+      if (
+        isModuleEnabled(
+          appointment.business.vertical ?? "",
+          "clinicalRecords",
+        ) &&
+        payload.clinical
+      ) {
+        await tx.clinicVisitRecord.upsert({
+          where: { appointmentId },
+          create: {
+            appointmentId,
+            notes: payload.clinical.notes,
+            diagnosis: payload.clinical.diagnosis,
+            prescriptionJson: payload.clinical.prescriptionJson,
+          },
+          update: {
+            notes: payload.clinical.notes,
+            diagnosis: payload.clinical.diagnosis,
+            prescriptionJson: payload.clinical.prescriptionJson,
+          },
+        });
+      }
+
+      return updated;
+    });
+
+    return result;
   }
 }
 

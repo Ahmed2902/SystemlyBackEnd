@@ -31,6 +31,24 @@ export const createManualAppointmentSchema = z.object({
   acquisitionSource: z.string().optional(),
 });
 
+const finishPhotoSchema = z.object({
+  url: z.string().url(),
+  publicId: z.string().min(1),
+  type: z.enum(["before", "after"]),
+});
+
+const finishClinicalSchema = z.object({
+  notes: z.string().max(5000).optional(),
+  diagnosis: z.string().max(2000).optional(),
+  prescriptionJson: z.record(z.string(), z.any()).optional(),
+});
+
+export const finishAppointmentSchema = z.object({
+  notes: z.string().max(2000).optional(),
+  photos: z.array(finishPhotoSchema).max(20).optional(),
+  clinical: finishClinicalSchema.optional(),
+});
+
 export const appointmentIdParamsSchema = z.object({
   id: z.string().min(1),
 });
@@ -45,11 +63,4 @@ export type UpdateAppointmentNotesBody = z.infer<
 export type CreateManualAppointmentBody = z.infer<
   typeof createManualAppointmentSchema
 >;
-
-export const appointmentsSchemas = {
-  listAppointmentsQuerySchema,
-  updateAppointmentStatusSchema,
-  updateAppointmentNotesSchema,
-  createManualAppointmentSchema,
-  appointmentIdParamsSchema,
-};
+export type FinishAppointmentInput = z.infer<typeof finishAppointmentSchema>;
