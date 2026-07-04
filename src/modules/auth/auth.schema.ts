@@ -3,54 +3,162 @@ import { z } from "zod";
 const egyptPhone = /^(010|011|012|015)\d{8}$/;
 
 const normalizedEmailSchema = z
+  .string()
   .email()
   .transform((value) => value.toLowerCase().trim());
 
-export const registerBodySchema = z.object({
-  name: z.string().min(2).max(100),
-  email: normalizedEmailSchema,
-  password: z.string().min(8).max(100),
-  phone: z.string().regex(egyptPhone, "Invalid Egyptian phone number"),
-});
+// ── Request schemas ──────────────────────────────────────────────
 
-export const loginBodySchema = z.object({
-  email: normalizedEmailSchema,
-  password: z.string().min(1),
-});
+export const registerBodySchema = z
+  .object({
+    name: z.string().min(2).max(100).openapi({
+      example: "Ahmed Hassan",
+      description: "Full name of the user",
+    }),
+    email: normalizedEmailSchema.openapi({
+      example: "ahmed@example.com",
+      description: "User email address",
+    }),
+    password: z.string().min(8).max(100).openapi({
+      example: "securePass123",
+      description: "Password (min 8 chars)",
+    }),
+    phone: z
+      .string()
+      .regex(egyptPhone, "Invalid Egyptian phone number")
+      .openapi({
+        example: "01012345678",
+        description: "Egyptian mobile number",
+      }),
+  })
+  .openapi({ description: "User registration payload" });
 
-export const verifyEmailQuerySchema = z.object({
-  token: z.string().min(1),
-});
+export const loginBodySchema = z
+  .object({
+    email: normalizedEmailSchema.openapi({ example: "ahmed@example.com" }),
+    password: z.string().min(1).openapi({ example: "securePass123" }),
+  })
+  .openapi({ description: "User login payload" });
 
-export const emailBodySchema = z.object({
-  email: normalizedEmailSchema,
-});
+export const verifyEmailQuerySchema = z
+  .object({
+    token: z.string().min(1).openapi({ example: "abc123token" }),
+  })
+  .openapi({ description: "Email verification token" });
 
-export const resetPasswordBodySchema = z.object({
-  token: z.string().min(1),
-  password: z.string().min(8).max(100),
-});
+export const emailBodySchema = z
+  .object({
+    email: normalizedEmailSchema.openapi({ example: "ahmed@example.com" }),
+  })
+  .openapi({ description: "Email address for password reset / verification" });
 
-export const refreshTokenBodySchema = z.object({
-  refreshToken: z.string().min(1).optional(),
-});
+export const resetPasswordBodySchema = z
+  .object({
+    token: z.string().min(1).openapi({ example: "reset-token-xyz" }),
+    password: z
+      .string()
+      .min(8)
+      .max(100)
+      .openapi({ example: "newSecurePass456" }),
+  })
+  .openapi({ description: "Password reset payload" });
+
+export const refreshTokenBodySchema = z
+  .object({
+    refreshToken: z
+      .string()
+      .min(1)
+      .optional()
+      .openapi({ example: "refresh-token-abc" }),
+  })
+  .openapi({ description: "Token refresh request" });
 
 export const refreshTokenInputSchema = z.object({
-  refreshToken: z.string().min(1),
+  refreshToken: z.string().min(1).openapi({ example: "refresh-token-abc" }),
 });
 
 export const getMeInputSchema = z.object({
-  userId: z.string().min(1),
+  userId: z.string().min(1).openapi({ example: "user-123" }),
 });
 
 export const oauthSignInInputSchema = z.object({
-  provider: z.string().min(1),
-  providerId: z.string().min(1),
-  email: normalizedEmailSchema.nullable(),
-  name: z.string().optional().nullable(),
-  picture: z.url().optional().nullable(),
-  emailVerified: z.boolean().optional(),
+  provider: z.string().min(1).openapi({ example: "google" }),
+  providerId: z.string().min(1).openapi({ example: "google-oauth-id-123" }),
+  email: normalizedEmailSchema
+    .nullable()
+    .openapi({ example: "user@gmail.com" }),
+  name: z.string().optional().nullable().openapi({ example: "Ahmed Hassan" }),
+  picture: z
+    .string()
+    .url()
+    .optional()
+    .nullable()
+    .openapi({ example: "https://lh3.googleusercontent.com/photo.jpg" }),
+  emailVerified: z.boolean().optional().openapi({ example: true }),
 });
+
+// ── Response schemas ─────────────────────────────────────────────
+
+export const registerResponseSchema = z
+  .object({
+    userId: z.string().openapi({ example: "user-abc123" }),
+    message: z.string().openapi({
+      example:
+        "Account created. Please check your email to verify your account.",
+    }),
+  })
+  .openapi({ description: "Registration response" });
+
+export const authUserSchema = z
+  .object({
+    id: z.string().openapi({ example: "user-abc123" }),
+    name: z.string().openapi({ example: "Ahmed Hassan" }),
+    email: z.string().email().openapi({ example: "ahmed@example.com" }),
+    businessId: z.string().nullable().openapi({ example: "biz-123" }),
+  })
+  .openapi({ description: "Authenticated user info" });
+
+export const loginResponseSchema = z
+  .object({
+    accessToken: z.string().openapi({ example: "eyJhbGciOiJIUzI1NiIs..." }),
+    user: authUserSchema,
+  })
+  .openapi({ description: "Login / verify-email response" });
+
+export const refreshResponseSchema = z
+  .object({
+    accessToken: z.string().openapi({ example: "eyJhbGciOiJIUzI1NiIs..." }),
+  })
+  .openapi({ description: "Token refresh response" });
+
+export const messageResponseSchema = z
+  .object({
+    sent: z.boolean().openapi({ example: true }),
+    message: z
+      .string()
+      .openapi({
+        example:
+          "If this email is registered, a verification link has been sent.",
+      }),
+  })
+  .openapi({ description: "Generic message response" });
+
+export const resetPasswordResponseSchema = z
+  .object({
+    success: z.boolean().openapi({ example: true }),
+    message: z
+      .string()
+      .openapi({ example: "Password updated. You can now log in." }),
+  })
+  .openapi({ description: "Password reset response" });
+
+export const logoutResponseSchema = z
+  .object({
+    message: z.string().openapi({ example: "Logged out successfully" }),
+  })
+  .openapi({ description: "Logout response" });
+
+// ── Types ────────────────────────────────────────────────────────
 
 export type RegisterBody = z.infer<typeof registerBodySchema>;
 export type LoginBody = z.infer<typeof loginBodySchema>;

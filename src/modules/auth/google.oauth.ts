@@ -94,7 +94,7 @@ export const googleRedirect = (req: Request, res: Response) => {
 export const googleCallback = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     /* -------------------------
@@ -142,7 +142,7 @@ export const googleCallback = async (
       {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         timeout: 5000,
-      }
+      },
     );
 
     const idToken = tokenRes.data?.id_token;
@@ -183,16 +183,25 @@ export const googleCallback = async (
     res.cookie(
       REFRESH_COOKIE_NAME,
       result.refreshToken,
-      REFRESH_COOKIE_OPTIONS
+      REFRESH_COOKIE_OPTIONS,
+    );
+    res.cookie(
+      "access_token",
+      result.accessToken,
+      {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production", // true in production
+        sameSite: "lax",
+        maxAge: 15 * 60 * 1000,
+      }, // 15 minutes
     );
 
     /* -------------------------
        RETURN RESPONSE
     -------------------------- */
-    return ok(res, {
-      accessToken: result.accessToken,
-      user: result.user,
-    });
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/oauth-callback?token=${result.accessToken}`,
+    );
 
     // OPTIONAL (better UX):
     // return res.redirect(`${process.env.FRONTEND_URL}/auth/success?token=${result.accessToken}`);

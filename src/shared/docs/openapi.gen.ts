@@ -1,23 +1,16 @@
-import type { Application, RequestHandler } from "express";
 import {
-  OpenAPIRegistry,
   OpenApiGeneratorV3,
-  extendZodWithOpenApi,
+  OpenAPIRegistry,
+  type ResponseConfig,
+  type ZodRequestBody,
 } from "@asteasolutions/zod-to-openapi";
+import type { Application, RequestHandler } from "express";
 import { z } from "zod";
-import { authSchemas } from "../../modules/auth/auth.schema";
-import { businessSchemas } from "../../modules/business/business.schema";
-import { websiteContentSchemas } from "../../modules/website-content/website-content.schema";
-import { staffSchemas } from "../../modules/staff/staff.schema";
-import { servicesSchemas } from "../../modules/services/services.schema";
-import { customersSchemas } from "../../modules/customers/customers.schema";
-import { faqsSchemas } from "../../modules/faqs/faqs.schema";
-import { bookingsSchemas } from "../../modules/bookings/bookings.schema";
-import { appointmentsSchemas } from "../../modules/appointments/appointments.schema";
-import { billingSchemas } from "../../modules/billing/billing.schema";
-import { photosSchemas } from "../../modules/photos/photos.schema";
+import type { DocMetadata } from "../middleware/doc.middleware";
 
-extendZodWithOpenApi(z);
+// ──────────────────────────────────────────────
+// Shared / reusable OpenAPI components
+// ──────────────────────────────────────────────
 
 const successEnvelopeSchema = z.object({
   success: z.literal(true),
@@ -31,134 +24,290 @@ const errorEnvelopeSchema = z.object({
   details: z.unknown().optional(),
 });
 
+function responseConfig(
+  description: string,
+  schema?: z.ZodType,
+): ResponseConfig {
+  if (!schema) {
+    return { description };
+  }
+  return {
+    description,
+    content: {
+      "application/json": { schema },
+    },
+  };
+}
+
+const DEFAULT_RESPONSES: Record<string, ResponseConfig> = {
+  400: responseConfig("Bad request – validation error", errorEnvelopeSchema),
+  401: responseConfig(
+    "Unauthorized – missing or invalid token",
+    errorEnvelopeSchema,
+  ),
+  403: responseConfig(
+    "Forbidden – insufficient permissions",
+    errorEnvelopeSchema,
+  ),
+  404: responseConfig("Not found", errorEnvelopeSchema),
+  500: responseConfig("Internal server error", errorEnvelopeSchema),
+};
+
+// ──────────────────────────────────────────────
+// Types used for internal middleware tagging
+// ──────────────────────────────────────────────
+
 type ValidationTarget = "body" | "query" | "params";
 
 type SchemaTaggedHandler = RequestHandler & {
   __validationTarget?: ValidationTarget;
-  __validationSchema?: z.ZodTypeAny;
+  __validationSchema?: z.ZodType;
 };
 
-type Endpoint = {
+type DocTaggedHandler = RequestHandler & {
+  __docMetadata?: DocMetadata;
+};
+
+type DiscoveredSchemas = Partial<Record<ValidationTarget, z.ZodType>>;
+
+// ──────────────────────────────────────────────
+// Express router stack walker
+// ──────────────────────────────────────────────
+
+type DiscoveredEndpoint = {
   path: string;
   method: "get" | "post" | "put" | "patch" | "delete";
-  schemas: Partial<Record<ValidationTarget, z.ZodTypeAny>>;
+  schemas: DiscoveredSchemas;
+  doc?: DocMetadata;
 };
 
-const pathFromRegexp = (regexp: RegExp | undefined) => {
-  if (!regexp || !regexp.source) return "";
+/**
+ * Reconstruct a path segment from an Express route regexp.
+ *
+ * Example:
+ *   /^\/appointments\/(?:([^\/]+?))\/?$/i  →  "/appointments/:param"
+ *   /^\/api\/users\/?(?=\/|$)/i             →  "/api/users"
+ */
+const pathFromRegexp = (regexp: RegExp | undefined): string => {
+  if (!regexp) return "";
+
   const src = regexp.source;
 
-  const literalSegs = Array.from(src.matchAll(/\\\/([^\\\/\(\^\$\?]+)/g)).map(
-    (match) => `/${match[1]}`
+  // Extract literal segments that look like /something
+  const literalSegments = Array.from(src.matchAll(/\\\/([^\\\/()?^$]+)/g)).map(
+    (m) => `/${m[1]}`,
   );
 
-  const paramSegs = Array.from(
+  // Extract parameterized segments
+  const paramMatches = Array.from(
     src.matchAll(
-      /\\\/\(\?:\(\[\^\\\/\]\+\?\)\)|\\\/\(\[\^\\\/\]\+\?\)|\\\/\(\[\^\\\/\]\+\)/g
-    )
-  ).map(() => "/:param");
+      /\\\/\(\?:\(\[\^\\\/\]\+\?\)\)|\\\/\(\[\^\\\/\]\+\?\)|\\\/\(\[\^\\\/\]\+\)/g,
+    ),
+  );
 
-  return [...literalSegs, ...paramSegs].join("");
+  // Match named params from Express 5 notation: (?<id>[^/]+?)
+  const namedParams = Array.from(src.matchAll(/\(\?<(\w+)>[^)]+\)/g));
+
+  if (namedParams.length > 0) {
+    return namedParams
+      .reduce((acc, match, index) => {
+        if (index === 0) {
+          // Find the literal prefix before the first named param
+          const prefix = src.slice(0, match.index);
+          const prefixClean = prefix.replace(/[\\^\/$]/g, "");
+          return `/${prefixClean ? prefixClean : ":param"}/:${match[1]}`;
+        }
+        return `${acc}/:${match[1]}`;
+      }, "")
+      .replace(/\/+/g, "/");
+  }
+
+  const paramSegments = paramMatches.map(() => "/:param");
+  const segments = [...literalSegments, ...paramSegments];
+
+  // For simple patterns like \/users\/?$/i, produce /users
+  if (literalSegments.length === 0 && paramSegments.length === 0) {
+    const simple = src
+      .replace(/\\\//g, "/")
+      .replace(/\(\?=\/|\\$\)\?/g, "")
+      .replace(/[^\/\w-]/g, "")
+      .replace(/\/+/g, "/")
+      .replace(/\/$/, "");
+    return simple;
+  }
+
+  return segments.join("").replace(/\/+/g, "/");
 };
 
-const collectEndpoints = (app: Application): Endpoint[] => {
-  const endpoints: Endpoint[] = [];
-  const asAny = app as any;
-  const stack: unknown[] = asAny.router?.stack ?? asAny._router?.stack ?? [];
+/**
+ * Walk the Express application/router stack to discover all registered
+ * routes, their HTTP methods, and associated Zod validation schemas.
+ */
+const collectEndpoints = (app: Application): DiscoveredEndpoint[] => {
+  const endpoints: DiscoveredEndpoint[] = [];
 
-  const traverse = (layers: unknown[], prefix = "") => {
+  // Express exposes the internal router via _router or app.router
+  const internalApp = app as unknown as {
+    _router?: { stack: unknown[] };
+    router?: { stack: unknown[] };
+  };
+  const topStack =
+    internalApp._router?.stack ?? internalApp.router?.stack ?? [];
+
+  const traverse = (layers: unknown[], prefix: string): void => {
     for (const layer of layers) {
-      const current = layer as {
+      const l = layer as {
         route?: {
           path: string | string[];
           methods: Record<string, boolean>;
-          stack: Array<{ handle: RequestHandler }>;
+          stack: Array<{ handle: RequestHandler; name?: string }>;
         };
         name?: string;
         handle?: { stack?: unknown[] };
         regexp?: RegExp;
       };
 
-      if (current.route) {
-        const routePaths = Array.isArray(current.route.path)
-          ? current.route.path
-          : [current.route.path];
+      // --- Leaf route ---
+      const route = l.route;
+      if (route && route.methods) {
+        const routePaths = Array.isArray(route.path)
+          ? route.path
+          : [route.path];
 
-        const schemas: Partial<Record<ValidationTarget, z.ZodTypeAny>> = {};
-        for (const middleware of current.route.stack ?? []) {
-          const tagged = middleware.handle as SchemaTaggedHandler;
-          if (tagged.__validationTarget && tagged.__validationSchema) {
-            schemas[tagged.__validationTarget] = tagged.__validationSchema;
-          }
-        }
-
-        const methods = Object.keys(current.route.methods || {}).filter(
-          (method) => current.route?.methods?.[method]
+        const methods = Object.keys(route.methods).filter(
+          (m) => route.methods[m],
         );
 
         for (const routePath of routePaths) {
-          for (const method of methods) {
-            const normalizedMethod = method.toLowerCase() as Endpoint["method"];
-            if (
-              !["get", "post", "put", "patch", "delete"].includes(
-                normalizedMethod
-              )
-            ) {
+          for (const rawMethod of methods) {
+            const method =
+              rawMethod.toLowerCase() as DiscoveredEndpoint["method"];
+            if (!["get", "post", "put", "patch", "delete"].includes(method)) {
               continue;
             }
+
+            const schemas: DiscoveredSchemas = {};
+            let docMetadata: DocMetadata | undefined;
+
+            // Walk the route's middleware stack to extract validation schemas and doc metadata
+            for (const mw of route.stack) {
+              const schemaHandler = mw.handle as SchemaTaggedHandler;
+              if (
+                schemaHandler.__validationTarget &&
+                schemaHandler.__validationSchema
+              ) {
+                schemas[schemaHandler.__validationTarget] =
+                  schemaHandler.__validationSchema;
+              }
+
+              const docHandler = mw.handle as DocTaggedHandler;
+              if (docHandler.__docMetadata) {
+                docMetadata = docHandler.__docMetadata;
+              }
+            }
+
             endpoints.push({
               path: `${prefix}${routePath}`,
-              method: normalizedMethod,
+              method,
               schemas,
+              doc: docMetadata,
             });
           }
         }
         continue;
       }
 
-      if (
-        current.name === "router" &&
-        current.handle &&
-        Array.isArray(current.handle.stack)
-      ) {
-        traverse(
-          current.handle.stack,
-          `${prefix}${pathFromRegexp(current.regexp)}`
-        );
+      // --- Nested router (sub-router mounted via .use) ---
+      if (l.name === "router" && l.handle && Array.isArray(l.handle.stack)) {
+        traverse(l.handle.stack, `${prefix}${pathFromRegexp(l.regexp)}`);
         continue;
       }
 
-      if (Array.isArray(current.handle?.stack)) {
-        traverse(current.handle.stack, prefix);
+      // --- Other nested middleware (e.g. rate-limit, auth) with stack ---
+      if (Array.isArray(l.handle?.stack)) {
+        traverse(l.handle.stack, prefix);
       }
     }
   };
 
-  traverse(stack);
-
+  traverse(topStack, "");
   return endpoints;
 };
 
-const toOpenApiPath = (path: string) => path.replace(/:([^\/]+)/g, "{$1}");
+// ──────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────
 
-const getTagFromPath = (path: string) => {
-  const segment = path.split("/").filter(Boolean)[1] ?? "core";
-  return segment;
+const toOpenApiPath = (path: string): string =>
+  path.replace(/:([^/]+)/g, "{$1}");
+
+/**
+ * Convert a Zod schema into an OpenAPI request-body definition.
+ */
+const zodToRequestBody = (schema: z.ZodType) => ({
+  required: true,
+  content: {
+    "application/json": { schema },
+  },
+});
+
+/**
+ * Register a Zod schema as a named component in the registry and return
+ * a reference to it. This avoids the inline-parameter issue where
+ * zod-to-openapi's internal registry can't resolve the schema chain.
+ */
+const registerSchemaComponent = (
+  registry: OpenAPIRegistry,
+  name: string,
+  schema: z.ZodType,
+): string => {
+  registry.register(name, schema);
+  return name;
 };
 
-const moduleSchemas = {
-  auth: authSchemas,
-  business: businessSchemas,
-  websiteContent: websiteContentSchemas,
-  staff: staffSchemas,
-  services: servicesSchemas,
-  customers: customersSchemas,
-  faqs: faqsSchemas,
-  bookings: bookingsSchemas,
-  appointments: appointmentsSchemas,
-  billing: billingSchemas,
-  photos: photosSchemas,
-} as const;
+/**
+ * Build the OpenAPI responses map from doc metadata.
+ */
+const buildResponses = (
+  docMeta?: DocMetadata,
+): Record<string, ResponseConfig> => {
+  const custom = docMeta?.responses;
+  if (!custom || Object.keys(custom).length === 0) {
+    return {
+      ...DEFAULT_RESPONSES,
+      200: responseConfig("Successful response", successEnvelopeSchema),
+    };
+  }
+
+  const result: Record<string, ResponseConfig> = {};
+  for (const [rawStatus, resp] of Object.entries(custom)) {
+    const status = Number(rawStatus);
+    if (status === 204) {
+      result[status] = { description: resp.description };
+    } else if (resp.schema) {
+      // Wrap in success envelope
+      const wrapped = successEnvelopeSchema.extend({
+        data: resp.schema,
+      });
+      result[status] = responseConfig(resp.description, wrapped);
+    } else {
+      result[status] = responseConfig(resp.description, successEnvelopeSchema);
+    }
+  }
+  return { ...DEFAULT_RESPONSES, ...result };
+};
+
+/**
+ * Derive default tags from the path prefix.
+ */
+const deriveTags = (path: string): string[] => {
+  const segments = path.split("/").filter(Boolean);
+  return [segments[0] ?? "core"];
+};
+
+// ──────────────────────────────────────────────
+// Main generator
+// ──────────────────────────────────────────────
 
 export const getOpenApiDocument = (
   app: Application,
@@ -166,10 +315,11 @@ export const getOpenApiDocument = (
     title: string;
     version: string;
     url?: string;
-  }
+  },
 ) => {
   const registry = new OpenAPIRegistry();
 
+  // Register shared components
   registry.register("SuccessEnvelope", successEnvelopeSchema);
   registry.register("ErrorEnvelope", errorEnvelopeSchema);
   registry.registerComponent("securitySchemes", "bearerAuth", {
@@ -177,64 +327,54 @@ export const getOpenApiDocument = (
     scheme: "bearer",
     bearerFormat: "JWT",
   });
-  void moduleSchemas;
 
   const dedupe = new Set<string>();
   const endpoints = collectEndpoints(app);
 
-  for (const endpoint of endpoints) {
-    const openApiPath = toOpenApiPath(endpoint.path);
-    const dedupeKey = `${endpoint.method}:${openApiPath}`;
-
+  for (const ep of endpoints) {
+    const openApiPath = toOpenApiPath(ep.path);
+    const dedupeKey = `${ep.method}:${openApiPath}`;
     if (dedupe.has(dedupeKey)) continue;
-    if (openApiPath.startsWith("/docs") || openApiPath === "/metrics") continue;
+
+    // Skip internal routes
+    if (
+      openApiPath.startsWith("/docs") ||
+      openApiPath.startsWith("/metrics") ||
+      openApiPath.startsWith("/api-docs") ||
+      openApiPath.startsWith("/openapi.json")
+    ) {
+      continue;
+    }
 
     dedupe.add(dedupeKey);
 
-    const request: Record<string, unknown> = {};
+    const tags = ep.doc?.tags ?? deriveTags(openApiPath);
+    const security = ep.doc?.security !== false ? [{ bearerAuth: [] }] : [];
 
-    if (endpoint.schemas.body) {
-      request.body = {
-        content: {
-          "application/json": {
-            schema: endpoint.schemas.body,
-          },
-        },
-      };
+    const request: {
+      body?: ZodRequestBody;
+      query?: z.ZodObject<any, any>;
+      params?: z.ZodObject<any, any>;
+    } = {};
+    if (ep.schemas.body) {
+      request.body = zodToRequestBody(ep.schemas.body);
     }
-
-    if (endpoint.schemas.query) {
-      request.query = endpoint.schemas.query;
+    if (ep.schemas.query) {
+      request.query = ep.schemas.query as z.ZodObject<any, any>;
     }
-
-    if (endpoint.schemas.params) {
-      request.params = endpoint.schemas.params;
+    if (ep.schemas.params) {
+      request.params = ep.schemas.params as z.ZodObject<any, any>;
     }
 
     registry.registerPath({
-      method: endpoint.method,
+      method: ep.method,
       path: openApiPath,
-      tags: [getTagFromPath(openApiPath)],
+      summary: ep.doc?.summary,
+      description: ep.doc?.description,
+      tags,
       request,
-      responses: {
-        200: {
-          description: "Success",
-          content: {
-            "application/json": {
-              schema: successEnvelopeSchema,
-            },
-          },
-        },
-        400: {
-          description: "Bad request",
-          content: {
-            "application/json": {
-              schema: errorEnvelopeSchema,
-            },
-          },
-        },
-      },
-      security: [{ bearerAuth: [] }],
+      responses: buildResponses(ep.doc),
+      security,
     });
   }
 
@@ -246,11 +386,16 @@ export const getOpenApiDocument = (
       title: info.title,
       version: info.version,
     },
-    servers: info.url ? [{ url: info.url }] : undefined,
+    servers: info.url ? [{ url: info.url }] : [],
   });
 };
 
-export const getSwaggerHtml = () => `<!DOCTYPE html>
+// ──────────────────────────────────────────────
+// Swagger UI HTML
+// ──────────────────────────────────────────────
+
+export const getSwaggerHtml = (specUrl = "/openapi.json") =>
+  `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
@@ -263,11 +408,12 @@ export const getSwaggerHtml = () => `<!DOCTYPE html>
     <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
     <script>
       window.ui = SwaggerUIBundle({
-        url: "/docs/openapi.json",
+        url: ${JSON.stringify(specUrl)},
         dom_id: "#swagger-ui",
         deepLinking: true,
         displayRequestDuration: true,
-        persistAuthorization: true
+        persistAuthorization: true,
+        tryItOutEnabled: true,
       });
     </script>
   </body>

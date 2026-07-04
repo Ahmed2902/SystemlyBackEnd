@@ -65,15 +65,12 @@ class BusinessService {
       throw buildErr("Slug already taken", 409, "SLUG_TAKEN");
     }
 
-    const { websiteContent, ...businessFields } = payload;
+    const { ...businessFields } = payload;
 
     const result = await prisma.$transaction(async (tx) => {
       const business = await tx.business.create({
         data: {
           ...businessFields,
-          websiteContent: {
-            create: toWebsiteContentCreateInput(websiteContent),
-          },
         },
         include: {
           websiteContent: true,

@@ -1,3 +1,7 @@
+// ⚠️ This MUST be imported first – extends Zod with .openapi() before
+// any schema module is loaded
+import "./src/shared/zod-setup";
+
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { Application, raw } from "express";
@@ -12,21 +16,11 @@ import { notFoundHandler } from "./src/shared/middleware/notFound.middleware";
 import { errorHandler } from "./src/shared/middleware/errorHandler.middleware";
 import { globalRateLimit } from "./src/shared/middleware/rateLimit.middleware";
 import * as promClient from "prom-client";
-import swaggerUi from "swagger-ui-express";
-import swaggerSpec from "./src/shared/config/swagger.js";
-
 const app: Application = express();
 
-// Paymob webhook: must capture raw bytes for HMAC verification.
-// Register this route BEFORE the app-wide JSON/body parsers so the
-// billing controller can compute HMAC against the original bytes.
-// Dynamically import the billing controller to avoid module load order issues.
-// The billing controller's `webhook` method expects (req,res,next).
-// Route is mounted at the full API path used by routes: /api/billing/webhook
-// (routes later mount billing routes at /api/billing).
-// This ensures compatibility with deployed webhook signer expectations.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const billingController = require("./src/modules/billing/billing.controller").default;
+const billingController =
+  require("./src/modules/billing/billing.controller").default;
 
 app.post(
   "/api/billing/webhook",
@@ -40,7 +34,7 @@ const corsOptions = {
   credentials: true,
   origin(
     origin: string | undefined,
-    callback: (err: Error | null, allow?: boolean) => void
+    callback: (err: Error | null, allow?: boolean) => void,
   ) {
     if (
       !origin ||
@@ -64,7 +58,7 @@ app.use(cors(corsOptions));
 app.use(globalRateLimit);
 app.use(express.json({ limit: APP_CONFIG.jsonBodyLimit }));
 app.use(
-  express.urlencoded({ extended: true, limit: APP_CONFIG.formBodyLimit })
+  express.urlencoded({ extended: true, limit: APP_CONFIG.formBodyLimit }),
 );
 app.use(cookieParser());
 
@@ -78,8 +72,11 @@ app.get("/", (_req, res) => {
     },
   });
 });
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-app.get("/docs/openapi.json", (_req, res) => {
+// ── OpenAPI / Swagger documentation ──────────────────────────────────
+// Raw JSON spec served at  /openapi.json
+// Swagger UI served at    /docs
+
+app.get("/openapi.json", (_req, res) => {
   const doc = getOpenApiDocument(app, {
     title: "Hgezli API",
     version: "1.0.0",
@@ -89,8 +86,7 @@ app.get("/docs/openapi.json", (_req, res) => {
 });
 
 app.get("/docs", (_req, res) => {
-  // Keep the simple static UI for environments where CDN is preferred
-  res.type("html").send(getSwaggerHtml());
+  res.type("html").send(getSwaggerHtml("/openapi.json"));
 });
 
 // Prometheus metrics endpoint

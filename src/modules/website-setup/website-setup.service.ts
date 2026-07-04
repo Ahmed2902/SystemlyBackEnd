@@ -24,7 +24,7 @@ const buildErr = (
   message: string,
   statusCode: number,
   code: string,
-  fieldErrors?: Record<string, string>
+  fieldErrors?: Record<string, string>,
 ) => {
   const err: any = new Error(message);
   err.statusCode = statusCode;
@@ -58,7 +58,7 @@ class WebsiteSetupService {
   }
 
   private buildDefaultDraftFromBusiness(
-    business: Awaited<ReturnType<WebsiteSetupService["getBusinessOrThrow"]>>
+    business: Awaited<ReturnType<WebsiteSetupService["getBusinessOrThrow"]>>,
   ): OnboardingDraftDto {
     const siteDraft = createEmptySiteDraft();
     siteDraft.basics.address = business.address || "";
@@ -77,12 +77,14 @@ class WebsiteSetupService {
     siteDraft.template =
       business.websiteContent?.template === "minimal" ? "minimal" : "modern";
     siteDraft.theme.fontId =
-      (business.websiteContent?.font as BusinessSiteDraftDto["theme"]["fontId"]) ||
-      "geist";
+      (business.websiteContent
+        ?.font as BusinessSiteDraftDto["theme"]["fontId"]) || "geist";
     siteDraft.theme.primaryColor = business.websiteContent?.primaryColor || "";
     siteDraft.theme.secondaryColor =
       business.websiteContent?.secondaryColor || "";
-    siteDraft.sections.order = Array.isArray(business.websiteContent?.sectionOrder)
+    siteDraft.sections.order = Array.isArray(
+      business.websiteContent?.sectionOrder,
+    )
       ? (business.websiteContent?.sectionOrder as string[])
       : siteDraft.sections.order;
 
@@ -106,15 +108,12 @@ class WebsiteSetupService {
     };
   }
 
-  private assertVersion(
-    existing: WebsiteSetupRecord,
-    expectedVersion: number
-  ) {
+  private assertVersion(existing: WebsiteSetupRecord, expectedVersion: number) {
     if (!existing && expectedVersion !== 0) {
       throw buildErr(
         "Website setup version conflict.",
         409,
-        "VERSION_CONFLICT"
+        "VERSION_CONFLICT",
       );
     }
 
@@ -122,7 +121,7 @@ class WebsiteSetupService {
       throw buildErr(
         "Website setup version conflict.",
         409,
-        "VERSION_CONFLICT"
+        "VERSION_CONFLICT",
       );
     }
   }
@@ -185,10 +184,12 @@ class WebsiteSetupService {
   async saveWebsiteSetup(
     businessId: string,
     ownerUserId: string,
-    payload: SaveWebsiteSetupInput
+    payload: SaveWebsiteSetupInput,
   ) {
     await this.getBusinessOrThrow(businessId);
-    const existing = await prisma.websiteSetup.findUnique({ where: { businessId } });
+    const existing = await prisma.websiteSetup.findUnique({
+      where: { businessId },
+    });
     this.assertVersion(existing, payload.expectedVersion);
 
     const normalizedDraft = normalizeOnboardingDraft(payload.draft);
@@ -227,10 +228,12 @@ class WebsiteSetupService {
   async updateSiteDraft(
     businessId: string,
     ownerUserId: string,
-    payload: UpdateSiteDraftInput
+    payload: UpdateSiteDraftInput,
   ) {
     await this.getBusinessOrThrow(businessId);
-    const existing = await prisma.websiteSetup.findUnique({ where: { businessId } });
+    const existing = await prisma.websiteSetup.findUnique({
+      where: { businessId },
+    });
     this.assertVersion(existing, payload.expectedVersion);
 
     const previousEnvelope = existing
@@ -282,10 +285,12 @@ class WebsiteSetupService {
   async publishWebsiteSetup(
     businessId: string,
     ownerUserId: string,
-    payload: SaveWebsiteSetupInput
+    payload: SaveWebsiteSetupInput,
   ) {
     await this.getBusinessOrThrow(businessId);
-    const existing = await prisma.websiteSetup.findUnique({ where: { businessId } });
+    const existing = await prisma.websiteSetup.findUnique({
+      where: { businessId },
+    });
     this.assertVersion(existing, payload.expectedVersion);
 
     const normalizedDraft = normalizeOnboardingDraft(payload.draft);
@@ -295,7 +300,7 @@ class WebsiteSetupService {
         "Website setup is not ready to publish.",
         422,
         "PUBLISH_VALIDATION_FAILED",
-        publishValidation.fieldErrors
+        publishValidation.fieldErrors,
       );
     }
 
@@ -324,7 +329,7 @@ class WebsiteSetupService {
     };
 
     const websiteContentProjection = projectSiteDraftToWebsiteContent(
-      publishedDraft.siteDraft
+      publishedDraft.siteDraft,
     );
     const version = (existing?.version || 0) + 1;
 
@@ -338,7 +343,7 @@ class WebsiteSetupService {
           name: publishedDraft.basics.businessName,
           phone: publishedDraft.basics.whatsapp,
           slug: publishedDraft.basics.slug,
-          vertical: publishedDraft.basics.category || null,
+          vertical: publishedDraft.basics.category || undefined,
         },
       });
 
