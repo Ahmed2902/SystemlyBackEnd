@@ -1,7 +1,6 @@
 import { Router } from "express";
 import authController from "./auth.controller";
 import * as googleOauth from "./google.oauth";
-import * as appleOauth from "./apple.oauth";
 import { authRateLimit } from "../../shared/middleware/rateLimit.middleware";
 import { requireAuth } from "../../shared/middleware/auth.middleware";
 import validate from "../../shared/middleware/validate.middleware";
@@ -110,17 +109,6 @@ router.get(
   googleOauth.googleCallback,
 );
 
-router.get(
-  "/oauth/apple",
-  doc({ summary: "Apple OAuth redirect", tags: ["auth"], security: false }),
-  appleOauth.appleRedirect,
-);
-router.post(
-  "/oauth/apple/callback",
-  doc({ summary: "Apple OAuth callback", tags: ["auth"], security: false }),
-  appleOauth.appleCallback,
-);
-
 /* -------------------------
    TOKEN MANAGEMENT
 -------------------------- */
@@ -213,5 +201,10 @@ router.get(
   }),
   authController.getMe,
 );
+
+// somewhere in auth.routes.ts, public
+router.get("/csrf-token", csrfProtection, (req, res) => {
+  res.json({ success: true, data: { csrfToken: req.csrfToken() } });
+});
 
 export default router;

@@ -51,8 +51,15 @@ class AuthController {
       res.cookie(
         REFRESH_COOKIE_NAME,
         result.refreshToken,
-        REFRESH_COOKIE_OPTIONS
+        REFRESH_COOKIE_OPTIONS,
       );
+      res.cookie("accessToken", result.accessToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        maxAge: 15 * 60 * 1000, // match your actual access token expiry
+        path: "/",
+      });
       return ok(res, { accessToken: result.accessToken, user: result.user });
     } catch (err) {
       return next(err);
@@ -67,8 +74,15 @@ class AuthController {
       res.cookie(
         REFRESH_COOKIE_NAME,
         result.refreshToken,
-        REFRESH_COOKIE_OPTIONS
+        REFRESH_COOKIE_OPTIONS,
       );
+      res.cookie("accessToken", result.accessToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        maxAge: 15 * 60 * 1000, // match your actual access token expiry
+        path: "/",
+      });
       return ok(res, { accessToken: result.accessToken, user: result.user });
     } catch (err) {
       return next(err);
@@ -88,7 +102,7 @@ class AuthController {
       res.cookie(
         REFRESH_COOKIE_NAME,
         result.refreshToken,
-        REFRESH_COOKIE_OPTIONS
+        REFRESH_COOKIE_OPTIONS,
       );
       return ok(res, { accessToken: result.accessToken });
     } catch (err) {
@@ -159,6 +173,7 @@ class AuthController {
       if (!parsed.success)
         return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
       const safeUser = await authService.getMe(parsed.data);
+      res.set("Cache-Control", "no-store");
       return ok(res, safeUser);
     } catch (err) {
       return next(err);

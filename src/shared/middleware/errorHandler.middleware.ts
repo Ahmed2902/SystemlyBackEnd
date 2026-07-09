@@ -9,7 +9,7 @@ type AppError = Error & {
 };
 
 const isPrismaKnownRequestError = (
-  error: unknown
+  error: unknown,
 ): error is { code: string; message: string } => {
   return (
     typeof error === "object" &&
@@ -47,7 +47,7 @@ export const errorHandler = (
   error: AppError,
   _req: Request,
   res: Response,
-  _next: NextFunction
+  _next: NextFunction,
 ) => {
   if (process.env.NODE_ENV !== "test") {
     console.error(error);
@@ -91,7 +91,7 @@ export const errorHandler = (
     return;
   }
 
-  res.status(error.statusCode || 500).json({
+  res.status(Number(error.statusCode) || 500).json({
     ok: false,
     success: false,
     message: error.message || "Internal server error",

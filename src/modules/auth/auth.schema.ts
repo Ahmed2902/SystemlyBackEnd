@@ -134,12 +134,10 @@ export const refreshResponseSchema = z
 export const messageResponseSchema = z
   .object({
     sent: z.boolean().openapi({ example: true }),
-    message: z
-      .string()
-      .openapi({
-        example:
-          "If this email is registered, a verification link has been sent.",
-      }),
+    message: z.string().openapi({
+      example:
+        "If this email is registered, a verification link has been sent.",
+    }),
   })
   .openapi({ description: "Generic message response" });
 

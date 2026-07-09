@@ -7,6 +7,7 @@ import {
 import { uploadSingle } from "../../shared/middleware/upload.middleware";
 import validate from "../../shared/middleware/validate.middleware";
 import { photoIdParamsSchema } from "./photos.schema";
+import Supabase from "../../shared/services/Supabase.Service";
 
 const router = Router();
 
@@ -15,14 +16,14 @@ router.post(
   requireAuth,
   requireBusinessAccess,
   uploadSingle,
-  photosController.uploadLogo
+  photosController.uploadLogo,
 );
 router.post(
   "/cover",
   requireAuth,
   requireBusinessAccess,
   uploadSingle,
-  photosController.uploadCover
+  photosController.uploadCover,
 );
 
 // Gallery endpoints - TODO: requires Photo model
@@ -31,14 +32,30 @@ router.post(
   requireAuth,
   requireBusinessAccess,
   uploadSingle,
-  photosController.uploadGallery
+  photosController.uploadGallery,
 );
 router.delete(
   "/gallery/:id",
   requireAuth,
   requireBusinessAccess,
   validate.validateParams(photoIdParamsSchema),
-  photosController.deleteGallery
+  photosController.deleteGallery,
 );
+
+router.post("/gallery/presign", async (req, res, next) => {
+  try {
+    const { filePath, contentType } = req.body;
+
+    // Calls the Supabase Storage client initialization function
+    const uploadTicket = await Supabase.getUploadUrl(filePath, contentType);
+
+    res.json({
+      success: true,
+      data: uploadTicket, // contains { uploadUrl, publicUrl }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 export default router;

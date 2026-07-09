@@ -2,43 +2,41 @@ import type { NextFunction, Request, Response } from "express";
 import { verifyAccessToken } from "../utils/token.util";
 import { prisma } from "../db/prisma";
 import { fail } from "../utils/response.util";
-import { Prisma, Roles } from "@prisma/client";
-
-declare module "express-serve-static-core" {
-  interface Request {
-    user?: {
-      id: string;
-      businessId?: string;
-      role?: string;
-      email?: string;
-    };
-  }
-}
+import { Roles } from "@prisma/client";
 
 export const requireAuth = (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     const authHeader = req.headers.authorization;
+    let token: string | undefined;
+
     if (
-      !authHeader ||
-      typeof authHeader !== "string" ||
-      !authHeader.startsWith("Bearer ")
+      authHeader &&
+      typeof authHeader === "string" &&
+      authHeader.startsWith("Bearer ")
     ) {
+      token = authHeader.split(" ")[1];
+    } else if (req.cookies?.accessToken) {
+      token = req.cookies.accessToken;
+    }
+
+    if (!token) {
       return fail(
         res,
-        "Missing or invalid Authorization header",
+        "Missing or invalid authentication",
         401,
-        "UNAUTHORIZED"
+        "UNAUTHORIZED",
       );
     }
-    const token = authHeader.split(" ")[1];
+
     const payload = verifyAccessToken(token) as any;
     if (!payload) {
       return fail(res, "Invalid token", 401, "UNAUTHORIZED");
     }
+
     req.user = {
       id: String(payload.userId ?? payload.sub ?? payload.id),
       businessId: payload.businessId ? String(payload.businessId) : undefined,
@@ -70,7 +68,7 @@ export const requireRole = (roles: string | string[]) => {
 export const requireBusinessAccess = (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   if (!req.user) {
     return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
@@ -95,7 +93,7 @@ export const requireBusinessAccess = (
 export const requireAppointmentOwnerOrAdmin = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
 ) => {
   try {
     if (!req.user) {

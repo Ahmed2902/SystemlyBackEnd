@@ -1,6 +1,10 @@
 .env
 .env.example
+.env.local
 /src/generated/prisma
 /dist
-node_modules
+
 /node_modules
+
+node_modules/
+**/node_modules/

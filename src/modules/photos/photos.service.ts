@@ -1,8 +1,8 @@
 import { prisma } from "../../shared/db/prisma";
-import cloudinary from "../../shared/services/cloudinary.service";
+import Supabase from "../../shared/services/Supabase.Service";
 
 export const uploadLogo = async (businessId: string, file: any) => {
-  const res = await cloudinary.uploadFile(file.path);
+  const res = await Supabase.uploadFile(file.path);
   const updated = await prisma.business.update({
     where: { id: businessId },
     data: { logoUrl: res.url },
@@ -11,7 +11,7 @@ export const uploadLogo = async (businessId: string, file: any) => {
 };
 
 export const uploadCover = async (businessId: string, file: any) => {
-  const res = await cloudinary.uploadFile(file.path);
+  const res = await Supabase.uploadFile(file.path);
   const updated = await prisma.business.update({
     where: { id: businessId },
     data: { coverUrl: res.url },
@@ -23,7 +23,7 @@ export const uploadCover = async (businessId: string, file: any) => {
 export const uploadGallery = async (_businessId: string, _file: any) => {
   const businessId = _businessId;
   const file = _file;
-  const upload = await cloudinary.uploadFile(file.path || file.buffer || file);
+  const upload = await Supabase.uploadFile(file.path || file.buffer || file);
 
   // compute position as next available
   const count = await prisma.photo.count({ where: { businessId } });
@@ -60,12 +60,12 @@ export const deleteGallery = async (businessId: string, id: string) => {
   // Attempt Cloudinary cleanup if publicId present
   try {
     if ((photo as any).publicId) {
-      await cloudinary.deleteFile((photo as any).publicId);
+      await Supabase.deleteFile((photo as any).publicId);
     }
   } catch (e) {
     // log and continue — we still delete DB row
     // eslint-disable-next-line no-console
-    console.log("[Photos] Cloudinary delete failed", e);
+    console.log("[Photos] Supabase delete failed", e);
   }
 
   await prisma.photo.delete({ where: { id } });

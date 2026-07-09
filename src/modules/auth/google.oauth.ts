@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import axios from "axios";
 import { OAuth2Client } from "google-auth-library";
-import * as authService from "./auth.service";
+import authService from "./auth.service";
 import { ok, fail } from "../../shared/utils/response.util";
 import crypto from "crypto";
 
@@ -185,16 +185,13 @@ export const googleCallback = async (
       result.refreshToken,
       REFRESH_COOKIE_OPTIONS,
     );
-    res.cookie(
-      "access_token",
-      result.accessToken,
-      {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === "production", // true in production
-        sameSite: "lax",
-        maxAge: 15 * 60 * 1000,
-      }, // 15 minutes
-    );
+    res.cookie("accessToken", result.accessToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      maxAge: 15 * 60 * 1000, // match your actual access token expiry
+      path: "/",
+    });
 
     /* -------------------------
        RETURN RESPONSE
