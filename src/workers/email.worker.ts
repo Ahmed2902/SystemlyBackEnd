@@ -169,7 +169,7 @@ export const sendEmailTask = async (payload: any, _helpers: any) => {
             include: {
               customer: true,
               business: true,
-              service: true,
+              appointmentServices: { include: { service: true } },
               staff: true,
             },
           });
@@ -181,7 +181,10 @@ export const sendEmailTask = async (payload: any, _helpers: any) => {
 
         const name = data.name || appt?.customer?.name || "there";
         const businessName = data.businessName || appt?.business?.name || "";
-        const serviceName = data.serviceName || appt?.service?.name || "";
+        const serviceName =
+          data.serviceName ||
+          appt?.appointmentServices?.[0]?.service?.name ||
+          "";
         const staffName = data.staffName || appt?.staff?.name || null;
         const startsAt =
           data.startsAt || (appt?.startsAt ? appt.startsAt.toISOString() : "");

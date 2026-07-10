@@ -77,7 +77,12 @@ export const enqueueEmailJob = async (
     if (!to && data.appointmentId) {
       const appt = await prisma.appointment.findUnique({
         where: { id: data.appointmentId },
-        include: { customer: true, business: true, service: true, staff: true },
+        include: {
+          customer: true,
+          business: true,
+          appointmentServices: { include: { service: true } },
+          staff: true,
+        },
       });
       if (!appt) throw new Error("Appointment not found for email enqueue");
       if (!appt.customer?.email)
@@ -88,7 +93,7 @@ export const enqueueEmailJob = async (
         appointmentId: appt.id,
         name: appt.customer.name,
         businessName: appt.business?.name,
-        serviceName: appt.service?.name,
+        serviceName: appt.appointmentServices?.[0]?.service?.name ?? null,
         staffName: appt.staff?.name ?? null,
         startsAt: appt.startsAt ? appt.startsAt.toISOString() : undefined,
         whenKey: data.whenKey,

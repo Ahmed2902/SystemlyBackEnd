@@ -116,7 +116,12 @@ const processCycle = async () => {
         status: "confirmed",
         startsAt: { gte: start24.toJSDate(), lt: end24.toJSDate() },
       },
-      include: { customer: true, business: true, service: true, staff: true },
+      include: {
+        customer: true,
+        business: true,
+        appointmentServices: true,
+        staff: true,
+      },
     });
 
     await Promise.all(
@@ -131,7 +136,12 @@ const processCycle = async () => {
         status: "confirmed",
         startsAt: { gte: start2.toJSDate(), lt: end2.toJSDate() },
       },
-      include: { customer: true, business: true, service: true, staff: true },
+      include: {
+        customer: true,
+        business: true,
+        appointmentServices: { include: { service: true } },
+        staff: true,
+      },
     });
 
     await Promise.all(
@@ -148,7 +158,12 @@ const processCycle = async () => {
           lt: now.plus({ hours: 24 }).toJSDate(),
         },
       },
-      include: { customer: true, business: true, service: true, staff: true },
+      include: {
+        customer: true,
+        business: true,
+        appointmentServices: { include: { service: true } },
+        staff: true,
+      },
     });
 
     for (const a of pending) {

@@ -49,7 +49,7 @@ class AppointmentsService {
         skip,
         take: perPage,
         orderBy: { startsAt: "desc" },
-        include: { customer: true, service: true, staff: true },
+        include: { customer: true, appointmentServices: true, staff: true },
       }),
       prisma.appointment.count({ where }),
     ]);
@@ -72,7 +72,7 @@ class AppointmentsService {
   async getAppointmentById(id: string) {
     return prisma.appointment.findUnique({
       where: { id },
-      include: { customer: true, service: true, staff: true },
+      include: { customer: true, appointmentServices: true, staff: true },
     });
   }
 
@@ -187,7 +187,7 @@ class AppointmentsService {
     return prisma.$transaction(async (tx) => {
       const appt = await tx.appointment.findUnique({
         where: { id },
-        include: { service: true },
+        include: { appointmentServices: true },
       });
       if (!appt) {
         const err: any = new Error("Appointment not found");
@@ -196,7 +196,7 @@ class AppointmentsService {
         throw err;
       }
 
-      const svc = appt.service;
+      const svc = appt.appointmentServices;
       if (!svc) {
         const err: any = new Error("Service not found");
         err.statusCode = 404;
@@ -205,7 +205,11 @@ class AppointmentsService {
       }
 
       const starts = new Date(startsAt);
-      const ends = new Date(starts.getTime() + svc.durationMin * 60 * 1000);
+      const end = svc.reduce(
+        (acc, s) => acc + s.durationMinSnapshot * 60 * 1000,
+        starts.getTime(),
+      );
+      const ends = new Date(end);
 
       const conflict = await tx.appointment.findFirst({
         where: {

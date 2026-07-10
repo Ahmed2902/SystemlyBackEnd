@@ -39,7 +39,7 @@ class CustomersService {
     return prisma.appointment.findMany({
       where: { customerId },
       orderBy: { startsAt: "desc" },
-      include: { service: true, staff: true, invoice: true },
+      include: { appointmentServices: true, staff: true, invoice: true },
     });
   }
 

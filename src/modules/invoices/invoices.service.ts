@@ -57,7 +57,10 @@ class InvoicesService {
 
     const appointment = await prisma.appointment.findUnique({
       where: { id: appointmentId },
-      include: { service: true, customer: true },
+      include: {
+        appointmentServices: { include: { service: true } },
+        customer: true,
+      },
     });
 
     if (!appointment) {
@@ -79,30 +82,57 @@ class InvoicesService {
         400,
       );
     }
+    if (appointment.appointmentServices.length === 0) {
+      throw buildErr("Appointment has no services", 400, "INVALID_STATE");
+    }
 
-    const servicePrice = Number(appointment.service.priceEgp);
-    const priceCents = Math.round(servicePrice * 100);
-    const commissionRow = await prisma.serviceStaff.findUnique({
+    const commissionRows = await prisma.serviceStaff.findMany({
       where: {
-        serviceId_staffId: {
-          serviceId: appointment.serviceId,
-          staffId: appointment.staffId,
+        staffId: appointment.staffId,
+        serviceId: {
+          in: appointment.appointmentServices.map((s) => s.serviceId),
         },
       },
     });
+    const commissionByServiceId = new Map(
+      commissionRows.map((row) => [row.serviceId, row]),
+    );
+
+    const lineItemsData = appointment.appointmentServices.map((item) => {
+      const lineTotalCents = Math.round(Number(item.priceEgpSnapshot) * 100);
+      const commissionRow = commissionByServiceId.get(item.serviceId);
+      const commissionType =
+        commissionRow?.commissionType ?? CommissionType.NONE;
+      const commissionAmount = commissionRow?.commissionAmount ?? 0;
+
+      return {
+        description: item.service.name,
+        quantity: 1,
+        unitPriceCents: lineTotalCents,
+        taxCents: 0,
+        totalCents: lineTotalCents,
+        serviceId: item.serviceId,
+        staffId: appointment.staffId,
+        commissionType,
+        commissionAmount,
+        commissionEarnedCents: commissionEarnedCents(
+          lineTotalCents,
+          commissionType,
+          commissionAmount,
+        ),
+      };
+    });
+
+    const priceCents = lineItemsData.reduce(
+      (sum, li) => sum + li.totalCents,
+      0,
+    );
 
     const business = await prisma.business.findUnique({
       where: { id: businessId },
       select: { slug: true },
     });
     const invNumber = `INV-${business?.slug ?? "UNKNOWN"}-${Date.now()}`;
-    const commissionType = commissionRow?.commissionType ?? CommissionType.NONE;
-    const commissionAmount = commissionRow?.commissionAmount ?? 0;
-    const earnedCommissionCents = commissionEarnedCents(
-      priceCents,
-      commissionType,
-      commissionAmount,
-    );
 
     try {
       const invoice = await prisma.$transaction(async (tx) => {
@@ -119,18 +149,7 @@ class InvoicesService {
             currency: "EGP",
             issuedAt: new Date(),
             lineItems: {
-              create: {
-                description: appointment.service.name,
-                quantity: 1,
-                unitPriceCents: priceCents,
-                taxCents: 0,
-                totalCents: priceCents,
-                serviceId: appointment.serviceId,
-                staffId: appointment.staffId,
-                commissionType,
-                commissionAmount,
-                commissionEarnedCents: earnedCommissionCents,
-              },
+              create: lineItemsData,
             },
           },
           include: {
@@ -152,7 +171,6 @@ class InvoicesService {
       throw err;
     }
   }
-
   /**
    * Mark an invoice as paid.
    */
