@@ -70,7 +70,6 @@ model Business {
   staff          Staff[]
   subscription   Subscription?
   websiteContent WebsiteContent?
-  websiteSetup   WebsiteSetup?
   photos         Photo[]
   invoices       Invoice[]
   loyaltyAccounts LoyaltyAccount[]
@@ -97,7 +96,6 @@ model BusinessUser {
   providerId    String?   @unique
   business      Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
   currentRefreshToken RefreshToken? @relation("CurrentRefreshToken", fields: [currentRefreshTokenId], references: [id])
-  websiteSetups  WebsiteSetup[]
   refreshTokens  RefreshToken[]
 
   @@index([businessId])
@@ -330,6 +328,8 @@ model WebsiteContent {
   showReviews     Boolean  @default(false) @map("show_reviews")
   metaTitle       String?  @map("meta_title") @db.VarChar(255)
   metaDescription String?  @map("meta_description") @db.Text
+  instagramUrl    String?  @map("instagram_url") @db.VarChar(255)
+  whatsappNumber  String?  @map("whatsapp_number") @db.VarChar(30)
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
   business        Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
@@ -337,24 +337,6 @@ model WebsiteContent {
   @@map("website_content")
 }
 
-model WebsiteSetup {
-  id            String       @id @default(uuid()) @db.Uuid
-  businessId    String       @unique @map("business_id") @db.Uuid
-  ownerUserId   String       @map("owner_user_id") @db.Uuid
-  version       Int          @default(0)
-  step          Int          @default(1)
-  templateId    String       @default("modern") @map("template_id") @db.VarChar(80)
-  publishedAt   DateTime?    @map("published_at")
-  draftEnvelope Json         @map("draft_envelope")
-  siteDraft     Json         @map("site_draft")
-  createdAt     DateTime     @default(now()) @map("created_at")
-  updatedAt     DateTime     @updatedAt @map("updated_at")
-  business      Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  ownerUser     BusinessUser @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
-
-  @@index([ownerUserId])
-  @@map("website_setup")
-}
 
 model Faq {
   id           String   @id @default(uuid()) @db.Uuid
