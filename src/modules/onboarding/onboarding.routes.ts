@@ -4,6 +4,6 @@ import { completeOnboarding } from "./onboarding.controller";
 
 const router = Router();
 
-router.post("/onboarding/complete", requireAuth, completeOnboarding);
+router.post("/complete", requireAuth, completeOnboarding);
 
 export default router;

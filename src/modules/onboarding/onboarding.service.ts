@@ -40,6 +40,7 @@ class OnboardingService {
           city: input.city,
           address: input.address,
           isActive: true,
+          logoUrl: input.logoUrl,
         },
       });
 
