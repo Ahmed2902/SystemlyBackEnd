@@ -1,182 +1,140 @@
 import { prisma } from "../../shared/db/prisma";
-import { generateSlots } from "../../shared/utils/slots.util";
 import { DateTime } from "luxon";
 import { upsertByPhone as upsertCustomer } from "../customers/customers.service";
 import { generateCancelToken } from "../../shared/utils/token.util";
 import type { AvailabilityQuery, CreateBookingBody } from "./bookings.schema";
-import type { Slot } from "../../shared/utils/slots.util";
 import {
-  getBusinessDayOfWeek,
   getBusinessDayRange,
-  toBusinessTime,
   toUtcFromBusinessTime,
 } from "../../shared/utils/timezone";
+import {
+  computeStaffFreeIntervals,
+  isStaffFreeFor,
+} from "./bookings.availabilty.utils";
+
+import { scheduleServiceSegments } from "../Scheduling/Scheduling.service";
 
 const CANCEL_TTL_DAYS = parseInt(
   process.env.BOOKING_CANCEL_TTL_DAYS || "30",
   10,
 );
+const SLOT_INTERVAL_MIN = 15;
 
 class BookingsService {
   async getAvailability(opts: AvailabilityQuery) {
-    const { businessId, serviceId, staffId, date, timezone = undefined } = opts;
+    const { businessId, services: selections, date, timezone } = opts;
 
-    const [business, service] = await Promise.all([
-      prisma.business.findUnique({
-        where: { id: businessId },
-      }),
-      prisma.service.findUnique({
-        where: { id: serviceId },
-      }),
-    ]);
-
-    if (!service) {
-      throw new Error("Service not found");
-    }
-
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+    });
     const tz = timezone || (business?.timezone as string) || "UTC";
 
-    let staffIds: string[] = [];
+    const serviceIds = selections.map((s) => s.serviceId);
+    const services = await prisma.service.findMany({
+      where: { id: { in: serviceIds } },
+    });
+    if (services.length !== serviceIds.length)
+      throw new Error("One or more services not found");
+    const serviceById = new Map(services.map((s) => [s.id, s]));
 
-    if (staffId) {
-      staffIds = [staffId];
-    } else {
-      const rows = await prisma.serviceStaff.findMany({
-        where: { serviceId },
-        include: {
-          staff: true,
-        },
-      });
-
-      staffIds = rows.filter((r) => r.staff?.isActive).map((r) => r.staffId);
-    }
-
-    if (staffIds.length === 0) {
-      return [];
-    }
-
-    const dayOfWeek = getBusinessDayOfWeek(date, tz);
-
-    const { start: dayStart, end: dayEnd } = getBusinessDayRange(tz, date);
-
-    const [overrides, availabilities, appointments] = await Promise.all([
-      prisma.availabilityOverride.findMany({
-        where: {
-          staffId: {
-            in: staffIds,
-          },
-          overrideDate: new Date(date),
-        },
-      }),
-
-      prisma.availability.findMany({
-        where: {
-          staffId: {
-            in: staffIds,
-          },
-          dayOfWeek,
-        },
-      }),
-
-      prisma.appointment.findMany({
-        where: {
-          businessId,
-          staffId: {
-            in: staffIds,
-          },
-          status: {
-            notIn: ["cancelled_by_customer", "cancelled_by_business"],
-          },
-          AND: [
-            {
-              startsAt: {
-                lt: dayEnd,
-              },
+    const eligibleByService: string[][] = [];
+    for (const sel of selections) {
+      if (sel.staffId) {
+        const row = await prisma.serviceStaff.findUnique({
+          where: {
+            serviceId_staffId: {
+              serviceId: sel.serviceId,
+              staffId: sel.staffId,
             },
-            {
-              endsAt: {
-                gt: dayStart,
-              },
-            },
-          ],
-        },
-      }),
-    ]);
-
-    const overrideMap = new Map(overrides.map((o) => [o.staffId, o]));
-
-    const availabilityMap = new Map(availabilities.map((a) => [a.staffId, a]));
-
-    const appointmentsMap = new Map<string, typeof appointments>();
-
-    for (const appt of appointments) {
-      const arr = appointmentsMap.get(appt.staffId) ?? [];
-
-      arr.push(appt);
-
-      appointmentsMap.set(appt.staffId, arr);
-    }
-
-    const allSlots: Slot[] = [];
-
-    for (const sId of staffIds) {
-      const override = overrideMap.get(sId);
-
-      if (override?.isDayOff) {
-        continue;
-      }
-
-      const avail = availabilityMap.get(sId);
-
-      let startTimeStr: string | undefined;
-      let endTimeStr: string | undefined;
-      let breakAfterMin = 0;
-
-      if (override?.startTime && override?.endTime) {
-        startTimeStr = toBusinessTime(override.startTime, tz).toFormat("HH:mm");
-
-        endTimeStr = toBusinessTime(override.endTime, tz).toFormat("HH:mm");
-      } else if (avail) {
-        startTimeStr = toBusinessTime(avail.startTime, tz).toFormat("HH:mm");
-
-        endTimeStr = toBusinessTime(avail.endTime, tz).toFormat("HH:mm");
-
-        breakAfterMin = avail.breakAfterMin ?? 0;
+          },
+        });
+        eligibleByService.push(row ? [sel.staffId] : []);
       } else {
-        continue;
+        const rows = await prisma.serviceStaff.findMany({
+          where: { serviceId: sel.serviceId },
+          include: { staff: true },
+        });
+        eligibleByService.push(
+          rows.filter((r) => r.staff?.isActive).map((r) => r.staffId),
+        );
+      }
+    }
+
+    if (eligibleByService.some((list) => list.length === 0)) return [];
+
+    const allStaffIds = [...new Set(eligibleByService.flat())];
+    const freeByStaff = await computeStaffFreeIntervals(
+      allStaffIds,
+      businessId,
+      date,
+      tz,
+    );
+
+    const { start: dayStartRaw, end: dayEndRaw } = getBusinessDayRange(
+      tz,
+      date,
+    );
+    const dayStart = DateTime.fromJSDate(dayStartRaw).setZone(tz);
+    const dayEnd = DateTime.fromJSDate(dayEndRaw).setZone(tz);
+
+    const totalDuration = selections.reduce(
+      (sum, s) => sum + serviceById.get(s.serviceId)!.durationMin,
+      0,
+    );
+
+    const results: {
+      time: string;
+      display: string;
+      assignments: { serviceId: string; staffId: string }[];
+    }[] = [];
+
+    let candidate = dayStart;
+    const now = DateTime.now().setZone(tz);
+    if (candidate < now) {
+      const remainder = now.minute % SLOT_INTERVAL_MIN;
+      candidate =
+        remainder === 0
+          ? now.set({ second: 0, millisecond: 0 })
+          : now
+              .plus({ minutes: SLOT_INTERVAL_MIN - remainder })
+              .set({ second: 0, millisecond: 0 });
+    }
+
+    while (candidate.plus({ minutes: totalDuration }) <= dayEnd) {
+      let segmentStart = candidate;
+      const assignments: { serviceId: string; staffId: string }[] = [];
+      let valid = true;
+
+      for (let i = 0; i < selections.length; i++) {
+        const dur = serviceById.get(selections[i].serviceId)!.durationMin;
+        const segmentEnd = segmentStart.plus({ minutes: dur });
+        const candidates = eligibleByService[i];
+        const chosenStaff = candidates.find((sId) =>
+          isStaffFreeFor(freeByStaff.get(sId) ?? [], segmentStart, segmentEnd),
+        );
+        if (!chosenStaff) {
+          valid = false;
+          break;
+        }
+        assignments.push({
+          serviceId: selections[i].serviceId,
+          staffId: chosenStaff,
+        });
+        segmentStart = segmentEnd;
       }
 
-      const staffAppointments = appointmentsMap.get(sId) ?? [];
+      if (valid) {
+        results.push({
+          time: candidate.toUTC().toISO()!,
+          display: candidate.toFormat("HH:mm"),
+          assignments,
+        });
+      }
 
-      const bookedSlots = staffAppointments.map((a) => ({
-        starts_at: a.startsAt,
-        ends_at: a.endsAt,
-      }));
-
-      const slots = generateSlots({
-        date,
-        startTime: startTimeStr,
-        endTime: endTimeStr,
-        durationMin: service.durationMin,
-        breakAfterMin,
-        bookedSlots,
-        staffId: sId,
-        timezone: tz,
-        slotIntervalMin: 15,
-      });
-
-      allSlots.push(...slots);
+      candidate = candidate.plus({ minutes: SLOT_INTERVAL_MIN });
     }
 
-    const map: Record<string, Slot> = {};
-
-    for (const slot of allSlots) {
-      map[slot.time] = slot;
-    }
-
-    return Object.values(map).sort(
-      (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
-    );
+    return results;
   }
 
   async getByCancelToken(token: string) {
@@ -188,6 +146,7 @@ class BookingsService {
   async cancelByToken(token: string) {
     const appt = await prisma.appointment.findUnique({
       where: { cancelToken: token } as any,
+      include: { customer: true },
     });
     if (!appt) {
       const err: any = new Error("Not found");
@@ -205,95 +164,38 @@ class BookingsService {
       throw err;
     }
 
-    const updated = await prisma.appointment.update({
-      where: { id: appt.id },
-      data: { status: "cancelled_by_customer" } as any,
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.appointment.update({
+        where: { id: appt.id },
+        data: { status: "cancelled_by_customer" } as any,
+      });
+
+      if (appt.customerId && appt.customer && appt.customer.visitCount > 0) {
+        await tx.customer.update({
+          where: { id: appt.customerId },
+          data: { visitCount: { decrement: 1 } },
+        });
+      }
+
+      return updated;
     });
-    return updated;
   }
 
   async createBooking(payload: CreateBookingBody) {
-    const {
-      businessId,
-      serviceId,
-      staffId: requestedStaffId,
-      startsAt,
-      timezone,
-    } = payload;
-    const tz =
-      timezone ||
-      (await prisma.business.findUnique({ where: { id: businessId } }))
-        ?.timezone ||
-      "UTC";
+    const { businessId, services: selections, startsAt, timezone } = payload;
 
-    const service = await prisma.service.findUnique({
-      where: { id: serviceId },
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
     });
-    if (!service) {
-      const err: any = new Error("Service not found");
-      err.statusCode = 404;
-      throw err;
-    }
-
-    let staffId = requestedStaffId;
-    if (!staffId) {
-      const rows = await prisma.serviceStaff.findMany({
-        where: { serviceId },
-        include: { staff: true },
-      });
-      const candidates = rows
-        .filter((r) => r.staff?.isActive)
-        .map((r) => r.staffId);
-      if (candidates.length === 0) {
-        const err: any = new Error("No staff available for this service");
-        err.statusCode = 400;
-        throw err;
-      }
-
-      const { start: dayStart, end: dayEnd } = getBusinessDayRange(
-        tz,
-        startsAt,
-      );
-      let best: { id: string; count: number } | null = null;
-      for (const c of candidates) {
-        const cnt = await prisma.appointment.count({
-          where: {
-            staffId: c,
-            businessId,
-            status: {
-              notIn: ["cancelled_by_customer", "cancelled_by_business"],
-            },
-            AND: [{ startsAt: { lt: dayEnd } }, { endsAt: { gt: dayStart } }],
-          },
-        });
-        if (!best || cnt < best.count) best = { id: c, count: cnt };
-      }
-      staffId = best!.id;
-    }
+    const tz = timezone || (business?.timezone as string) || "UTC";
 
     return prisma.$transaction(async (tx) => {
-      const svc = await tx.service.findUnique({ where: { id: serviceId } });
-      const starts = /(?:Z|[+-]\d\d:\d\d)$/.test(startsAt)
-        ? new Date(startsAt)
-        : toUtcFromBusinessTime(startsAt, tz);
-      const ends = new Date(starts.getTime() + svc!.durationMin * 60 * 1000);
-
-      const conflict = await tx.appointment.findFirst({
-        where: {
-          staffId,
-          status: { notIn: ["cancelled_by_customer", "cancelled_by_business"] },
-          AND: [{ startsAt: { lt: ends } }, { endsAt: { gt: starts } }],
-        },
-      });
-
-      if (conflict) {
-        const err: any = new Error(
-          "This slot was just taken. Please pick another time.",
-        );
-        err.statusCode = 409;
-        err.code = "SLOT_TAKEN";
-        throw err;
-      }
+      const segments = await scheduleServiceSegments(
+        tx,
+        selections,
+        startsAt,
+        tz,
+      );
 
       const customer = await upsertCustomer(
         businessId,
@@ -305,15 +207,27 @@ class BookingsService {
       const appt = await tx.appointment.create({
         data: {
           businessId,
-          staffId,
-          serviceId,
+          staffId: segments[0].staffId,
           customerId: customer.id,
-          startsAt: starts,
-          endsAt: ends,
+          startsAt: segments[0].start,
+          endsAt: segments[segments.length - 1].end,
           status: "pending",
           cancelToken: generateCancelToken(),
           notes: payload.notes || null,
-        } as any,
+        },
+      });
+
+      await tx.appointmentService.createMany({
+        data: segments.map((s, i) => ({
+          appointmentId: appt.id,
+          serviceId: s.serviceId,
+          staffId: s.staffId,
+          order: i,
+          startsAt: s.start,
+          endsAt: s.end,
+          durationMinSnapshot: s.durationMin,
+          priceEgpSnapshot: s.priceEgp,
+        })),
       });
 
       return { appointment: appt, customer };
@@ -322,5 +236,4 @@ class BookingsService {
 }
 
 const bookingsService = new BookingsService();
-
 export default bookingsService;

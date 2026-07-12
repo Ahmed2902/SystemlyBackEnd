@@ -63,9 +63,7 @@ class InvoicesService {
       },
     });
 
-    if (!appointment) {
-      throw buildErr("Appointment not found", 404, "NOT_FOUND");
-    }
+    if (!appointment) throw buildErr("Appointment not found", 404, "NOT_FOUND");
     if (appointment.businessId !== businessId) {
       throw buildErr(
         "Appointment does not belong to this business",
@@ -86,33 +84,36 @@ class InvoicesService {
       throw buildErr("Appointment has no services", 400, "INVALID_STATE");
     }
 
+    // Per-segment commission — each service's staff may have a different rate
     const commissionRows = await prisma.serviceStaff.findMany({
       where: {
-        staffId: appointment.staffId,
-        serviceId: {
-          in: appointment.appointmentServices.map((s) => s.serviceId),
-        },
+        OR: appointment.appointmentServices.map((seg) => ({
+          staffId: seg.staffId,
+          serviceId: seg.serviceId,
+        })),
       },
     });
-    const commissionByServiceId = new Map(
-      commissionRows.map((row) => [row.serviceId, row]),
+    const commissionByKey = new Map(
+      commissionRows.map((row) => [`${row.staffId}:${row.serviceId}`, row]),
     );
 
-    const lineItemsData = appointment.appointmentServices.map((item) => {
-      const lineTotalCents = Math.round(Number(item.priceEgpSnapshot) * 100);
-      const commissionRow = commissionByServiceId.get(item.serviceId);
+    const lineItemsData = appointment.appointmentServices.map((seg) => {
+      const lineTotalCents = Math.round(Number(seg.priceEgpSnapshot) * 100);
+      const commissionRow = commissionByKey.get(
+        `${seg.staffId}:${seg.serviceId}`,
+      );
       const commissionType =
         commissionRow?.commissionType ?? CommissionType.NONE;
       const commissionAmount = commissionRow?.commissionAmount ?? 0;
 
       return {
-        description: item.service.name,
+        description: seg.service.name,
         quantity: 1,
         unitPriceCents: lineTotalCents,
         taxCents: 0,
         totalCents: lineTotalCents,
-        serviceId: item.serviceId,
-        staffId: appointment.staffId,
+        serviceId: seg.serviceId,
+        staffId: seg.staffId,
         commissionType,
         commissionAmount,
         commissionEarnedCents: commissionEarnedCents(
@@ -148,14 +149,9 @@ class InvoicesService {
             totalCents: priceCents,
             currency: "EGP",
             issuedAt: new Date(),
-            lineItems: {
-              create: lineItemsData,
-            },
+            lineItems: { create: lineItemsData },
           },
-          include: {
-            lineItems: true,
-            customer: true,
-          },
+          include: { lineItems: true, customer: true },
         });
       });
 

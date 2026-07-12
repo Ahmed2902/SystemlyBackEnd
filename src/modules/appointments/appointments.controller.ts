@@ -8,6 +8,7 @@ import {
   updateAppointmentNotesSchema,
   updateAppointmentStatusSchema,
   finishAppointmentSchema,
+  cancelAppointmentSchema,
 } from "./appointments.schema";
 import { isModuleEnabled } from "../../shared/config/verticals.config";
 
@@ -121,6 +122,21 @@ class AppointmentsController {
         bodyParsed.data,
       );
       return ok(res, updated);
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async cancelAppointment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parsed = cancelAppointmentSchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      const result = await appointmentsService.cancelAppointment(
+        String(req.params.id),
+        req.user!.businessId!,
+        parsed.data,
+      );
+      return ok(res, result);
     } catch (err) {
       return next(err);
     }

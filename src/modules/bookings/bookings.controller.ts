@@ -12,14 +12,8 @@ class BookingsController {
     try {
       const parsed = availabilityQuerySchema.safeParse(req.query);
       if (!parsed.success)
-        return fail(res, "businessId, serviceId and date are required", 400);
-      const slots = await bookingsService.getAvailability({
-        businessId: parsed.data.businessId,
-        serviceId: parsed.data.serviceId,
-        staffId: parsed.data.staffId,
-        date: parsed.data.date,
-        timezone: parsed.data.timezone,
-      });
+        return fail(res, "businessId, services and date are required", 400);
+      const slots = await bookingsService.getAvailability(parsed.data);
       return ok(res, slots);
     } catch (err) {
       return next(err);

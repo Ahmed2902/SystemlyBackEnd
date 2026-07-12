@@ -3,11 +3,9 @@ import { Prisma, Roles } from "@prisma/client";
 import { signAccessToken } from "../../shared/utils/token.util";
 import type {
   BusinessUpdateInput,
-  BusinessStats,
   CreateBusinessInput,
 } from "./business.schema";
 import type { WebsiteContentInput } from "../website-content/website-content.schema";
-import analyticsService from "../analytics/analytics.service";
 import {
   getVerticalConfig,
   isValidVertical,
@@ -18,19 +16,6 @@ const buildErr = (message: string, statusCode: number, code: string) => {
   err.statusCode = statusCode;
   err.code = code;
   return err;
-};
-
-const toWebsiteContentCreateInput = (
-  payload?: WebsiteContentInput,
-): Prisma.WebsiteContentCreateWithoutBusinessInput => {
-  if (!payload) return {};
-  const { sectionOrder, ...rest } = payload;
-  return {
-    ...rest,
-    ...(sectionOrder !== undefined
-      ? { sectionOrder: sectionOrder as Prisma.InputJsonValue }
-      : {}),
-  };
 };
 
 class BusinessService {

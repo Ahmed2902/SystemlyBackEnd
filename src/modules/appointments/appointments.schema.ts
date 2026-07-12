@@ -1,14 +1,16 @@
 import { z } from "zod";
 
+const manualServiceSelectionSchema = z.object({
+  serviceId: z.string().min(1),
+  staffId: z.string().min(1).optional(),
+});
+
 export const listAppointmentsQuerySchema = z
   .object({
-    date: z
-      .string()
-      .optional()
-      .openapi({
-        example: "2026-03-15",
-        description: "Filter by specific date",
-      }),
+    date: z.string().optional().openapi({
+      example: "2026-03-15",
+      description: "Filter by specific date",
+    }),
     from: z
       .string()
       .optional()
@@ -51,8 +53,7 @@ export const updateAppointmentNotesSchema = z
 export const createManualAppointmentSchema = z
   .object({
     businessId: z.string().min(1).openapi({ example: "biz-123" }),
-    serviceId: z.string().min(1).openapi({ example: "svc-456" }),
-    staffId: z.string().min(1).openapi({ example: "staff-789" }),
+    services: z.array(manualServiceSelectionSchema).min(1),
     startsAt: z.string().min(1).openapi({ example: "2026-03-20T10:00:00Z" }),
     customerName: z.string().min(1).openapi({ example: "Mona Ahmed" }),
     customerPhone: z.string().min(4).openapi({ example: "01023456789" }),
@@ -103,6 +104,14 @@ export const appointmentIdParamsSchema = z
     id: z.string().min(1).openapi({ example: "apt-789" }),
   })
   .openapi({ description: "Appointment ID parameter" });
+
+export const cancelAppointmentSchema = z
+  .object({
+    reason: z.string().max(500).optional(),
+  })
+  .openapi({ description: "Cancel an appointment (staff/business-initiated)" });
+
+export type CancelAppointmentBody = z.infer<typeof cancelAppointmentSchema>;
 
 export type ListAppointmentsQuery = z.infer<typeof listAppointmentsQuerySchema>;
 export type UpdateAppointmentStatusBody = z.infer<

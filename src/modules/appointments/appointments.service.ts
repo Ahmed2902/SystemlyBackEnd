@@ -3,10 +3,12 @@ import { Roles, AppointmentStatus } from "@prisma/client";
 import type {
   CreateManualAppointmentBody,
   ListAppointmentsQuery,
+  CancelAppointmentBody,
 } from "./appointments.schema";
 import { getBusinessDayRange } from "../../shared/utils/timezone";
 import { isModuleEnabled } from "../../shared/config/verticals.config";
 import { FinishAppointmentInput } from "./appointments.schema";
+import { scheduleServiceSegments } from "../Scheduling/Scheduling.service";
 
 type ListAppointmentsInput = ListAppointmentsQuery & {
   user: Express.Request["user"];
@@ -42,6 +44,11 @@ class AppointmentsService {
       if (to) where.AND.push({ endsAt: { lte: new Date(to) } });
     }
 
+    // Staff should only see appointments where THEY have a segment
+    if (user.role === Roles.Staff.toString()) {
+      where.appointmentServices = { some: { staffId: user.id } };
+    }
+
     const skip = (page - 1) * perPage;
     const [items, total] = await Promise.all([
       prisma.appointment.findMany({
@@ -55,7 +62,10 @@ class AppointmentsService {
     ]);
 
     const masked = items.map((it: any) => {
-      if (user.role === Roles.Staff.toString() && it.staffId !== user.id) {
+      const hasOwnSegment = it.appointmentServices.some(
+        (seg: any) => seg.staffId === user.id,
+      );
+      if (user.role === Roles.Staff.toString() && !hasOwnSegment) {
         if (it.customer) {
           const ap = { ...it, customer: { ...it.customer } };
           ap.customer.phone = undefined;
@@ -103,8 +113,7 @@ class AppointmentsService {
   async createManualAppointment(payload: CreateManualAppointmentBody) {
     const {
       businessId,
-      serviceId,
-      staffId,
+      services: selections,
       startsAt,
       customerName,
       customerPhone,
@@ -112,31 +121,18 @@ class AppointmentsService {
       acquisitionSource,
     } = payload;
 
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+    });
+    const tz = business?.timezone || "UTC";
+
     return prisma.$transaction(async (tx) => {
-      const svc = await tx.service.findUnique({ where: { id: serviceId } });
-      if (!svc) {
-        const err: any = new Error("Service not found");
-        err.statusCode = 404;
-        throw err;
-      }
-
-      const starts = new Date(startsAt);
-      const ends = new Date(starts.getTime() + svc.durationMin * 60 * 1000);
-
-      const conflict = await tx.appointment.findFirst({
-        where: {
-          staffId,
-          status: { notIn: ["cancelled_by_customer", "cancelled_by_business"] },
-          AND: [{ startsAt: { lt: ends } }, { endsAt: { gt: starts } }],
-        },
-      });
-
-      if (conflict) {
-        const err: any = new Error("Slot taken");
-        err.statusCode = 409;
-        err.code = "SLOT_TAKEN";
-        throw err;
-      }
+      const segments = await scheduleServiceSegments(
+        tx,
+        selections,
+        startsAt,
+        tz,
+      );
 
       const existing = await tx.customer.findUnique({
         where: {
@@ -151,7 +147,7 @@ class AppointmentsService {
             visitCount: { increment: 1 },
             lastVisitAt: new Date(),
             name: customerName || existing.name,
-            acquisitionSource: acquisitionSource,
+            acquisitionSource,
           } as any,
         });
       } else {
@@ -162,7 +158,7 @@ class AppointmentsService {
             name: customerName || "",
             visitCount: 1,
             lastVisitAt: new Date(),
-            acquisitionSource: acquisitionSource,
+            acquisitionSource,
           } as any,
         });
       }
@@ -170,15 +166,28 @@ class AppointmentsService {
       const appt = await tx.appointment.create({
         data: {
           businessId,
-          staffId,
-          serviceId,
+          staffId: segments[0].staffId,
           customerId: customer.id,
-          startsAt: starts,
-          endsAt: ends,
+          startsAt: segments[0].start,
+          endsAt: segments[segments.length - 1].end,
           status: "confirmed",
           notes: notes || null,
-        } as any,
+        },
       });
+
+      await tx.appointmentService.createMany({
+        data: segments.map((s, i) => ({
+          appointmentId: appt.id,
+          serviceId: s.serviceId,
+          staffId: s.staffId,
+          order: i,
+          startsAt: s.start,
+          endsAt: s.end,
+          durationMinSnapshot: s.durationMin,
+          priceEgpSnapshot: s.priceEgp,
+        })),
+      });
+
       return { appointment: appt, customer };
     });
   }
@@ -187,7 +196,7 @@ class AppointmentsService {
     return prisma.$transaction(async (tx) => {
       const appt = await tx.appointment.findUnique({
         where: { id },
-        include: { appointmentServices: true },
+        include: { appointmentServices: { orderBy: { order: "asc" } } },
       });
       if (!appt) {
         const err: any = new Error("Appointment not found");
@@ -195,46 +204,75 @@ class AppointmentsService {
         err.code = "NOT_FOUND";
         throw err;
       }
-
-      const svc = appt.appointmentServices;
-      if (!svc) {
-        const err: any = new Error("Service not found");
+      if (appt.appointmentServices.length === 0) {
+        const err: any = new Error("Appointment has no services");
         err.statusCode = 404;
         err.code = "NOT_FOUND";
         throw err;
       }
 
-      const starts = new Date(startsAt);
-      const end = svc.reduce(
-        (acc, s) => acc + s.durationMinSnapshot * 60 * 1000,
-        starts.getTime(),
-      );
-      const ends = new Date(end);
+      let segmentStart = new Date(startsAt);
+      const newSegments: {
+        id: string;
+        staffId: string;
+        start: Date;
+        end: Date;
+      }[] = [];
 
-      const conflict = await tx.appointment.findFirst({
-        where: {
-          staffId: appt.staffId,
-          id: { not: id },
-          status: { notIn: ["cancelled_by_customer", "cancelled_by_business"] },
-          AND: [{ startsAt: { lt: ends } }, { endsAt: { gt: starts } }],
-        },
-      });
+      for (const seg of appt.appointmentServices) {
+        const segEnd = new Date(
+          segmentStart.getTime() + seg.durationMinSnapshot * 60 * 1000,
+        );
 
-      if (conflict) {
-        const err: any = new Error("Slot taken");
-        err.statusCode = 409;
-        err.code = "SLOT_TAKEN";
-        throw err;
+        const conflict = await tx.appointmentService.findFirst({
+          where: {
+            staffId: seg.staffId,
+            appointmentId: { not: id },
+            appointment: {
+              status: {
+                notIn: ["cancelled_by_customer", "cancelled_by_business"],
+              },
+            },
+            AND: [
+              { startsAt: { lt: segEnd } },
+              { endsAt: { gt: segmentStart } },
+            ],
+          },
+        });
+
+        if (conflict) {
+          const err: any = new Error("Slot taken");
+          err.statusCode = 409;
+          err.code = "SLOT_TAKEN";
+          throw err;
+        }
+
+        newSegments.push({
+          id: seg.id,
+          staffId: seg.staffId,
+          start: segmentStart,
+          end: segEnd,
+        });
+        segmentStart = segEnd;
       }
+
+      await Promise.all(
+        newSegments.map((s) =>
+          tx.appointmentService.update({
+            where: { id: s.id },
+            data: { startsAt: s.start, endsAt: s.end },
+          }),
+        ),
+      );
 
       const updated = await tx.appointment.update({
         where: { id },
         data: {
-          startsAt: starts,
-          endsAt: ends,
+          startsAt: newSegments[0].start,
+          endsAt: newSegments[newSegments.length - 1].end,
           reminderSent: false,
           confirmationSent: false,
-        } as any,
+        },
       });
 
       return updated;
@@ -361,6 +399,70 @@ class AppointmentsService {
     });
 
     return result;
+  }
+
+  async cancelAppointment(
+    id: string,
+    businessId: string,
+    payload: CancelAppointmentBody,
+  ) {
+    return prisma.$transaction(async (tx) => {
+      const appt = await tx.appointment.findUnique({
+        where: { id },
+        include: { customer: true },
+      });
+
+      if (!appt) {
+        const err: any = new Error("Appointment not found");
+        err.statusCode = 404;
+        err.code = "NOT_FOUND";
+        throw err;
+      }
+      if (appt.businessId !== businessId) {
+        const err: any = new Error(
+          "Appointment does not belong to this business",
+        );
+        err.statusCode = 403;
+        err.code = "FORBIDDEN";
+        throw err;
+      }
+      if (
+        appt.status === AppointmentStatus.cancelled_by_business ||
+        appt.status === AppointmentStatus.cancelled_by_customer
+      ) {
+        const err: any = new Error("Appointment is already cancelled");
+        err.statusCode = 400;
+        err.code = "ALREADY_CANCELLED";
+        throw err;
+      }
+      if (appt.status === AppointmentStatus.completed) {
+        const err: any = new Error("Cannot cancel a completed appointment");
+        err.statusCode = 400;
+        err.code = "INVALID_STATE";
+        throw err;
+      }
+
+      const updated = await tx.appointment.update({
+        where: { id },
+        data: {
+          status: AppointmentStatus.cancelled_by_business,
+          notes: payload.reason
+            ? `${appt.notes ? appt.notes + " | " : ""}Cancelled: ${payload.reason}`
+            : appt.notes,
+        },
+      });
+
+      // Undo the visitCount increment applied at booking time —
+      // this appointment never became an actual visit.
+      if (appt.customerId && appt.customer && appt.customer.visitCount > 0) {
+        await tx.customer.update({
+          where: { id: appt.customerId },
+          data: { visitCount: { decrement: 1 } },
+        });
+      }
+
+      return updated;
+    });
   }
 }
 

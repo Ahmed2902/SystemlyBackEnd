@@ -14,6 +14,7 @@ import {
   updateAppointmentStatusSchema,
   rescheduleAppointmentSchema,
   finishAppointmentSchema,
+  cancelAppointmentSchema,
 } from "./appointments.schema";
 
 const router = Router();
@@ -66,6 +67,14 @@ router.post(
   validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(finishAppointmentSchema),
   appointmentsController.finishAppointment,
+);
+
+router.post(
+  "/:id/cancel",
+  requireAppointmentOwnerOrAdmin,
+  validate.validateParams(appointmentIdParamsSchema),
+  validate.validateBody(cancelAppointmentSchema),
+  appointmentsController.cancelAppointment,
 );
 
 export default router;
