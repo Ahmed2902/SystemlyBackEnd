@@ -72,10 +72,11 @@ export async function getMostBookedServices(
       s.name,
       COALESCE(s.category, 'uncategorized') AS category,
       COUNT(*) AS count
-    FROM appointments a
-    JOIN services s ON s.id = a.service_id
+    FROM appointment_services aps
+    JOIN appointments a ON a.id = aps.appointment_id
+    JOIN services s ON s.id = aps.service_id
     WHERE a.business_id = ${businessId}::uuid
-      AND a.starts_at BETWEEN ${from} AND ${to}
+      AND aps.starts_at BETWEEN ${from} AND ${to}
     GROUP BY s.id, s.name, s.category
     ORDER BY count DESC
     LIMIT ${limit}

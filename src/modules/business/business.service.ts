@@ -127,14 +127,28 @@ class BusinessService {
       where: { slug },
       include: {
         websiteContent: true,
-        services: { where: { isActive: true } },
+        services: {
+          include: {
+            serviceStaff: {
+              where: { staff: { isActive: true } },
+              select: { staffId: true },
+            },
+          },
+        },
         staff: { where: { isActive: true } },
         faqs: { orderBy: { displayOrder: "asc" } },
         photos: { orderBy: { position: "asc" } },
       },
     });
     if (!business || !business.isActive) return null;
-    return business;
+    return {
+      ...business,
+      services: business.services.map((s) => ({
+        ...s, // to reshape for the frontend
+        serviceStaff: undefined, // dont need it
+        staffIds: s.serviceStaff.map((ss) => ss.staffId), //flatten to staff ids of the staff eligible for this service
+      })),
+    };
   }
 
   async updateBusiness(id: string, payload: BusinessUpdateInput) {

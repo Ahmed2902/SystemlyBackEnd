@@ -33,7 +33,7 @@ router.use("/website-content", websiteContentRoutes);
 router.use("/staff", staffRoutes);
 router.use("/services", servicesRoutes);
 router.use("/customers", customersRoutes);
-router.use("/booking", bookingRoutes);
+router.use("/bookings", bookingRoutes);
 router.use("/appointments", appointmentsRoutes);
 router.use("/faqs", faqsRoutes);
 router.use("/photos", photosRoutes);

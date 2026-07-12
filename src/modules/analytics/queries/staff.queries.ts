@@ -81,50 +81,60 @@ export async function computeStaffUtilization(
   from: Date,
   to: Date,
 ): Promise<StaffUtilizationRow[]> {
-  const [staff, availability, overrides, appointmentsInRange] =
-    await Promise.all([
-      prisma.staff.findMany({
-        where: { businessId },
-        select: { id: true, name: true, isActive: true },
-      }),
-      prisma.availability.findMany({
-        where: { staff: { businessId } },
-        select: {
-          staffId: true,
-          dayOfWeek: true,
-          startTime: true,
-          endTime: true,
-          breakAfterMin: true,
-        },
-      }),
-      prisma.availabilityOverride.findMany({
-        where: { staff: { businessId } },
-        select: {
-          staffId: true,
-          overrideDate: true,
-          isDayOff: true,
-          startTime: true,
-          endTime: true,
-        },
-      }),
-      prisma.appointment.findMany({
-        where: { businessId, startsAt: { gte: from, lte: to } },
-        select: { staffId: true, startsAt: true, endsAt: true, status: true },
-      }),
-    ]);
+  const [staff, availability, overrides, segmentsInRange] = await Promise.all([
+    prisma.staff.findMany({
+      where: { businessId },
+      select: { id: true, name: true, isActive: true },
+    }),
+    prisma.availability.findMany({
+      where: { staff: { businessId } },
+      select: {
+        staffId: true,
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+        breakAfterMin: true,
+      },
+    }),
+    prisma.availabilityOverride.findMany({
+      where: { staff: { businessId } },
+      select: {
+        staffId: true,
+        overrideDate: true,
+        isDayOff: true,
+        startTime: true,
+        endTime: true,
+      },
+    }),
+    prisma.appointmentService.findMany({
+      where: {
+        appointment: { businessId },
+        startsAt: { gte: from, lte: to },
+      },
+      select: {
+        staffId: true,
+        startsAt: true,
+        endsAt: true,
+        appointment: { select: { status: true } },
+      },
+    }),
+  ]);
 
   const bookedMinutesByStaff = new Map<string, number>();
-  for (const appt of appointmentsInRange) {
-    if (NON_BILLABLE_STATUSES.includes(appt.status)) continue;
+  for (const seg of segmentsInRange) {
+    if (NON_BILLABLE_STATUSES.includes(seg.appointment.status)) continue;
     const minutes = Math.max(
-      Math.round((appt.endsAt.getTime() - appt.startsAt.getTime()) / 60000),
+      Math.round((seg.endsAt.getTime() - seg.startsAt.getTime()) / 60000),
       0,
     );
     bookedMinutesByStaff.set(
-      appt.staffId,
-      (bookedMinutesByStaff.get(appt.staffId) ?? 0) + minutes,
+      seg.staffId,
+      (bookedMinutesByStaff.get(seg.staffId) ?? 0) + minutes,
     );
   }
+
+  // availabilityByStaff / overridesByStaff / days / availableMinutesByStaff
+  // loop below is UNCHANGED — it's schedule-based, not appointment-based.
 
   const availabilityByStaff = new Map<string, typeof availability>();
   for (const row of availability) {
