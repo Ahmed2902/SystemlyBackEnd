@@ -14,6 +14,7 @@ router.use(requireAuth);
 // POST /invoices/checkout — create an invoice from an appointment
 router.post(
   "/checkout",
+  requireAuth,
   requireBusinessAccess,
   validate.validateBody(checkoutBodySchema),
   invoicesController.checkout,
@@ -22,6 +23,7 @@ router.post(
 // PATCH /invoices/:id/mark-paid
 router.patch(
   "/:id/mark-paid",
+  requireAuth,
   requireBusinessAccess,
   invoicesController.markPaid,
 );
@@ -29,18 +31,32 @@ router.patch(
 // POST /invoices/:id/refund
 router.post(
   "/:id/refund",
+  requireAuth,
   requireBusinessAccess,
   invoicesController.refund,
 );
 
 // GET /invoices/:id — get invoice details
-router.get("/:id", requireBusinessAccess, invoicesController.getInvoice);
+router.get(
+  "/:id",
+  requireAuth,
+  requireBusinessAccess,
+  invoicesController.getInvoice,
+);
 
 // GET /invoices/:id/receipt — generate PDF receipt
 router.get(
   "/:id/receipt",
+  requireAuth,
   requireBusinessAccess,
   invoicesController.receiptPdf,
+);
+
+router.post(
+  "/collect-payment",
+  requireAuth,
+  requireBusinessAccess,
+  invoicesController.collectPayment,
 );
 
 export default router;

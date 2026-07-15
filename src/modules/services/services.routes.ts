@@ -9,26 +9,26 @@ import { createServiceSchema, updateServiceSchema } from "./services.schema";
 
 const router = Router();
 
-router.get("/", requireAuth, servicesController.list);
+router.get("/", requireAuth, requireBusinessAccess, servicesController.list);
 router.post(
   "/",
   requireAuth,
   requireBusinessAccess,
   validate.validateBody(createServiceSchema),
-  servicesController.create
+  servicesController.create,
 );
 router.patch(
   "/:id",
   requireAuth,
   requireBusinessAccess,
   validate.validateBody(updateServiceSchema),
-  servicesController.update
+  servicesController.update,
 );
 router.delete(
   "/:id",
   requireAuth,
   requireBusinessAccess,
-  servicesController.remove
+  servicesController.remove,
 );
 
 export default router;

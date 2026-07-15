@@ -233,9 +233,7 @@ class InvoicesService {
       include: { lineItems: true, customer: true },
     });
 
-    if (!invoice) {
-      throw buildErr("Invoice not found", 404, "NOT_FOUND");
-    }
+    if (!invoice) throw buildErr("Invoice not found", 404, "NOT_FOUND");
     if (invoice.businessId !== businessId) {
       throw buildErr(
         "Invoice does not belong to this business",
@@ -255,53 +253,10 @@ class InvoicesService {
     }
 
     const refundAt = new Date();
-    const refunded = await prisma.$transaction(async (tx) => {
-      const updated = await tx.invoice.update({
-        where: { id: invoiceId },
-        data: {
-          status: InvoiceStatus.voided,
-          voidedAt: refundAt,
-        },
-        include: { lineItems: true, customer: true },
-      });
-
-      await tx.loyaltyTransaction.create({
-        data: {
-          accountId: (
-            await tx.loyaltyAccount.upsert({
-              where: {
-                customerId_businessId: {
-                  customerId: invoice.customerId,
-                  businessId,
-                },
-              },
-              create: {
-                customerId: invoice.customerId,
-                businessId,
-                pointsBalance: 0,
-              },
-              update: {},
-            })
-          ).id,
-          invoiceId: invoice.id,
-          points: -Math.floor(invoice.totalCents / 100),
-          type: "refund",
-        },
-      });
-
-      await tx.loyaltyAccount.updateMany({
-        where: {
-          customerId: invoice.customerId,
-          businessId,
-        },
-        data: {
-          pointsBalance: {
-            decrement: Math.floor(invoice.totalCents / 100),
-          },
-        },
-      });
-
-      return updated;
+    const refunded = await prisma.invoice.update({
+      where: { id: invoiceId },
+      data: { status: InvoiceStatus.voided, voidedAt: refundAt },
+      include: { lineItems: true, customer: true },
     });
 
     return {
@@ -333,6 +288,95 @@ class InvoicesService {
     }
 
     return invoice;
+  }
+
+  async collectPayment(
+    appointmentId: string,
+    businessId: string,
+    discountCents?: number,
+  ) {
+    return prisma.$transaction(async (tx) => {
+      const appointment = await tx.appointment.findUnique({
+        where: { id: appointmentId, businessId },
+        include: {
+          appointmentServices: { include: { service: true } },
+          customItems: true, // new model, see below
+          customer: true,
+        },
+      });
+
+      if (!appointment)
+        throw buildErr("Appointment not found", 404, "NOT_FOUND");
+      if (
+        appointment.status === AppointmentStatus.cancelled_by_business ||
+        appointment.status === AppointmentStatus.cancelled_by_customer
+      ) {
+        throw buildErr(
+          "Cannot collect payment on a cancelled appointment",
+          400,
+        );
+      }
+      if (appointment.appointmentServices.length === 0) {
+        throw buildErr("Appointment has no services", 400, "INVALID_STATE");
+      }
+
+      const serviceLineItems = appointment.appointmentServices.map((seg) => ({
+        description: seg.service.name,
+        quantity: 1,
+        unitPriceCents: Math.round(Number(seg.priceEgpSnapshot) * 100),
+        totalCents: Math.round(Number(seg.priceEgpSnapshot) * 100),
+        serviceId: seg.serviceId,
+        staffId: seg.staffId,
+      }));
+
+      const customLineItems = appointment.customItems.map((item) => ({
+        description: item.description,
+        quantity: 1,
+        unitPriceCents: item.priceCents,
+        totalCents: item.priceCents,
+        serviceId: null,
+        staffId: null,
+      }));
+
+      const subtotalCents = [...serviceLineItems, ...customLineItems].reduce(
+        (sum, li) => sum + li.totalCents,
+        0,
+      );
+      const disc = discountCents ?? appointment.discountCents ?? 0;
+      const totalCents = Math.max(0, subtotalCents - disc);
+
+      const invoice = await tx.invoice.upsert({
+        where: { appointmentId },
+        create: {
+          appointmentId,
+          businessId,
+          customerId: appointment.customerId,
+          invoiceNumber: `INV-${businessId.slice(0, 8)}-${Date.now()}`,
+          status: InvoiceStatus.paid,
+          subtotalCents,
+          discountCents,
+          totalCents,
+          currency: "EGP",
+          issuedAt: new Date(),
+          paidAt: new Date(),
+          lineItems: { create: [...serviceLineItems, ...customLineItems] },
+        },
+        update: {
+          status: InvoiceStatus.paid,
+          subtotalCents,
+          discountCents,
+          totalCents,
+          paidAt: new Date(),
+          lineItems: {
+            deleteMany: {},
+            create: [...serviceLineItems, ...customLineItems],
+          },
+        },
+        include: { lineItems: true },
+      });
+
+      return invoice;
+    });
   }
 }
 

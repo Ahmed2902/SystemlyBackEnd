@@ -21,24 +21,36 @@ export async function computeStaffFreeIntervals(
   const { start: dayStartRaw, end: dayEndRaw } = getBusinessDayRange(tz, date);
   const dayStart = DateTime.fromJSDate(dayStartRaw).setZone(tz);
 
-  const [overrides, availabilities, appointmentServices] = await Promise.all([
-    prisma.availabilityOverride.findMany({
-      where: { staffId: { in: staffIds }, overrideDate: new Date(date) },
-    }),
-    prisma.availability.findMany({
-      where: { staffId: { in: staffIds }, dayOfWeek },
-    }),
-    prisma.appointmentService.findMany({
-      where: {
-        staffId: { in: staffIds },
-        appointment: {
-          businessId,
-          status: { notIn: ["cancelled_by_customer", "cancelled_by_business"] },
+  const [overrides, availabilities, appointmentServices, breaks] =
+    await Promise.all([
+      prisma.availabilityOverride.findMany({
+        where: { staffId: { in: staffIds }, overrideDate: new Date(date) },
+      }),
+      prisma.availability.findMany({
+        where: { staffId: { in: staffIds }, dayOfWeek },
+      }),
+      prisma.appointmentService.findMany({
+        where: {
+          staffId: { in: staffIds },
+          appointment: {
+            businessId,
+            status: {
+              notIn: ["cancelled_by_customer", "cancelled_by_business"],
+            },
+          },
+          AND: [
+            { startsAt: { lt: dayEndRaw } },
+            { endsAt: { gt: dayStartRaw } },
+          ],
         },
-        AND: [{ startsAt: { lt: dayEndRaw } }, { endsAt: { gt: dayStartRaw } }],
-      },
-    }),
-  ]);
+      }),
+      prisma.staffBreak.findMany({
+        where: {
+          staffId: { in: staffIds },
+          breakDate: new Date(date),
+        },
+      }),
+    ]);
 
   const overrideMap = new Map(overrides.map((o) => [o.staffId, o]));
   const availMap = new Map(availabilities.map((a) => [a.staffId, a]));
@@ -52,6 +64,26 @@ export async function computeStaffFreeIntervals(
     busyByStaff.set(seg.staffId, arr);
   }
 
+  for (const brk of breaks) {
+    const arr = busyByStaff.get(brk.staffId) ?? [];
+    const breakStart = toBusinessTime(brk.startTime, tz);
+    const breakEnd = toBusinessTime(brk.endTime, tz);
+    arr.push({
+      start: dayStart.set({
+        hour: breakStart.hour,
+        minute: breakStart.minute,
+        second: 0,
+        millisecond: 0,
+      }),
+      end: dayStart.set({
+        hour: breakEnd.hour,
+        minute: breakEnd.minute,
+        second: 0,
+        millisecond: 0,
+      }),
+    });
+    busyByStaff.set(brk.staffId, arr);
+  }
   const result = new Map<string, FreeInterval[]>();
 
   for (const sId of staffIds) {

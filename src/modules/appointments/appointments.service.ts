@@ -1,5 +1,5 @@
 import { prisma } from "../../shared/db/prisma";
-import { Roles, AppointmentStatus } from "@prisma/client";
+import { Roles, AppointmentStatus, InvoiceStatus } from "@prisma/client";
 import type {
   CreateManualAppointmentBody,
   ListAppointmentsQuery,
@@ -452,6 +452,17 @@ class AppointmentsService {
         },
       });
 
+      // cancelAppointment — replace the direct update with:
+      const existingInvoice = await tx.invoice.findUnique({
+        where: { appointmentId: id },
+      });
+      if (existingInvoice && existingInvoice.status !== InvoiceStatus.voided) {
+        await tx.invoice.update({
+          where: { appointmentId: id },
+          data: { status: InvoiceStatus.voided, voidedAt: new Date() },
+        });
+      }
+
       // Undo the visitCount increment applied at booking time —
       // this appointment never became an actual visit.
       if (appt.customerId && appt.customer && appt.customer.visitCount > 0) {
@@ -462,6 +473,74 @@ class AppointmentsService {
       }
 
       return updated;
+    });
+  }
+
+  async revertAppointment(id: string, businessId: string) {
+    return prisma.$transaction(async (tx) => {
+      const appt = await tx.appointment.findUnique({
+        where: { id },
+        include: { customer: true },
+      });
+
+      if (!appt) {
+        const err: any = new Error("Appointment not found");
+        err.statusCode = 404;
+        err.code = "NOT_FOUND";
+        throw err;
+      }
+      if (appt.businessId !== businessId) {
+        const err: any = new Error(
+          "Appointment does not belong to this business",
+        );
+        err.statusCode = 403;
+        err.code = "FORBIDDEN";
+        throw err;
+      }
+      if (
+        appt.status === AppointmentStatus.cancelled_by_business ||
+        appt.status === AppointmentStatus.cancelled_by_customer
+      ) {
+        const err: any = new Error(
+          "Cannot revert a cancelled appointment — it was never completed or paid",
+        );
+        err.statusCode = 400;
+        err.code = "INVALID_STATE";
+        throw err;
+      }
+
+      const wasNoShow = appt.status === AppointmentStatus.no_show;
+
+      // Undo the no-show job's side effect — this appointment is being
+      // reopened, so it shouldn't still count against the customer.
+      if (
+        wasNoShow &&
+        appt.customerId &&
+        appt.customer &&
+        appt.customer.noShowCount > 0
+      ) {
+        await tx.customer.update({
+          where: { id: appt.customerId },
+          data: { noShowCount: { decrement: 1 } },
+        });
+      }
+
+      const existingInvoice = await tx.invoice.findUnique({
+        where: { appointmentId: id },
+      });
+      if (existingInvoice && existingInvoice.status !== InvoiceStatus.voided) {
+        await tx.invoice.update({
+          where: { appointmentId: id },
+          data: { status: InvoiceStatus.voided, voidedAt: new Date() },
+        });
+      }
+
+      const updated = await tx.appointment.update({
+        where: { id },
+        data: { status: AppointmentStatus.confirmed },
+      });
+
+      return { ...updated, wasNoShow };
     });
   }
 }

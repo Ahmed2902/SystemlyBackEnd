@@ -132,6 +132,28 @@ class InvoicesController {
       return next(err);
     }
   }
+
+  async collectPayment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = req.user?.businessId;
+      if (!businessId)
+        return fail(res, "Business id missing", 400, "BAD_REQUEST");
+
+      const { appointmentId, discountCents } = req.body;
+
+      if (!appointmentId)
+        return fail(res, "appointmentId is required", 400, "BAD_REQUEST");
+
+      const result = await invoicesService.collectPayment(
+        appointmentId,
+        businessId,
+        discountCents,
+      );
+      return ok(res, result);
+    } catch (err) {
+      return next(err);
+    }
+  }
 }
 
 export default new InvoicesController();
