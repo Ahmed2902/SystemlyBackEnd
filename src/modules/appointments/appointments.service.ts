@@ -56,7 +56,13 @@ class AppointmentsService {
         skip,
         take: perPage,
         orderBy: { startsAt: "desc" },
-        include: { customer: true, appointmentServices: true, staff: true },
+        include: {
+          customer: true,
+          appointmentServices: { include: { service: true } },
+          staff: true,
+          customItems: true,
+          invoice: true,
+        },
       }),
       prisma.appointment.count({ where }),
     ]);
@@ -82,7 +88,198 @@ class AppointmentsService {
   async getAppointmentById(id: string) {
     return prisma.appointment.findUnique({
       where: { id },
-      include: { customer: true, appointmentServices: true, staff: true },
+      include: {
+        customer: true,
+        appointmentServices: { include: { service: true } },
+        staff: true,
+        customItems: true,
+        invoice: true,
+      },
+    });
+  }
+
+  async updateAppointment(
+    id: string,
+    businessId: string,
+    payload: {
+      segments: Array<{
+        id?: string;
+        serviceId: string;
+        staffId: string;
+        startsAt: string;
+        endsAt: string;
+      }>;
+      customItems: Array<{
+        id?: string;
+        description: string;
+        priceCents: number;
+      }>;
+      discountCents?: number;
+      notes?: string;
+    },
+  ) {
+    return prisma.$transaction(async (tx) => {
+      const appt = await tx.appointment.findUnique({
+        where: { id },
+        include: { appointmentServices: true, invoice: true },
+      });
+
+      if (!appt) {
+        const err: any = new Error("Appointment not found");
+        err.statusCode = 404;
+        err.code = "NOT_FOUND";
+        throw err;
+      }
+      if (appt.businessId !== businessId) {
+        const err: any = new Error(
+          "Appointment does not belong to this business",
+        );
+        err.statusCode = 403;
+        err.code = "FORBIDDEN";
+        throw err;
+      }
+      if (
+        appt.status === AppointmentStatus.completed ||
+        appt.invoice?.status === InvoiceStatus.paid
+      ) {
+        const err: any = new Error(
+          "Cannot edit a completed or paid appointment",
+        );
+        err.statusCode = 400;
+        err.code = "LOCKED";
+        throw err;
+      }
+      if (
+        appt.status === AppointmentStatus.cancelled_by_business ||
+        appt.status === AppointmentStatus.cancelled_by_customer
+      ) {
+        const err: any = new Error("Cannot edit a cancelled appointment");
+        err.statusCode = 400;
+        err.code = "INVALID_STATE";
+        throw err;
+      }
+
+      // --- conflict check: every incoming segment's staff/time must be free,
+      // excluding this appointment's own existing segments from the check ---
+      for (const seg of payload.segments) {
+        const conflict = await tx.appointmentService.findFirst({
+          where: {
+            staffId: seg.staffId,
+            appointmentId: { not: id },
+            appointment: {
+              status: {
+                notIn: ["cancelled_by_customer", "cancelled_by_business"],
+              },
+            },
+            AND: [
+              { startsAt: { lt: new Date(seg.endsAt) } },
+              { endsAt: { gt: new Date(seg.startsAt) } },
+            ],
+          },
+        });
+        if (conflict) {
+          const err: any = new Error("Staff is double-booked for this time");
+          err.statusCode = 409;
+          err.code = "SLOT_TAKEN";
+          throw err;
+        }
+      }
+
+      // --- diff segments: delete removed, update existing, create new ---
+      const incomingIds = payload.segments
+        .filter((s) => s.id)
+        .map((s) => s.id!);
+      const existingIds = appt.appointmentServices.map((s) => s.id);
+      const toDelete = existingIds.filter((eid) => !incomingIds.includes(eid));
+
+      if (toDelete.length > 0) {
+        await tx.appointmentService.deleteMany({
+          where: { id: { in: toDelete } },
+        });
+      }
+
+      const service = await tx.service.findMany({
+        where: { id: { in: payload.segments.map((s) => s.serviceId) } },
+      });
+      const serviceById = new Map(service.map((s) => [s.id, s]));
+
+      for (let i = 0; i < payload.segments.length; i++) {
+        const seg = payload.segments[i];
+        const svc = serviceById.get(seg.serviceId);
+        const durationMin = svc
+          ? Math.round(
+              (new Date(seg.endsAt).getTime() -
+                new Date(seg.startsAt).getTime()) /
+                60000,
+            )
+          : 0;
+
+        if (seg.id) {
+          await tx.appointmentService.update({
+            where: { id: seg.id },
+            data: {
+              serviceId: seg.serviceId,
+              staffId: seg.staffId,
+              startsAt: new Date(seg.startsAt),
+              endsAt: new Date(seg.endsAt),
+              order: i,
+              durationMinSnapshot: durationMin,
+            },
+          });
+        } else {
+          await tx.appointmentService.create({
+            data: {
+              appointmentId: id,
+              serviceId: seg.serviceId,
+              staffId: seg.staffId,
+              startsAt: new Date(seg.startsAt),
+              endsAt: new Date(seg.endsAt),
+              order: i,
+              durationMinSnapshot: durationMin,
+              priceEgpSnapshot: svc?.priceEgp ?? 0,
+            },
+          });
+        }
+      }
+
+      // --- custom items: simplest correct approach is replace-all ---
+      await tx.appointmentCustomItem.deleteMany({
+        where: { appointmentId: id },
+      });
+      if (payload.customItems.length > 0) {
+        await tx.appointmentCustomItem.createMany({
+          data: payload.customItems.map((c) => ({
+            appointmentId: id,
+            description: c.description,
+            priceCents: c.priceCents,
+          })),
+        });
+      }
+
+      const sortedSegments = payload.segments
+        .slice()
+        .sort(
+          (a, b) =>
+            new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+        );
+
+      const updated = await tx.appointment.update({
+        where: { id },
+        data: {
+          discountCents: payload.discountCents ?? 0,
+          notes: payload.notes,
+          startsAt: new Date(sortedSegments[0].startsAt),
+          endsAt: new Date(sortedSegments[sortedSegments.length - 1].endsAt),
+        },
+        include: {
+          customer: true,
+          appointmentServices: { include: { service: true } },
+          customItems: true,
+          invoice: true,
+        },
+      });
+
+      return updated;
     });
   }
 
@@ -344,6 +541,15 @@ class AppointmentsService {
       err.code = "NOT_FOUND";
       throw err;
     }
+    if (
+      appointment.status === AppointmentStatus.cancelled_by_business ||
+      appointment.status === AppointmentStatus.cancelled_by_customer
+    ) {
+      const err: any = new Error("Cannot complete a cancelled appointment");
+      err.statusCode = 400;
+      err.code = "INVALID_STATE";
+      throw err;
+    }
 
     const result = await prisma.$transaction(async (tx) => {
       const updated = await tx.appointment.update({
@@ -476,10 +682,58 @@ class AppointmentsService {
     });
   }
 
-  async revertAppointment(id: string, businessId: string) {
+  async uncancelAppointment(id: string, businessId: string) {
     return prisma.$transaction(async (tx) => {
       const appt = await tx.appointment.findUnique({
         where: { id },
+        include: { customer: true },
+      });
+
+      if (!appt) {
+        const err: any = new Error("Appointment not found");
+        err.statusCode = 404;
+        err.code = "NOT_FOUND";
+        throw err;
+      }
+      if (appt.businessId !== businessId) {
+        const err: any = new Error(
+          "Appointment does not belong to this business",
+        );
+        err.statusCode = 403;
+        err.code = "FORBIDDEN";
+        throw err;
+      }
+      if (
+        appt.status !== AppointmentStatus.cancelled_by_business &&
+        appt.status !== AppointmentStatus.cancelled_by_customer
+      ) {
+        const err: any = new Error("Appointment is not cancelled");
+        err.statusCode = 400;
+        err.code = "INVALID_STATE";
+        throw err;
+      }
+
+      const updated = await tx.appointment.update({
+        where: { id },
+        data: { status: AppointmentStatus.confirmed },
+      });
+
+      // Restore the visit count that cancel decremented.
+      if (appt.customerId) {
+        await tx.customer.update({
+          where: { id: appt.customerId },
+          data: { visitCount: { increment: 1 } },
+        });
+      }
+
+      return updated;
+    });
+  }
+
+  async revertAppointment(apptId: string, businessId: string) {
+    return prisma.$transaction(async (tx) => {
+      const appt = await tx.appointment.findUnique({
+        where: { id: apptId },
         include: { customer: true },
       });
 
@@ -526,21 +780,67 @@ class AppointmentsService {
       }
 
       const existingInvoice = await tx.invoice.findUnique({
-        where: { appointmentId: id },
+        where: { appointmentId: apptId },
       });
       if (existingInvoice && existingInvoice.status !== InvoiceStatus.voided) {
         await tx.invoice.update({
-          where: { appointmentId: id },
+          where: { appointmentId: apptId },
           data: { status: InvoiceStatus.voided, voidedAt: new Date() },
         });
       }
 
       const updated = await tx.appointment.update({
-        where: { id },
+        where: { id: apptId },
         data: { status: AppointmentStatus.confirmed },
       });
 
       return { ...updated, wasNoShow };
+    });
+  }
+
+  async markNoShowManual(id: string, businessId: string) {
+    return prisma.$transaction(async (tx) => {
+      const appt = await tx.appointment.findUnique({
+        where: { id },
+        include: { customer: true },
+      });
+
+      if (!appt) {
+        const err: any = new Error("Appointment not found");
+        err.statusCode = 404;
+        err.code = "NOT_FOUND";
+        throw err;
+      }
+      if (appt.businessId !== businessId) {
+        const err: any = new Error(
+          "Appointment does not belong to this business",
+        );
+        err.statusCode = 403;
+        err.code = "FORBIDDEN";
+        throw err;
+      }
+      if (appt.status !== AppointmentStatus.confirmed) {
+        const err: any = new Error(
+          "Only confirmed appointments can be marked no-show",
+        );
+        err.statusCode = 400;
+        err.code = "INVALID_STATE";
+        throw err;
+      }
+
+      const updated = await tx.appointment.update({
+        where: { id },
+        data: { status: AppointmentStatus.no_show },
+      });
+
+      if (appt.customerId) {
+        await tx.customer.update({
+          where: { id: appt.customerId },
+          data: { noShowCount: { increment: 1 } },
+        });
+      }
+
+      return updated;
     });
   }
 }

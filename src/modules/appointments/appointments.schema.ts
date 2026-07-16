@@ -5,6 +5,38 @@ const manualServiceSelectionSchema = z.object({
   staffId: z.string().min(1).optional(),
 });
 
+export const revertAppointmentSchema = z.object({
+  businessId: z.string().min(1).openapi({ example: "biz-456" }),
+});
+export const revertAppointmentParamsSchema = z.object({
+  appointmentId: z.string().min(1).openapi({ example: "apt-123" }),
+});
+
+export const updateAppointmentSchema = z.object({
+  segments: z
+    .array(
+      z.object({
+        id: z.string().uuid().optional(), // absent = new segment
+        serviceId: z.string().uuid(),
+        staffId: z.string().uuid(),
+        startsAt: z.string().datetime(),
+        endsAt: z.string().datetime(),
+      }),
+    )
+    .min(1, "Appointment must have at least one service"),
+  customItems: z
+    .array(
+      z.object({
+        id: z.string().uuid().optional(),
+        description: z.string().min(1).max(255),
+        priceCents: z.number().int().min(0),
+      }),
+    )
+    .default([]),
+  discountCents: z.number().int().min(0).default(0),
+  notes: z.string().max(2000).optional(),
+});
+
 export const listAppointmentsQuerySchema = z
   .object({
     date: z.string().optional().openapi({
@@ -63,10 +95,7 @@ export const createManualAppointmentSchema = z
   .openapi({ description: "Create a manual appointment" });
 
 const finishPhotoSchema = z.object({
-  url: z
-    .string()
-    .url()
-    .openapi({ example: "https://res.cloudinary.com/.../photo.jpg" }),
+  url: z.url().openapi({ example: "https://res.cloudinary.com/.../photo.jpg" }),
   publicId: z.string().min(1).openapi({ example: "appointments/abc123" }),
   type: z.enum(["before", "after"]).openapi({ example: "after" }),
 });
@@ -101,7 +130,7 @@ export const finishAppointmentSchema = z
 
 export const appointmentIdParamsSchema = z
   .object({
-    id: z.string().min(1).openapi({ example: "apt-789" }),
+    appointmentId: z.string().min(1).openapi({ example: "apt-789" }),
   })
   .openapi({ description: "Appointment ID parameter" });
 
@@ -124,3 +153,6 @@ export type CreateManualAppointmentBody = z.infer<
   typeof createManualAppointmentSchema
 >;
 export type FinishAppointmentInput = z.infer<typeof finishAppointmentSchema>;
+
+export type RevertAppointmentInput = z.infer<typeof revertAppointmentSchema>;
+export type UpdateAppointmentBody = z.infer<typeof updateAppointmentSchema>;

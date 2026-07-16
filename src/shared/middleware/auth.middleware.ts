@@ -99,7 +99,7 @@ export const requireAppointmentOwnerOrAdmin = async (
     if (!req.user) {
       return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
     }
-    const appointmentId = (req.params as any).id;
+    const appointmentId = (req.params as any).appointmentId;
     if (!appointmentId) {
       return fail(res, "Appointment id missing", 400, "BAD_REQUEST");
     }

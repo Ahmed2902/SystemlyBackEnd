@@ -2,8 +2,8 @@ import { Router } from "express";
 import appointmentsController from "./appointments.controller";
 import {
   requireAuth,
-  requireAppointmentOwnerOrAdmin,
   requireRole,
+  requireAppointmentOwnerOrAdmin,
 } from "../../shared/middleware/auth.middleware";
 import validate from "../../shared/middleware/validate.middleware";
 import {
@@ -15,6 +15,9 @@ import {
   rescheduleAppointmentSchema,
   finishAppointmentSchema,
   cancelAppointmentSchema,
+  revertAppointmentSchema,
+  revertAppointmentParamsSchema,
+  updateAppointmentSchema,
 } from "./appointments.schema";
 
 const router = Router();
@@ -33,36 +36,36 @@ router.post(
   appointmentsController.createAppointment,
 );
 router.patch(
-  "/:id/reschedule",
-  requireRole(["BusinessAdmin", "Receptionist"]),
+  "/:appointmentId/reschedule",
+  requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(rescheduleAppointmentSchema),
   appointmentsController.rescheduleAppointment,
 );
 router.get(
-  "/:id",
+  "/:appointmentId",
   requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   appointmentsController.getAppointment,
 );
 router.patch(
-  "/:id/status",
+  "/:appointmentId/status",
   requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(updateAppointmentStatusSchema),
   appointmentsController.updateStatus,
 );
 router.patch(
-  "/:id/notes",
+  "/:appointmentId/notes",
   requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(updateAppointmentNotesSchema),
   appointmentsController.updateNotes,
 );
 
-// route — one addition to your existing appointments router
+// route — one addition to your existing appointments router  // i will not use it as i have collect-payment and its suffecient for V1
 router.post(
-  "/:id/finish",
+  "/:appointmentId/finish",
   requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(finishAppointmentSchema),
@@ -70,11 +73,39 @@ router.post(
 );
 
 router.post(
-  "/:id/cancel",
+  "/:appointmentId/cancel",
   requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(cancelAppointmentSchema),
   appointmentsController.cancelAppointment,
+);
+
+router.post(
+  "/:appointmentId/revert",
+  requireAppointmentOwnerOrAdmin,
+  validate.validateParams(revertAppointmentParamsSchema),
+  validate.validateBody(revertAppointmentSchema),
+  appointmentsController.revertAppointment,
+);
+
+router.patch(
+  "/:appointmentId",
+  requireAppointmentOwnerOrAdmin,
+  validate.validateBody(updateAppointmentSchema),
+  appointmentsController.update,
+);
+
+router.post(
+  "/:appointmentId/uncancel",
+  requireAppointmentOwnerOrAdmin,
+  validate.validateParams(revertAppointmentParamsSchema),
+  appointmentsController.uncancel,
+);
+router.post(
+  "/:appointmentId/mark-no-show",
+  requireAppointmentOwnerOrAdmin,
+  validate.validateParams(revertAppointmentParamsSchema),
+  appointmentsController.markNoShow,
 );
 
 export default router;
