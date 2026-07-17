@@ -12,6 +12,7 @@ import {
   revertAppointmentSchema,
   revertAppointmentParamsSchema,
   UpdateAppointmentBody,
+  rescheduleAppointmentSchema,
 } from "./appointments.schema";
 import { isModuleEnabled } from "../../shared/config/verticals.config";
 
@@ -129,12 +130,11 @@ class AppointmentsController {
     try {
       const paramsParsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!paramsParsed.success) return next(paramsParsed.error);
-      const bodyParsed = (
-        await import("./appointments.schema")
-      ).rescheduleAppointmentSchema.safeParse(req.body);
+      const bodyParsed = rescheduleAppointmentSchema.safeParse(req.body);
       if (!bodyParsed.success) return next(bodyParsed.error);
       const updated = await appointmentsService.rescheduleAppointment(
         paramsParsed.data.appointmentId,
+        req.user!.businessId!,
         bodyParsed.data.startsAt,
       );
       return ok(res, updated);
