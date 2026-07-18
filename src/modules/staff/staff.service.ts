@@ -368,6 +368,50 @@ class StaffService {
       })),
     };
   }
+
+  //#region Staff Breaks
+  async listStaffBreaksForDate(businessId: string, date: string) {
+    console.log("date:", date);
+
+    return prisma.staffBreak.findMany({
+      where: { businessId, breakDate: new Date(date) },
+    });
+  }
+
+  async createStaffBreak(
+    businessId: string,
+    payload: {
+      staffId: string;
+      breakDate: string;
+      startTime: string; // "HH:mm"
+      endTime: string;
+      label?: string;
+    },
+  ) {
+    return prisma.staffBreak.create({
+      data: {
+        businessId,
+        staffId: payload.staffId,
+        breakDate: new Date(payload.breakDate),
+        startTime: new Date(`1970-01-01T${payload.startTime}:00Z`),
+        endTime: new Date(`1970-01-01T${payload.endTime}:00Z`),
+        label: payload.label,
+      },
+    });
+  }
+
+  async removeStaffBreak(businessId: string, id: string) {
+    const brk = await prisma.staffBreak.findUnique({ where: { id } });
+    if (!brk || brk.businessId !== businessId) {
+      const err: any = new Error("Break not found");
+      err.statusCode = 404;
+      err.code = "NOT_FOUND";
+      throw err;
+    }
+    return prisma.staffBreak.delete({ where: { id } });
+  }
+
+  //#endregion
 }
 
 const staffService = new StaffService();

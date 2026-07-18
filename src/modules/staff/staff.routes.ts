@@ -112,4 +112,28 @@ router.post(
   staffController.acceptInvite,
 );
 
+//# REGION: Staff Breaks
+router.get(
+  "/breaks",
+  requireAuth,
+  requireBusinessAccess,
+  staffController.listStaffBreaksForDate,
+);
+
+router.post(
+  "/breaks",
+  requireAuth,
+  requireBusinessAccess,
+  staffController.createStaffBreak,
+);
+
+router.delete(
+  "/breaks/:id",
+  requireAuth,
+  requireBusinessAccess,
+  staffController.removeStaffBreak,
+);
+//# END REGION: Staff Breaks
+
+//#endregion
 export default router;

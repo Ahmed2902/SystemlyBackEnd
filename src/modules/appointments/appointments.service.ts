@@ -12,7 +12,7 @@ import { scheduleServiceSegments } from "../Scheduling/Scheduling.service";
 import {
   getOwnedAppointmentOrThrow,
   assertEditable,
-  assertStaffAvailable,
+  assertStaffAvailableBatch,
   voidInvoiceIfPaid,
   isCancelled,
   notFoundError,
@@ -132,15 +132,15 @@ class AppointmentsService {
 
       assertEditable(appt);
 
-      for (const seg of payload.segments) {
-        await assertStaffAvailable(
-          tx,
-          seg.staffId,
-          new Date(seg.startsAt),
-          new Date(seg.endsAt),
-          id,
-        );
-      }
+      await assertStaffAvailableBatch(
+        tx,
+        payload.segments.map((s) => ({
+          staffId: s.staffId,
+          startsAt: new Date(s.startsAt),
+          endsAt: new Date(s.endsAt),
+        })),
+        id,
+      );
 
       const incomingIds = payload.segments
         .filter((s) => s.id)
@@ -354,7 +354,6 @@ class AppointmentsService {
         const segEnd = new Date(
           segmentStart.getTime() + seg.durationMinSnapshot * 60 * 1000,
         );
-        await assertStaffAvailable(tx, seg.staffId, segmentStart, segEnd, id);
         newSegments.push({
           id: seg.id,
           staffId: seg.staffId,
@@ -363,6 +362,16 @@ class AppointmentsService {
         });
         segmentStart = segEnd;
       }
+
+      await assertStaffAvailableBatch(
+        tx,
+        newSegments.map((s) => ({
+          staffId: s.staffId,
+          startsAt: s.start,
+          endsAt: s.end,
+        })),
+        id,
+      );
 
       await Promise.all(
         newSegments.map((s) =>

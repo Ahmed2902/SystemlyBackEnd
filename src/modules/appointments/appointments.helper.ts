@@ -115,22 +115,29 @@ export async function voidInvoiceIfPaid(tx: TxClient, appointmentId: string) {
  * non-cancelled appointment. Excludes the appointment being edited so its
  * own existing segments don't conflict with themselves.
  */
-export async function assertStaffAvailable(
+export async function assertStaffAvailableBatch(
   tx: TxClient,
-  staffId: string,
-  startsAt: Date,
-  endsAt: Date,
+  segments: Array<{ staffId: string; startsAt: Date; endsAt: Date }>,
   excludeAppointmentId: string,
 ) {
-  const conflict = await tx.appointmentService.findFirst({
+  if (segments.length === 0) return;
+
+  const conflicts = await tx.appointmentService.findMany({
     where: {
-      staffId,
       appointmentId: { not: excludeAppointmentId },
       appointment: { status: { notIn: CANCELLED_STATUSES as any } },
-      AND: [{ startsAt: { lt: endsAt } }, { endsAt: { gt: startsAt } }],
+      OR: segments.map((seg) => ({
+        staffId: seg.staffId,
+        AND: [
+          { startsAt: { lt: seg.endsAt } },
+          { endsAt: { gt: seg.startsAt } },
+        ],
+      })),
     },
+    select: { id: true, staffId: true, startsAt: true, endsAt: true },
   });
-  if (conflict) {
+
+  if (conflicts.length > 0) {
     throw invalidStateError(
       "Staff is double-booked for this time",
       "SLOT_TAKEN",

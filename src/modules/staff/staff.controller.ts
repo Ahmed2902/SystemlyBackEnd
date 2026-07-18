@@ -214,6 +214,44 @@ class StaffController {
       return next(err);
     }
   }
+
+  // #region Staff Breaks
+  async listStaffBreaksForDate(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
+    try {
+      const businessId = req.user.businessId!;
+      const date = req.query.date as string;
+      const items = await staffService.listStaffBreaksForDate(businessId, date);
+      res.json({ success: true, data: items });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async createStaffBreak(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = req.user.businessId!;
+      const created = await staffService.createStaffBreak(businessId, req.body);
+      res.json({ success: true, data: created });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async removeStaffBreak(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = req.user.businessId!;
+      const staffId = String(req.params.staffId!);
+      await staffService.removeStaffBreak(businessId, staffId);
+      res.json({ success: true, data: null });
+    } catch (err) {
+      next(err);
+    }
+  }
+  // #endregion
 }
 
 export default new StaffController();
