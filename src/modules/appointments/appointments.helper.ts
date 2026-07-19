@@ -1,4 +1,9 @@
 import { Prisma, AppointmentStatus, InvoiceStatus } from "@prisma/client";
+import { DateTime } from "luxon";
+import {
+  computeStaffFreeIntervals,
+  isStaffFreeFor,
+} from "../bookings/bookings.availabilty.utils";
 
 type TxClient = Prisma.TransactionClient;
 
@@ -143,5 +148,77 @@ export async function assertStaffAvailableBatch(
       "SLOT_TAKEN",
       409,
     );
+  }
+}
+
+export async function assertSegmentsAssignable(
+  tx: TxClient,
+  opts: {
+    businessId: string;
+    businessTimezone: string;
+    excludeAppointmentId: string;
+    segments: Array<{
+      serviceId: string;
+      staffId: string;
+      startsAt: Date;
+      endsAt: Date;
+    }>;
+  },
+) {
+  const { businessId, businessTimezone, excludeAppointmentId, segments } = opts;
+  if (segments.length === 0) return;
+
+  const eligibilityRows = await Promise.all(
+    segments.map((segment) =>
+      tx.serviceStaff.findUnique({
+        where: {
+          serviceId_staffId: {
+            serviceId: segment.serviceId,
+            staffId: segment.staffId,
+          },
+        },
+        include: {
+          staff: { select: { isActive: true } },
+        },
+      }),
+    ),
+  );
+
+  for (const row of eligibilityRows) {
+    if (!row || !row.staff.isActive) {
+      throw invalidStateError(
+        "Staff is not eligible for this service",
+        "STAFF_INELIGIBLE",
+      );
+    }
+  }
+
+  const staffIds = [...new Set(segments.map((segment) => segment.staffId))];
+  const date = DateTime.fromJSDate(segments[0].startsAt)
+    .setZone(businessTimezone)
+    .toFormat("yyyy-MM-dd");
+  const freeByStaff = await computeStaffFreeIntervals(
+    staffIds,
+    businessId,
+    date,
+    businessTimezone,
+    excludeAppointmentId,
+  );
+
+  for (const segment of segments) {
+    const segmentStart = DateTime.fromJSDate(segment.startsAt).setZone(
+      businessTimezone,
+    );
+    const segmentEnd = DateTime.fromJSDate(segment.endsAt).setZone(
+      businessTimezone,
+    );
+    const freeIntervals = freeByStaff.get(segment.staffId) ?? [];
+    if (!isStaffFreeFor(freeIntervals, segmentStart, segmentEnd)) {
+      throw invalidStateError(
+        "Staff is not available for this time",
+        "SLOT_TAKEN",
+        409,
+      );
+    }
   }
 }

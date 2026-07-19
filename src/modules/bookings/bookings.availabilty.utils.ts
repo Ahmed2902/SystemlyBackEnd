@@ -16,6 +16,7 @@ export async function computeStaffFreeIntervals(
   businessId: string,
   date: string,
   tz: string,
+  excludeAppointmentId?: string,
 ): Promise<Map<string, FreeInterval[]>> {
   const dayOfWeek = getBusinessDayOfWeek(date, tz);
   const { start: dayStartRaw, end: dayEndRaw } = getBusinessDayRange(tz, date);
@@ -33,6 +34,9 @@ export async function computeStaffFreeIntervals(
         where: {
           staffId: { in: staffIds },
           appointment: {
+            ...(excludeAppointmentId
+              ? { id: { not: excludeAppointmentId } }
+              : {}),
             businessId,
             status: {
               notIn: ["cancelled_by_customer", "cancelled_by_business"],

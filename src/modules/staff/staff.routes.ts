@@ -68,7 +68,18 @@ router.delete(
   staffController.unassignService,
 );
 
-router.get("/:id/availability", requireAuth, staffController.getAvailability);
+router.get(
+  "/:id/availability",
+  requireAuth,
+  requireBusinessAccess,
+  staffController.getAvailability,
+);
+router.get(
+  "/:id/availability/overrides",
+  requireAuth,
+  requireBusinessAccess,
+  staffController.listAvailabilityOverridesForDate,
+);
 router.get(
   "/:id/commission",
   requireAuth,

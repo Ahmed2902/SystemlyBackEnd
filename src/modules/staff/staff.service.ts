@@ -11,8 +11,6 @@ import type {
   AvailabilityOverrideInput,
   StaffListResult,
 } from "./staff.schema";
-import { computeStaffFreeIntervals } from "../bookings/bookings.availabilty.utils";
-import { notFoundError } from "../appointments/appointments.helper";
 
 const buildErr = (message: string, statusCode: number, code: string) => {
   const err: any = new Error(message);
@@ -130,6 +128,13 @@ class StaffService {
     return prisma.availability.findMany({
       where: { staffId },
       orderBy: { dayOfWeek: "asc" },
+    });
+  }
+
+  async listAvailabilityOverridesForDate(staffId: string, date: string) {
+    return prisma.availabilityOverride.findMany({
+      where: { staffId, overrideDate: new Date(date) },
+      orderBy: { updatedAt: "desc" },
     });
   }
 

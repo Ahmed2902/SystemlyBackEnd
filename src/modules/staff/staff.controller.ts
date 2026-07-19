@@ -128,6 +128,24 @@ class StaffController {
     }
   }
 
+  async listAvailabilityOverridesForDate(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
+    try {
+      const id = String(req.params?.id);
+      const date = String(req.query?.date ?? "");
+      const data = await staffService.listAvailabilityOverridesForDate(
+        id,
+        date,
+      );
+      return ok(res, data);
+    } catch (err) {
+      return next(err);
+    }
+  }
+
   async replaceAvailability(req: Request, res: Response, next: NextFunction) {
     try {
       const id = String(req.params?.id);

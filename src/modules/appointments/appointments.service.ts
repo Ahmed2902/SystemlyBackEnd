@@ -13,6 +13,7 @@ import {
   getOwnedAppointmentOrThrow,
   assertEditable,
   assertStaffAvailableBatch,
+  assertSegmentsAssignable,
   voidInvoiceIfPaid,
   isCancelled,
   notFoundError,
@@ -128,19 +129,22 @@ class AppointmentsService {
       const appt = await getOwnedAppointmentOrThrow(tx, id, businessId, {
         appointmentServices: true,
         invoice: true,
+        business: true,
       });
 
       assertEditable(appt);
 
-      await assertStaffAvailableBatch(
-        tx,
-        payload.segments.map((s) => ({
+      await assertSegmentsAssignable(tx, {
+        businessId,
+        businessTimezone: appt.business.timezone,
+        excludeAppointmentId: id,
+        segments: payload.segments.map((s) => ({
+          serviceId: s.serviceId,
           staffId: s.staffId,
           startsAt: new Date(s.startsAt),
           endsAt: new Date(s.endsAt),
         })),
-        id,
-      );
+      });
 
       const incomingIds = payload.segments
         .filter((s) => s.id)
@@ -282,6 +286,7 @@ class AppointmentsService {
     return prisma.$transaction(async (tx) => {
       const appt = await getOwnedAppointmentOrThrow(tx, id, businessId, {
         appointmentServices: { orderBy: { order: "asc" } },
+        business: true,
       });
 
       if (appt.appointmentServices.length === 0) {
@@ -309,15 +314,17 @@ class AppointmentsService {
         segmentStart = segEnd;
       }
 
-      await assertStaffAvailableBatch(
-        tx,
-        newSegments.map((s) => ({
-          staffId: s.staffId,
-          startsAt: s.start,
-          endsAt: s.end,
+      await assertSegmentsAssignable(tx, {
+        businessId,
+        businessTimezone: appt.business.timezone,
+        excludeAppointmentId: id,
+        segments: appt.appointmentServices.map((seg, i) => ({
+          serviceId: seg.serviceId,
+          staffId: newSegments[i].staffId,
+          startsAt: newSegments[i].start,
+          endsAt: newSegments[i].end,
         })),
-        id,
-      );
+      });
 
       await Promise.all(
         newSegments.map((s) =>
