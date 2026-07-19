@@ -3,6 +3,7 @@ import appointmentsController from "./appointments.controller";
 import {
   requireAuth,
   requireRole,
+  requireBusinessId,
   requireAppointmentOwnerOrAdmin,
 } from "../../shared/middleware/auth.middleware";
 import validate from "../../shared/middleware/validate.middleware";
@@ -32,8 +33,9 @@ router.get(
 router.post(
   "/",
   requireRole(["BusinessAdmin", "Receptionist"]),
+  requireBusinessId,
   validate.validateBody(createManualAppointmentSchema),
-  appointmentsController.createAppointment,
+  appointmentsController.CreateManualAppointment,
 );
 router.patch(
   "/:appointmentId/reschedule",
@@ -61,15 +63,6 @@ router.patch(
   validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(updateAppointmentNotesSchema),
   appointmentsController.updateNotes,
-);
-
-// route — one addition to your existing appointments router  // i will not use it as i have collect-payment and its suffecient for V1
-router.post(
-  "/:appointmentId/finish",
-  requireAppointmentOwnerOrAdmin,
-  validate.validateParams(appointmentIdParamsSchema),
-  validate.validateBody(finishAppointmentSchema),
-  appointmentsController.finishAppointment,
 );
 
 router.post(
@@ -106,6 +99,15 @@ router.post(
   requireAppointmentOwnerOrAdmin,
   validate.validateParams(revertAppointmentParamsSchema),
   appointmentsController.markNoShow,
+);
+
+//not used,  Collect-payment instead
+router.post(
+  "/:appointmentId/finish",
+  requireAppointmentOwnerOrAdmin,
+  validate.validateParams(appointmentIdParamsSchema),
+  validate.validateBody(finishAppointmentSchema),
+  appointmentsController.finishAppointment,
 );
 
 export default router;

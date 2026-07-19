@@ -113,12 +113,17 @@ class AppointmentsController {
     }
   }
 
-  async createAppointment(req: Request, res: Response, next: NextFunction) {
+  async CreateManualAppointment(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
     try {
       const parsed = createManualAppointmentSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
       const created = await appointmentsService.createManualAppointment(
         parsed.data,
+        req.user!.businessId!,
       );
       return ok(res, created, 201);
     } catch (err) {

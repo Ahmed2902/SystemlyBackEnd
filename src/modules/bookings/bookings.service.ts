@@ -1,18 +1,14 @@
 import { prisma } from "../../shared/db/prisma";
 import { DateTime } from "luxon";
-import { upsertByPhone as upsertCustomer } from "../customers/customers.service";
-import { generateCancelToken } from "../../shared/utils/token.util";
 import type { AvailabilityQuery, CreateBookingBody } from "./bookings.schema";
-import {
-  getBusinessDayRange,
-  toUtcFromBusinessTime,
-} from "../../shared/utils/timezone";
+import { getBusinessDayRange } from "../../shared/utils/timezone";
 import {
   computeStaffFreeIntervals,
   isStaffFreeFor,
 } from "./bookings.availabilty.utils";
 
-import { scheduleServiceSegments } from "../Scheduling/Scheduling.service";
+import { createAppointmentCore } from "../Scheduling/Scheduling.service";
+import { notFoundError } from "../appointments/appointments.helper";
 
 const CANCEL_TTL_DAYS = parseInt(
   process.env.BOOKING_CANCEL_TTL_DAYS || "30",
@@ -187,51 +183,22 @@ class BookingsService {
     const business = await prisma.business.findUnique({
       where: { id: businessId },
     });
-    const tz = timezone || (business?.timezone as string) || "UTC";
+    if (!business) throw notFoundError("Business not found");
 
-    return prisma.$transaction(async (tx) => {
-      const segments = await scheduleServiceSegments(
-        tx,
+    return prisma.$transaction((tx) =>
+      createAppointmentCore(tx, business, {
+        businessId,
         selections,
         startsAt,
-        tz,
-      );
-
-      const customer = await upsertCustomer(
-        businessId,
-        payload.customerPhone,
-        payload.customerName,
-        payload.acquisitionSource,
-      );
-
-      const appt = await tx.appointment.create({
-        data: {
-          businessId,
-          staffId: segments[0].staffId,
-          customerId: customer.id,
-          startsAt: segments[0].start,
-          endsAt: segments[segments.length - 1].end,
-          status: "pending",
-          cancelToken: generateCancelToken(),
-          notes: payload.notes || null,
-        },
-      });
-
-      await tx.appointmentService.createMany({
-        data: segments.map((s, i) => ({
-          appointmentId: appt.id,
-          serviceId: s.serviceId,
-          staffId: s.staffId,
-          order: i,
-          startsAt: s.start,
-          endsAt: s.end,
-          durationMinSnapshot: s.durationMin,
-          priceEgpSnapshot: s.priceEgp,
-        })),
-      });
-
-      return { appointment: appt, customer };
-    });
+        timezone,
+        customerName: payload.customerName,
+        customerPhone: payload.customerPhone,
+        notes: payload.notes,
+        acquisitionSource: payload.acquisitionSource,
+        status: "pending",
+        generateToken: true,
+      }),
+    );
   }
 }
 

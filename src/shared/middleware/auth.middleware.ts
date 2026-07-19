@@ -99,6 +99,9 @@ export const requireAppointmentOwnerOrAdmin = async (
     if (!req.user) {
       return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
     }
+    if (!req.user.businessId) {
+      return fail(res, "Business id missing", 400, "BAD_REQUEST");
+    }
     const appointmentId = (req.params as any).appointmentId;
     if (!appointmentId) {
       return fail(res, "Appointment id missing", 400, "BAD_REQUEST");
@@ -136,9 +139,24 @@ export const requireAppointmentOwnerOrAdmin = async (
   }
 };
 
+export const requireBusinessId = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  if (!req.user) {
+    return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+  }
+  if (!req.user.businessId) {
+    return fail(res, "Business id missing", 400, "BAD_REQUEST");
+  }
+  return next();
+};
+
 export default {
   requireAuth,
   requireRole,
   requireBusinessAccess,
   requireAppointmentOwnerOrAdmin,
+  requireBusinessId,
 };

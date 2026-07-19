@@ -11,6 +11,8 @@ import type {
   AvailabilityOverrideInput,
   StaffListResult,
 } from "./staff.schema";
+import { computeStaffFreeIntervals } from "../bookings/bookings.availabilty.utils";
+import { notFoundError } from "../appointments/appointments.helper";
 
 const buildErr = (message: string, statusCode: number, code: string) => {
   const err: any = new Error(message);

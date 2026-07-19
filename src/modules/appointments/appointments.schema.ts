@@ -84,7 +84,6 @@ export const updateAppointmentNotesSchema = z
 
 export const createManualAppointmentSchema = z
   .object({
-    businessId: z.string().min(1).openapi({ example: "biz-123" }),
     services: z.array(manualServiceSelectionSchema).min(1),
     startsAt: z.string().min(1).openapi({ example: "2026-03-20T10:00:00Z" }),
     customerName: z.string().min(1).openapi({ example: "Mona Ahmed" }),

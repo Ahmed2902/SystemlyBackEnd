@@ -8,7 +8,7 @@ import type {
 } from "./appointments.schema";
 import { getBusinessDayRange } from "../../shared/utils/timezone";
 import { isModuleEnabled } from "../../shared/config/verticals.config";
-import { scheduleServiceSegments } from "../Scheduling/Scheduling.service";
+import { createAppointmentCore } from "../Scheduling/Scheduling.service";
 import {
   getOwnedAppointmentOrThrow,
   assertEditable,
@@ -246,86 +246,32 @@ class AppointmentsService {
     return prisma.appointment.update({ where: { id }, data: { notes } });
   }
 
-  async createManualAppointment(payload: CreateManualAppointmentBody) {
-    const {
-      businessId,
-      services: selections,
-      startsAt,
-      customerName,
-      customerPhone,
-      notes,
-      acquisitionSource,
-    } = payload;
+  async createManualAppointment(
+    payload: CreateManualAppointmentBody,
+    businessId: string,
+  ) {
+    // ctx.businessId should come from the authenticated session, not the payload,
+    // to avoid the cross-business bug you fixed in rescheduleAppointment
+    const { services: selections, startsAt } = payload;
 
     const business = await prisma.business.findUnique({
       where: { id: businessId },
     });
-    const tz = business?.timezone || "UTC";
+    if (!business) throw notFoundError("Business not found");
 
-    return prisma.$transaction(async (tx) => {
-      const segments = await scheduleServiceSegments(
-        tx,
+    return prisma.$transaction((tx) =>
+      createAppointmentCore(tx, business, {
+        businessId,
         selections,
         startsAt,
-        tz,
-      );
-
-      const existing = await tx.customer.findUnique({
-        where: {
-          businessId_phone: { businessId, phone: customerPhone } as any,
-        } as any,
-      });
-      let customer;
-      if (existing) {
-        customer = await tx.customer.update({
-          where: { id: existing.id },
-          data: {
-            visitCount: { increment: 1 },
-            lastVisitAt: new Date(),
-            name: customerName || existing.name,
-            acquisitionSource,
-          } as any,
-        });
-      } else {
-        customer = await tx.customer.create({
-          data: {
-            businessId,
-            phone: customerPhone,
-            name: customerName || "",
-            visitCount: 1,
-            lastVisitAt: new Date(),
-            acquisitionSource,
-          } as any,
-        });
-      }
-
-      const appt = await tx.appointment.create({
-        data: {
-          businessId,
-          staffId: segments[0].staffId,
-          customerId: customer.id,
-          startsAt: segments[0].start,
-          endsAt: segments[segments.length - 1].end,
-          status: "confirmed",
-          notes: notes || null,
-        },
-      });
-
-      await tx.appointmentService.createMany({
-        data: segments.map((s, i) => ({
-          appointmentId: appt.id,
-          serviceId: s.serviceId,
-          staffId: s.staffId,
-          order: i,
-          startsAt: s.start,
-          endsAt: s.end,
-          durationMinSnapshot: s.durationMin,
-          priceEgpSnapshot: s.priceEgp,
-        })),
-      });
-
-      return { appointment: appt, customer };
-    });
+        customerName: payload.customerName,
+        customerPhone: payload.customerPhone,
+        notes: payload.notes,
+        acquisitionSource: payload.acquisitionSource,
+        status: "confirmed",
+        generateToken: false,
+      }),
+    );
   }
 
   async rescheduleAppointment(
