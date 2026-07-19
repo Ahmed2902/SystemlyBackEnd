@@ -8,11 +8,11 @@ import type {
 } from "./appointments.schema";
 import { getBusinessDayRange } from "../../shared/utils/timezone";
 import { isModuleEnabled } from "../../shared/config/verticals.config";
-import { createAppointmentCore } from "../Scheduling/Scheduling.service";
+import { createAppointmentCore } from "../../shared/services/scheduling/appointment-core.service";
 import {
   getOwnedAppointmentOrThrow,
   assertEditable,
-  assertStaffAvailableBatch,
+  assertSegmentsDoNotOverlap,
   assertSegmentsAssignable,
   voidInvoiceIfPaid,
   isCancelled,
@@ -133,6 +133,13 @@ class AppointmentsService {
       });
 
       assertEditable(appt);
+
+      assertSegmentsDoNotOverlap(
+        payload.segments.map((segment) => ({
+          startsAt: new Date(segment.startsAt),
+          endsAt: new Date(segment.endsAt),
+        })),
+      );
 
       await assertSegmentsAssignable(tx, {
         businessId,

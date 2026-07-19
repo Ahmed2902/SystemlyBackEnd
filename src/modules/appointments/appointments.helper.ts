@@ -3,7 +3,7 @@ import { DateTime } from "luxon";
 import {
   computeStaffFreeIntervals,
   isStaffFreeFor,
-} from "../bookings/bookings.availabilty.utils";
+} from "../../shared/services/scheduling/staff-free-intervals.service";
 
 type TxClient = Prisma.TransactionClient;
 
@@ -148,6 +148,25 @@ export async function assertStaffAvailableBatch(
       "SLOT_TAKEN",
       409,
     );
+  }
+}
+
+export function assertSegmentsDoNotOverlap(
+  segments: Array<{ startsAt: Date; endsAt: Date }>,
+) {
+  const ordered = segments
+    .slice()
+    .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+
+  for (let i = 1; i < ordered.length; i++) {
+    const previous = ordered[i - 1];
+    const current = ordered[i];
+    if (current.startsAt < previous.endsAt) {
+      throw invalidStateError(
+        "Appointment services cannot overlap",
+        "INVALID_SEGMENT_RANGE",
+      );
+    }
   }
 }
 

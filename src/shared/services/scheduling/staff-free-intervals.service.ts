@@ -1,10 +1,10 @@
 import { DateTime } from "luxon";
-import { prisma } from "../../shared/db/prisma";
+import { prisma } from "../../db/prisma";
 import {
   getBusinessDayOfWeek,
   getBusinessDayRange,
   toBusinessTime,
-} from "../../shared/utils/timezone";
+} from "../../utils/timezone";
 
 export interface FreeInterval {
   start: DateTime;
@@ -59,6 +59,7 @@ export async function computeStaffFreeIntervals(
   const overrideMap = new Map(overrides.map((o) => [o.staffId, o]));
   const availMap = new Map(availabilities.map((a) => [a.staffId, a]));
   const busyByStaff = new Map<string, FreeInterval[]>();
+
   for (const seg of appointmentServices) {
     const arr = busyByStaff.get(seg.staffId) ?? [];
     arr.push({
@@ -88,30 +89,32 @@ export async function computeStaffFreeIntervals(
     });
     busyByStaff.set(brk.staffId, arr);
   }
+
   const result = new Map<string, FreeInterval[]>();
 
-  for (const sId of staffIds) {
-    const override = overrideMap.get(sId);
+  for (const staffId of staffIds) {
+    const override = overrideMap.get(staffId);
     if (override?.isDayOff) {
-      result.set(sId, []);
+      result.set(staffId, []);
       continue;
     }
 
-    let workStart: DateTime, workEnd: DateTime;
+    let workStart: DateTime;
+    let workEnd: DateTime;
+
     if (override?.startTime && override?.endTime) {
       workStart = toBusinessTime(override.startTime, tz);
       workEnd = toBusinessTime(override.endTime, tz);
     } else {
-      const avail = availMap.get(sId);
+      const avail = availMap.get(staffId);
       if (!avail) {
-        result.set(sId, []);
+        result.set(staffId, []);
         continue;
       }
       workStart = toBusinessTime(avail.startTime, tz);
       workEnd = toBusinessTime(avail.endTime, tz);
     }
 
-    // Anchor the time-of-day portion onto the actual requested date
     workStart = dayStart.set({
       hour: workStart.hour,
       minute: workStart.minute,
@@ -125,18 +128,20 @@ export async function computeStaffFreeIntervals(
       millisecond: 0,
     });
 
-    const busy = (busyByStaff.get(sId) ?? []).sort(
+    const busy = (busyByStaff.get(staffId) ?? []).sort(
       (a, b) => a.start.toMillis() - b.start.toMillis(),
     );
+
     const free: FreeInterval[] = [];
     let cursor = workStart;
-    for (const b of busy) {
-      if (b.start > cursor) free.push({ start: cursor, end: b.start });
-      if (b.end > cursor) cursor = b.end;
+    for (const interval of busy) {
+      if (interval.start > cursor)
+        free.push({ start: cursor, end: interval.start });
+      if (interval.end > cursor) cursor = interval.end;
     }
     if (cursor < workEnd) free.push({ start: cursor, end: workEnd });
 
-    result.set(sId, free);
+    result.set(staffId, free);
   }
 
   return result;
@@ -148,6 +153,6 @@ export function isStaffFreeFor(
   segmentEnd: DateTime,
 ): boolean {
   return freeIntervals.some(
-    (iv) => iv.start <= segmentStart && iv.end >= segmentEnd,
+    (interval) => interval.start <= segmentStart && interval.end >= segmentEnd,
   );
 }
