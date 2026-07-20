@@ -71,7 +71,7 @@ export const listAppointmentsQuerySchema = z
 export const updateAppointmentStatusSchema = z
   .object({
     status: z
-      .enum(["pending", "confirmed", "no_show"])
+      .enum(["pending", "confirmed", "in_progress", "no_show"])
       .openapi({ example: "confirmed" }),
   })
   .openapi({ description: "Update appointment status" });

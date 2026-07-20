@@ -31,6 +31,7 @@ const APPOINTMENT_DETAIL_INCLUDE = {
   customItems: true,
   invoice: true,
   clinicVisitRecord: true,
+  appointmentPhotos: { include: { photo: true } },
 } as const;
 
 class AppointmentsService {
@@ -267,7 +268,7 @@ class AppointmentsService {
 
   async updateStatus(
     id: string,
-    status: "pending" | "confirmed" | "no_show",
+    status: "pending" | "confirmed" | "in_progress" | "no_show",
     businessId: string,
   ) {
     return prisma.$transaction(async (tx) => {
@@ -631,6 +632,7 @@ class AppointmentsService {
 
       if (
         appt.status !== AppointmentStatus.confirmed &&
+        appt.status !== AppointmentStatus.in_progress &&
         appt.status !== AppointmentStatus.pending
       ) {
         throw invalidStateError(
