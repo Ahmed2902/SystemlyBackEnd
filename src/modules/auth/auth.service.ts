@@ -82,7 +82,10 @@ class AuthService {
         "INVALID_TOKEN",
       );
     }
-    const user = await prisma.businessUser.findUnique({ where: { email } });
+    const user = await prisma.businessUser.findUnique({
+      where: { email },
+      include: { business: { select: { vertical: true, timezone: true } } },
+    });
     if (!user) throw buildErr("User not found", 404, "NOT_FOUND");
 
     await prisma.businessUser.update({
@@ -114,13 +117,18 @@ class AuthService {
         name: user.name,
         email: user.email,
         businessId: user.businessId,
+        vertical: user.business?.vertical ?? null,
+        timezone: user.business?.timezone ?? null,
       },
     };
   }
 
   async login(payload: LoginBody) {
     const { email, password } = payload;
-    const user = await prisma.businessUser.findUnique({ where: { email } });
+    const user = await prisma.businessUser.findUnique({
+      where: { email },
+      include: { business: { select: { vertical: true, timezone: true } } },
+    });
     if (!user)
       throw buildErr("Invalid email or password", 401, "INVALID_CREDENTIALS");
 
@@ -161,6 +169,8 @@ class AuthService {
         name: user.name,
         email: user.email,
         businessId: user.businessId,
+        vertical: user.business?.vertical ?? null,
+        timezone: user.business?.timezone ?? null,
       },
     };
   }
@@ -344,10 +354,15 @@ class AuthService {
   async getMe({ userId }: GetMeInput) {
     const user = await prisma.businessUser.findUnique({
       where: { id: userId },
+      include: { business: { select: { vertical: true, timezone: true } } },
     });
     if (!user) throw buildErr("User not found", 404, "NOT_FOUND");
-    const { passwordHash, ...safeUser } = user as any;
-    return safeUser;
+    const { passwordHash, business, ...safeUser } = user as any;
+    return {
+      ...safeUser,
+      vertical: business?.vertical ?? null,
+      timezone: business?.timezone ?? null,
+    };
   }
 
   async oauthSignIn({

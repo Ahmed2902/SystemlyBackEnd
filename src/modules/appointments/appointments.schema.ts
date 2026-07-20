@@ -35,6 +35,13 @@ export const updateAppointmentSchema = z.object({
     .default([]),
   discountCents: z.number().int().min(0).default(0),
   notes: z.string().max(2000).optional(),
+  clinical: z
+    .object({
+      notes: z.string().max(5000).optional(),
+      diagnosis: z.string().max(2000).optional(),
+      prescriptionJson: z.record(z.string(), z.any()).optional(),
+    })
+    .optional(),
 });
 
 export const listAppointmentsQuerySchema = z
@@ -63,7 +70,9 @@ export const listAppointmentsQuerySchema = z
 
 export const updateAppointmentStatusSchema = z
   .object({
-    status: z.string().min(1).openapi({ example: "confirmed" }),
+    status: z
+      .enum(["pending", "confirmed", "no_show"])
+      .openapi({ example: "confirmed" }),
   })
   .openapi({ description: "Update appointment status" });
 

@@ -27,6 +27,30 @@ export const toBusinessTime = (date: Date | string, timezone: string) => {
   return toAnchorDateTime(date, timezone);
 };
 
+/**
+ * Availability, breaks, and override times are stored as time-only values
+ * using the UTC epoch as a neutral container. Do not shift these by timezone.
+ */
+export const toStoredTimeOfDay = (value: Date | string) => {
+  const date =
+    typeof value === "string" && /^\d{2}:\d{2}$/.test(value)
+      ? timeOfDayToDate(value)
+      : value instanceof Date
+        ? value
+        : new Date(value);
+  return DateTime.fromJSDate(date, { zone: "utc" });
+};
+
+export const timeOfDayToDate = (value: string) => {
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) {
+    throw new Error(`Invalid time of day: ${value}`);
+  }
+  return new Date(
+    `1970-01-01T${match[1]}:${match[2]}:00.000Z`,
+  );
+};
+
 export const toUtcFromBusinessTime = (
   localIsoString: string,
   timezone: string,

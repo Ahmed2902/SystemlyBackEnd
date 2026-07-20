@@ -189,22 +189,29 @@ export async function assertSegmentsAssignable(
 
   const eligibilityRows = await Promise.all(
     segments.map((segment) =>
-      tx.serviceStaff.findUnique({
+      tx.serviceStaff.findFirst({
         where: {
-          serviceId_staffId: {
-            serviceId: segment.serviceId,
-            staffId: segment.staffId,
-          },
+          serviceId: segment.serviceId,
+          staffId: segment.staffId,
+          service: { businessId },
+          staff: { businessId },
         },
         include: {
-          staff: { select: { isActive: true } },
+          staff: { select: { isActive: true, businessId: true } },
+          service: { select: { isActive: true, businessId: true } },
         },
       }),
     ),
   );
 
   for (const row of eligibilityRows) {
-    if (!row || !row.staff.isActive) {
+    if (
+      !row ||
+      !row.staff.isActive ||
+      !row.service.isActive ||
+      row.staff.businessId !== businessId ||
+      row.service.businessId !== businessId
+    ) {
       throw invalidStateError(
         "Staff is not eligible for this service",
         "STAFF_INELIGIBLE",
@@ -222,6 +229,7 @@ export async function assertSegmentsAssignable(
     date,
     businessTimezone,
     excludeAppointmentId,
+    tx,
   );
 
   for (const segment of segments) {

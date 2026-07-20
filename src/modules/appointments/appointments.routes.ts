@@ -72,6 +72,12 @@ router.post(
   validate.validateBody(cancelAppointmentSchema),
   appointmentsController.cancelAppointment,
 );
+router.delete(
+  "/:appointmentId",
+  requireAppointmentOwnerOrAdmin,
+  validate.validateParams(appointmentIdParamsSchema),
+  appointmentsController.deleteAppointment,
+);
 
 router.post(
   "/:appointmentId/revert",

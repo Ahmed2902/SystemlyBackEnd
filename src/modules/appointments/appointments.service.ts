@@ -30,6 +30,7 @@ const APPOINTMENT_DETAIL_INCLUDE = {
   staff: true,
   customItems: true,
   invoice: true,
+  clinicVisitRecord: true,
 } as const;
 
 class AppointmentsService {
@@ -123,6 +124,11 @@ class AppointmentsService {
       }>;
       discountCents?: number;
       notes?: string;
+      clinical?: {
+        notes?: string;
+        diagnosis?: string;
+        prescriptionJson?: Record<string, unknown>;
+      };
     },
   ) {
     return prisma.$transaction(async (tx) => {
@@ -222,6 +228,23 @@ class AppointmentsService {
         });
       }
 
+      if (payload.clinical) {
+        await tx.clinicVisitRecord.upsert({
+          where: { appointmentId: id },
+          create: {
+            appointmentId: id,
+            notes: payload.clinical.notes,
+            diagnosis: payload.clinical.diagnosis,
+            prescriptionJson: payload.clinical.prescriptionJson as any,
+          },
+          update: {
+            notes: payload.clinical.notes,
+            diagnosis: payload.clinical.diagnosis,
+            prescriptionJson: payload.clinical.prescriptionJson as any,
+          },
+        });
+      }
+
       const sortedSegments = payload.segments
         .slice()
         .sort(
@@ -242,14 +265,37 @@ class AppointmentsService {
     });
   }
 
-  async updateStatus(id: string, status: string) {
-    const validStatuses = Object.values(AppointmentStatus) as string[];
-    if (!validStatuses.includes(status)) {
-      throw invalidStateError("Invalid status", "INVALID_STATUS");
-    }
-    return prisma.appointment.update({
-      where: { id },
-      data: { status } as any,
+  async updateStatus(
+    id: string,
+    status: "pending" | "confirmed" | "no_show",
+    businessId: string,
+  ) {
+    return prisma.$transaction(async (tx) => {
+      const appt = await getOwnedAppointmentOrThrow(tx, id, businessId, {
+        customer: true,
+        invoice: true,
+      });
+      assertEditable(appt);
+
+      if (appt.status === status) return appt;
+
+      if (appt.status === AppointmentStatus.no_show && appt.customerId) {
+        await tx.customer.update({
+          where: { id: appt.customerId },
+          data: { noShowCount: { decrement: 1 } },
+        });
+      }
+      if (status === AppointmentStatus.no_show && appt.customerId) {
+        await tx.customer.update({
+          where: { id: appt.customerId },
+          data: { noShowCount: { increment: 1 } },
+        });
+      }
+
+      return tx.appointment.update({
+        where: { id },
+        data: { status },
+      });
     });
   }
 
@@ -504,6 +550,22 @@ class AppointmentsService {
     });
   }
 
+  async deleteCancelledAppointment(id: string, businessId: string) {
+    return prisma.$transaction(async (tx) => {
+      const appt = await getOwnedAppointmentOrThrow(tx, id, businessId, {
+        customer: true,
+      });
+      if (!isCancelled(appt.status)) {
+        throw invalidStateError(
+          "Only cancelled appointments can be permanently deleted",
+          "INVALID_STATE",
+        );
+      }
+      await tx.appointment.delete({ where: { id } });
+      return { id, deleted: true };
+    });
+  }
+
   async uncancelAppointment(id: string, businessId: string) {
     return prisma.$transaction(async (tx) => {
       const appt = await getOwnedAppointmentOrThrow(tx, id, businessId);
@@ -567,9 +629,12 @@ class AppointmentsService {
     return prisma.$transaction(async (tx) => {
       const appt = await getOwnedAppointmentOrThrow(tx, id, businessId);
 
-      if (appt.status !== AppointmentStatus.confirmed) {
+      if (
+        appt.status !== AppointmentStatus.confirmed &&
+        appt.status !== AppointmentStatus.pending
+      ) {
         throw invalidStateError(
-          "Only confirmed appointments can be marked no-show",
+          "Only pending or confirmed appointments can be marked no-show",
         );
       }
 

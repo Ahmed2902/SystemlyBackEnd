@@ -8,6 +8,7 @@ interface TxLike {
 export async function resolveEligibleStaffBySelection(
   tx: TxLike,
   selections: ServiceSelection[],
+  businessId?: string,
 ): Promise<string[][]> {
   const eligibleByService: string[][] = [];
 
@@ -19,6 +20,12 @@ export async function resolveEligibleStaffBySelection(
             serviceId: selection.serviceId,
             staffId: selection.staffId,
           },
+          ...(businessId
+            ? {
+                service: { businessId },
+                staff: { businessId },
+              }
+            : {}),
         },
         include: { staff: { select: { isActive: true } } },
       });
@@ -28,7 +35,15 @@ export async function resolveEligibleStaffBySelection(
     }
 
     const rows = await tx.serviceStaff.findMany({
-      where: { serviceId: selection.serviceId },
+      where: {
+        serviceId: selection.serviceId,
+        ...(businessId
+          ? {
+              service: { businessId },
+              staff: { businessId },
+            }
+          : {}),
+      },
       include: { staff: { select: { isActive: true } } },
     });
 

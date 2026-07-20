@@ -1,4 +1,5 @@
 import { prisma } from "../../shared/db/prisma";
+import { timeOfDayToDate } from "../../shared/utils/timezone";
 import crypto from "crypto";
 import { enqueueEmailJob } from "../../queues/emailQueue";
 import { Prisma, Roles, CommissionType } from "@prisma/client";
@@ -143,8 +144,8 @@ class StaffService {
     const data = entries.map((e) => ({
       staffId,
       dayOfWeek: e.dayOfWeek,
-      startTime: new Date(e.startTime),
-      endTime: new Date(e.endTime),
+      startTime: timeOfDayToDate(e.startTime),
+      endTime: timeOfDayToDate(e.endTime),
       breakAfterMin: e.breakAfterMin ?? null,
     }));
     await prisma.availability.createMany({ data });
@@ -157,8 +158,10 @@ class StaffService {
         staffId,
         overrideDate: new Date(payload.overrideDate),
         isDayOff: payload.isDayOff ?? false,
-        startTime: payload.startTime ? new Date(payload.startTime) : null,
-        endTime: payload.endTime ? new Date(payload.endTime) : null,
+        startTime: payload.startTime
+          ? timeOfDayToDate(payload.startTime)
+          : null,
+        endTime: payload.endTime ? timeOfDayToDate(payload.endTime) : null,
       },
     });
   }

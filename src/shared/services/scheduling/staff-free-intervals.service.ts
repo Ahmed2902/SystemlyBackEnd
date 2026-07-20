@@ -1,8 +1,10 @@
 import { DateTime } from "luxon";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../../db/prisma";
 import {
   getBusinessDayOfWeek,
   getBusinessDayRange,
+  toStoredTimeOfDay,
   toBusinessTime,
 } from "../../utils/timezone";
 
@@ -11,12 +13,18 @@ export interface FreeInterval {
   end: DateTime;
 }
 
+type SchedulingDb = Pick<
+  Prisma.TransactionClient,
+  "availabilityOverride" | "availability" | "appointmentService" | "staffBreak"
+>;
+
 export async function computeStaffFreeIntervals(
   staffIds: string[],
   businessId: string,
   date: string,
   tz: string,
   excludeAppointmentId?: string,
+  db: SchedulingDb = prisma,
 ): Promise<Map<string, FreeInterval[]>> {
   const dayOfWeek = getBusinessDayOfWeek(date, tz);
   const { start: dayStartRaw, end: dayEndRaw } = getBusinessDayRange(tz, date);
@@ -24,13 +32,17 @@ export async function computeStaffFreeIntervals(
 
   const [overrides, availabilities, appointmentServices, breaks] =
     await Promise.all([
-      prisma.availabilityOverride.findMany({
-        where: { staffId: { in: staffIds }, overrideDate: new Date(date) },
+      db.availabilityOverride.findMany({
+        where: {
+          staffId: { in: staffIds },
+          staff: { businessId },
+          overrideDate: new Date(date),
+        },
       }),
-      prisma.availability.findMany({
-        where: { staffId: { in: staffIds }, dayOfWeek },
+      db.availability.findMany({
+        where: { staffId: { in: staffIds }, staff: { businessId }, dayOfWeek },
       }),
-      prisma.appointmentService.findMany({
+      db.appointmentService.findMany({
         where: {
           staffId: { in: staffIds },
           appointment: {
@@ -48,9 +60,10 @@ export async function computeStaffFreeIntervals(
           ],
         },
       }),
-      prisma.staffBreak.findMany({
+      db.staffBreak.findMany({
         where: {
           staffId: { in: staffIds },
+          businessId,
           breakDate: new Date(date),
         },
       }),
@@ -71,8 +84,8 @@ export async function computeStaffFreeIntervals(
 
   for (const brk of breaks) {
     const arr = busyByStaff.get(brk.staffId) ?? [];
-    const breakStart = toBusinessTime(brk.startTime, tz);
-    const breakEnd = toBusinessTime(brk.endTime, tz);
+    const breakStart = toStoredTimeOfDay(brk.startTime);
+    const breakEnd = toStoredTimeOfDay(brk.endTime);
     arr.push({
       start: dayStart.set({
         hour: breakStart.hour,
@@ -103,16 +116,16 @@ export async function computeStaffFreeIntervals(
     let workEnd: DateTime;
 
     if (override?.startTime && override?.endTime) {
-      workStart = toBusinessTime(override.startTime, tz);
-      workEnd = toBusinessTime(override.endTime, tz);
+      workStart = toStoredTimeOfDay(override.startTime);
+      workEnd = toStoredTimeOfDay(override.endTime);
     } else {
       const avail = availMap.get(staffId);
       if (!avail) {
         result.set(staffId, []);
         continue;
       }
-      workStart = toBusinessTime(avail.startTime, tz);
-      workEnd = toBusinessTime(avail.endTime, tz);
+      workStart = toStoredTimeOfDay(avail.startTime);
+      workEnd = toStoredTimeOfDay(avail.endTime);
     }
 
     workStart = dayStart.set({

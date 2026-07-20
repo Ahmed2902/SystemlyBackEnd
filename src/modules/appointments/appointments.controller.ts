@@ -90,6 +90,7 @@ class AppointmentsController {
       const updated = await appointmentsService.updateStatus(
         paramsParsed.data.appointmentId,
         bodyParsed.data.status,
+        req.user!.businessId!,
       );
       return ok(res, updated);
     } catch (err) {
@@ -175,6 +176,22 @@ class AppointmentsController {
         String(req.params.appointmentId),
         req.user!.businessId!,
         parsed.data,
+      );
+      return ok(res, result);
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async deleteAppointment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parsed = appointmentIdParamsSchema.safeParse(req.params);
+      if (!parsed.success) return next(parsed.error);
+      const businessId = req.user?.businessId;
+      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      const result = await appointmentsService.deleteCancelledAppointment(
+        parsed.data.appointmentId,
+        businessId,
       );
       return ok(res, result);
     } catch (err) {

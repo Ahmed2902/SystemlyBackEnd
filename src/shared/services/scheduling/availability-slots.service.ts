@@ -19,12 +19,13 @@ export async function buildAvailabilitySlots(opts: {
   const { businessId, date, timezone, selections } = opts;
 
   const serviceIds = selections.map((s) => s.serviceId);
+  const uniqueServiceIds = [...new Set(serviceIds)];
 
   const serviceRows = await prisma.service.findMany({
-    where: { id: { in: serviceIds } },
+    where: { id: { in: uniqueServiceIds }, businessId, isActive: true },
   });
 
-  if (serviceRows.length !== serviceIds.length) {
+  if (serviceRows.length !== uniqueServiceIds.length) {
     throw new Error("One or more services not found");
   }
 
@@ -35,6 +36,7 @@ export async function buildAvailabilitySlots(opts: {
   const eligibleByService = await resolveEligibleStaffBySelection(
     prisma,
     selections,
+    businessId,
   );
   if (eligibleByService.some((eligible) => eligible.length === 0)) {
     return [] as AvailableSlot[];
@@ -63,13 +65,11 @@ export async function buildAvailabilitySlots(opts: {
   const now = DateTime.now().setZone(timezone);
   let candidate = dayStart;
   if (candidate < now) {
-    const remainder = now.minute % SLOT_INTERVAL_MIN;
-    candidate =
-      remainder === 0
-        ? now.set({ second: 0, millisecond: 0 })
-        : now
-            .plus({ minutes: SLOT_INTERVAL_MIN - remainder })
-            .set({ second: 0, millisecond: 0 });
+    const rounded = now.startOf("minute");
+    const remainder = rounded.minute % SLOT_INTERVAL_MIN;
+    candidate = rounded.plus({
+      minutes: remainder === 0 ? SLOT_INTERVAL_MIN : SLOT_INTERVAL_MIN - remainder,
+    });
   }
 
   const slots: AvailableSlot[] = [];

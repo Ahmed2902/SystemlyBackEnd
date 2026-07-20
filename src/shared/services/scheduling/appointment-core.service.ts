@@ -38,12 +38,23 @@ export async function scheduleServiceSegments(
   timezone: string,
   businessId: string,
 ): Promise<ScheduledSegment[]> {
+  if (selections.length === 0) {
+    const err: any = new Error("At least one service is required");
+    err.statusCode = 400;
+    throw err;
+  }
+
   const serviceIds = selections.map((selection) => selection.serviceId);
+  const uniqueServiceIds = [...new Set(serviceIds)];
   const services = await tx.service.findMany({
-    where: { id: { in: serviceIds } },
+    where: {
+      id: { in: uniqueServiceIds },
+      businessId,
+      isActive: true,
+    },
   });
 
-  if (services.length !== serviceIds.length) {
+  if (services.length !== uniqueServiceIds.length) {
     const err: any = new Error("One or more services not found");
     err.statusCode = 404;
     throw err;
@@ -60,6 +71,7 @@ export async function scheduleServiceSegments(
   const eligibleBySelection = await resolveEligibleStaffBySelection(
     tx,
     selections,
+    businessId,
   );
   const allCandidateStaffIds = [...new Set(eligibleBySelection.flat())];
 
@@ -69,6 +81,8 @@ export async function scheduleServiceSegments(
     businessId,
     date,
     timezone,
+    undefined,
+    tx,
   );
 
   const segments: ScheduledSegment[] = [];
