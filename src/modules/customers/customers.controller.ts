@@ -2,60 +2,149 @@ import type { NextFunction, Request, Response } from "express";
 import customersService from "./customers.service";
 import { ok, fail } from "../../shared/utils/response.util";
 import {
+  createCustomerSchema,
+  customerIdParamsSchema,
   listCustomersQuerySchema,
   updateCustomerNotesSchema,
+  updateCustomerSchema,
 } from "./customers.schema";
+
+function businessIdFrom(req: Request) {
+  return req.user?.businessId ?? null;
+}
 
 class CustomersController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const businessId = (req as any).user?.businessId;
-      if (!businessId)
-        return fail(res, "Business id missing", 400, "BAD_REQUEST");
+      const businessId = businessIdFrom(req);
+      if (!businessId) {
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
+      }
       const parsed = listCustomersQuerySchema.safeParse(req.query);
       if (!parsed.success) return next(parsed.error);
-      const query = parsed.data;
-      const data = await customersService.listCustomers(
-        businessId,
-        query.search,
-        query.page ?? 1
+      return ok(
+        res,
+        await customersService.listCustomers(businessId, parsed.data),
       );
-      return ok(res, data);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async create(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = businessIdFrom(req);
+      if (!businessId) {
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
+      }
+      const parsed = createCustomerSchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      return ok(
+        res,
+        await customersService.createCustomer(businessId, parsed.data),
+        201,
+      );
+    } catch (error) {
+      return next(error);
     }
   }
 
   async get(req: Request, res: Response, next: NextFunction) {
     try {
-      const id = String(req.params?.id);
-      const data = await customersService.getCustomerById(id);
+      const businessId = businessIdFrom(req);
+      if (!businessId) {
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
+      }
+      const parsed = customerIdParamsSchema.safeParse(req.params);
+      if (!parsed.success) return next(parsed.error);
+      const data = await customersService.getCustomerById(
+        parsed.data.id,
+        businessId,
+      );
       if (!data) return fail(res, "Customer not found", 404, "NOT_FOUND");
       return ok(res, data);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async workspace(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = businessIdFrom(req);
+      if (!businessId) {
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
+      }
+      const parsed = customerIdParamsSchema.safeParse(req.params);
+      if (!parsed.success) return next(parsed.error);
+      return ok(
+        res,
+        await customersService.getWorkspace(parsed.data.id, businessId),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async update(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = businessIdFrom(req);
+      if (!businessId) {
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
+      }
+      const params = customerIdParamsSchema.safeParse(req.params);
+      if (!params.success) return next(params.error);
+      const body = updateCustomerSchema.safeParse(req.body);
+      if (!body.success) return next(body.error);
+      return ok(
+        res,
+        await customersService.updateCustomer(
+          params.data.id,
+          businessId,
+          body.data,
+        ),
+      );
+    } catch (error) {
+      return next(error);
     }
   }
 
   async updateNotes(req: Request, res: Response, next: NextFunction) {
     try {
-      const id = String(req.params?.id);
-      const parsed = updateCustomerNotesSchema.safeParse(req.body);
-      if (!parsed.success) return next(parsed.error);
-      const updated = await customersService.updateNotes(id, parsed.data.notes);
-      return ok(res, updated);
-    } catch (err) {
-      return next(err);
+      const businessId = businessIdFrom(req);
+      if (!businessId) {
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
+      }
+      const params = customerIdParamsSchema.safeParse(req.params);
+      if (!params.success) return next(params.error);
+      const body = updateCustomerNotesSchema.safeParse(req.body);
+      if (!body.success) return next(body.error);
+      return ok(
+        res,
+        await customersService.updateNotes(
+          params.data.id,
+          businessId,
+          body.data.notes,
+        ),
+      );
+    } catch (error) {
+      return next(error);
     }
   }
 
   async appointments(req: Request, res: Response, next: NextFunction) {
     try {
-      const id = String(req.params?.id);
-      const data = await customersService.getAppointments(id);
-      return ok(res, data);
-    } catch (err) {
-      return next(err);
+      const businessId = businessIdFrom(req);
+      if (!businessId) {
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
+      }
+      const parsed = customerIdParamsSchema.safeParse(req.params);
+      if (!parsed.success) return next(parsed.error);
+      return ok(
+        res,
+        await customersService.getAppointments(parsed.data.id, businessId),
+      );
+    } catch (error) {
+      return next(error);
     }
   }
 }
