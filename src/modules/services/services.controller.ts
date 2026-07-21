@@ -3,16 +3,21 @@ import servicesService from "./services.service";
 import { ok, fail } from "../../shared/utils/response.util";
 import {
   createServiceSchema,
+  listServicesQuerySchema,
   updateServiceSchema,
 } from "./services.schema";
 
 class ServicesController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const businessId = (req as any).user?.businessId;
-      if (!businessId)
+      if (!req.user?.businessId) {
         return fail(res, "Business id missing", 400, "BAD_REQUEST");
-      const data = await servicesService.listByBusiness(businessId);
+      }
+
+      const parsed = listServicesQuerySchema.safeParse(req.query);
+      if (!parsed.success) return next(parsed.error);
+
+      const data = await servicesService.getCatalog(req.user, parsed.data);
       return ok(res, data);
     } catch (err) {
       return next(err);
@@ -21,13 +26,15 @@ class ServicesController {
 
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const businessId = (req as any).user?.businessId;
-      if (!businessId)
+      if (!req.user?.businessId) {
         return fail(res, "Business id missing", 400, "BAD_REQUEST");
+      }
+
       const parsed = createServiceSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
-      const created = await servicesService.createService(businessId, parsed.data);
-      return ok(res, created);
+
+      const created = await servicesService.createService(req.user, parsed.data);
+      return ok(res, created, 201);
     } catch (err) {
       return next(err);
     }
@@ -35,20 +42,29 @@ class ServicesController {
 
   async update(req: Request, res: Response, next: NextFunction) {
     try {
+      if (!req.user?.businessId) {
+        return fail(res, "Business id missing", 400, "BAD_REQUEST");
+      }
+
       const id = String(req.params?.id);
       const parsed = updateServiceSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
-      const updated = await servicesService.updateService(id, parsed.data);
+
+      const updated = await servicesService.updateService(id, req.user, parsed.data);
       return ok(res, updated);
     } catch (err) {
       return next(err);
     }
   }
 
-  async remove(req: Request, res: Response, next: NextFunction) {
+  async archive(req: Request, res: Response, next: NextFunction) {
     try {
+      if (!req.user?.businessId) {
+        return fail(res, "Business id missing", 400, "BAD_REQUEST");
+      }
+
       const id = String(req.params?.id);
-      const result = await servicesService.deleteService(id);
+      const result = await servicesService.archiveService(id, req.user);
       return ok(res, result);
     } catch (err) {
       return next(err);
