@@ -1,31 +1,55 @@
 import { Router } from "express";
 import customersController from "./customers.controller";
-import {
-  requireAuth,
-  requireBusinessAccess,
-} from "../../shared/middleware/auth.middleware";
+import { requireAuth } from "../../shared/middleware/auth.middleware";
 import validate from "../../shared/middleware/validate.middleware";
 import {
+  createCustomerSchema,
+  customerIdParamsSchema,
   listCustomersQuerySchema,
   updateCustomerNotesSchema,
+  updateCustomerSchema,
 } from "./customers.schema";
 
 const router = Router();
 
+router.use(requireAuth);
+
 router.get(
   "/",
-  requireAuth,
   validate.validateQuery(listCustomersQuerySchema),
-  customersController.list
+  customersController.list,
 );
-router.get("/:id", requireAuth, customersController.get);
+router.post(
+  "/",
+  validate.validateBody(createCustomerSchema),
+  customersController.create,
+);
+router.get(
+  "/:id/workspace",
+  validate.validateParams(customerIdParamsSchema),
+  customersController.workspace,
+);
+router.get(
+  "/:id/appointments",
+  validate.validateParams(customerIdParamsSchema),
+  customersController.appointments,
+);
 router.patch(
   "/:id/notes",
-  requireAuth,
-  requireBusinessAccess,
+  validate.validateParams(customerIdParamsSchema),
   validate.validateBody(updateCustomerNotesSchema),
-  customersController.updateNotes
+  customersController.updateNotes,
 );
-router.get("/:id/appointments", requireAuth, customersController.appointments);
+router.patch(
+  "/:id",
+  validate.validateParams(customerIdParamsSchema),
+  validate.validateBody(updateCustomerSchema),
+  customersController.update,
+);
+router.get(
+  "/:id",
+  validate.validateParams(customerIdParamsSchema),
+  customersController.get,
+);
 
 export default router;
