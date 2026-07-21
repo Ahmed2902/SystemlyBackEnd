@@ -88,6 +88,7 @@ class BookingsService {
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,
         notes: payload.notes,
+        bookingChannel: "WEBSITE",
         acquisitionSource: payload.acquisitionSource,
         status: "pending",
         generateToken: true,

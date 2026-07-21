@@ -45,6 +45,15 @@ enum InvoiceStatus {
   voided
 }
 
+enum BookingChannel {
+  UNKNOWN
+  WEBSITE
+  FRONT_DESK
+  WHATSAPP
+  PHONE
+  OTHER
+}
+
 model Business {
   id             String          @id @default(uuid()) @db.Uuid
   name           String          @db.VarChar(255)
@@ -298,6 +307,7 @@ model Appointment {
   startsAt     DateTime          @map("starts_at")
   endsAt       DateTime          @map("ends_at")
   status       AppointmentStatus @default(pending)
+  bookingChannel BookingChannel    @default(UNKNOWN) @map("booking_channel")
   reminderSent Boolean           @default(false) @map("reminder_sent")
   confirmationSent Boolean       @default(false) @map("confirmation_sent")
   cancelToken  String            @unique @default(uuid()) @map("cancel_token") @db.Uuid

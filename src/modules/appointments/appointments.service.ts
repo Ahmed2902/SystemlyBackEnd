@@ -161,12 +161,20 @@ class AppointmentsService {
       businessId,
       { business: true },
     );
-    if (!isModuleEnabled(appointment.business.vertical ?? "", "appointmentPhotos")) {
-      throw invalidStateError("Appointment photos are not enabled for this business", "MODULE_DISABLED");
+    if (
+      !isModuleEnabled(appointment.business.vertical ?? "", "appointmentPhotos")
+    ) {
+      throw invalidStateError(
+        "Appointment photos are not enabled for this business",
+        "MODULE_DISABLED",
+      );
     }
     const prefix = `appointments/${businessId}/${appointmentId}/`;
     if (!publicId.startsWith(prefix)) {
-      throw invalidStateError("Invalid appointment photo path", "INVALID_FILE_PATH");
+      throw invalidStateError(
+        "Invalid appointment photo path",
+        "INVALID_FILE_PATH",
+      );
     }
     const url = Supabase.getPublicUrl(publicId);
 
@@ -195,7 +203,6 @@ class AppointmentsService {
 
         return appointmentPhoto;
       });
-
     } catch (error) {
       await Supabase.deleteFile(publicId);
       throw error;
@@ -477,6 +484,7 @@ class AppointmentsService {
         startsAt,
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,
+        bookingChannel: "FRONT_DESK",
         notes: payload.notes,
         acquisitionSource: payload.acquisitionSource,
         status: "confirmed",

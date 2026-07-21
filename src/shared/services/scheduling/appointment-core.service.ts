@@ -22,6 +22,13 @@ export interface CreateAppointmentCoreParams {
   acquisitionSource?: string;
   status: "pending" | "confirmed";
   generateToken: boolean;
+  bookingChannel?:
+    | "UNKNOWN"
+    | "WEBSITE"
+    | "FRONT_DESK"
+    | "WHATSAPP"
+    | "PHONE"
+    | "OTHER";
 }
 
 interface UpsertCustomerParams {
@@ -152,6 +159,7 @@ export async function createAppointmentCore(
       status: params.status,
       cancelToken: params.generateToken ? generateCancelToken() : undefined,
       notes: params.notes || null,
+      bookingChannel: params.bookingChannel || "UNKNOWN",
     },
   });
 
