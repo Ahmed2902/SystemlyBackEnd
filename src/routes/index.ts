@@ -13,6 +13,7 @@ import billingRoutes from "../modules/billing/billing.routes";
 import invoicesRoutes from "../modules/invoices/invoices.routes";
 import analyticsRoutes from "../modules/analytics/analytics.routes";
 import onboardingRoutes from "../modules/onboarding/onboarding.routes";
+import calendarRoutes from "../modules/calendar/calendar.routes";
 
 const router = Router();
 
@@ -35,6 +36,7 @@ router.use("/services", servicesRoutes);
 router.use("/customers", customersRoutes);
 router.use("/bookings", bookingRoutes);
 router.use("/appointments", appointmentsRoutes);
+router.use("/calendar", calendarRoutes);
 router.use("/faqs", faqsRoutes);
 router.use("/photos", photosRoutes);
 router.use("/billing", billingRoutes);
