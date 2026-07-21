@@ -21,6 +21,7 @@ import {
   updateAppointmentSchema,
 } from "./appointments.schema";
 
+
 const router = Router();
 
 router.use(requireAuth);
@@ -71,6 +72,32 @@ router.post(
   validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(cancelAppointmentSchema),
   appointmentsController.cancelAppointment,
+);
+
+router.post(
+  "/:appointmentId/photos/presign",
+  requireAppointmentOwnerOrAdmin,
+  validate.validateParams(appointmentIdParamsSchema),
+  appointmentsController.presignProgressPhoto,
+);
+router.post(
+  "/:appointmentId/photos/confirm",
+  requireAppointmentOwnerOrAdmin,
+  validate.validateParams(appointmentIdParamsSchema),
+  appointmentsController.confirmProgressPhoto,
+);
+
+router.get(
+  "/:appointmentId/photos",
+  requireAppointmentOwnerOrAdmin,
+  validate.validateParams(appointmentIdParamsSchema),
+  appointmentsController.listAppointmentPhotos,
+);
+
+router.delete(
+  "/:appointmentId/photos/:photoId",
+  requireAppointmentOwnerOrAdmin,
+  appointmentsController.deleteAppointmentPhoto,
 );
 router.delete(
   "/:appointmentId",

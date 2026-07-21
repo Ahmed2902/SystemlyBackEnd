@@ -1,4 +1,5 @@
 import { prisma } from "../../shared/db/prisma";
+import crypto from "crypto";
 import { Roles, AppointmentStatus } from "@prisma/client";
 import type {
   CreateManualAppointmentBody,
@@ -9,6 +10,7 @@ import type {
 import { getBusinessDayRange } from "../../shared/utils/timezone";
 import { isModuleEnabled } from "../../shared/config/verticals.config";
 import { createAppointmentCore } from "../../shared/services/scheduling/appointment-core.service";
+import Supabase from "../../shared/services/Supabase.Service";
 import {
   getOwnedAppointmentOrThrow,
   assertEditable,
@@ -26,7 +28,10 @@ type ListAppointmentsInput = ListAppointmentsQuery & {
 
 const APPOINTMENT_DETAIL_INCLUDE = {
   customer: true,
-  appointmentServices: { include: { service: true } },
+  // An appointment can have a different staff member for every service.  The
+  // appointment-level `staff` is only the legacy/primary staff member, so the
+  // detail payload must expose the segment staff for the operations UI.
+  appointmentServices: { include: { service: true, staff: true } },
   staff: true,
   customItems: true,
   invoice: true,
@@ -106,7 +111,155 @@ class AppointmentsService {
       include: APPOINTMENT_DETAIL_INCLUDE,
     });
   }
+  // #Region Photos
+  async createProgressPhotoUploadTicket(
+    appointmentId: string,
+    businessId: string,
+    contentType: string,
+    type: "before" | "after" | "progress" = "progress",
+  ) {
+    const appointment = await getOwnedAppointmentOrThrow(
+      prisma,
+      appointmentId,
+      businessId,
+      { business: true },
+    );
 
+    if (
+      !isModuleEnabled(appointment.business.vertical ?? "", "appointmentPhotos")
+    ) {
+      throw invalidStateError(
+        "Appointment photos are not enabled for this business",
+        "MODULE_DISABLED",
+      );
+    }
+
+    const extensions: Record<string, string> = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+      "image/avif": "avif",
+    };
+    const extension = extensions[contentType];
+    if (!extension) {
+      throw invalidStateError("Unsupported image type", "INVALID_FILE_TYPE");
+    }
+    const publicId = `appointments/${businessId}/${appointmentId}/${crypto.randomUUID()}.${extension}`;
+    const upload = await Supabase.getUploadUrl(publicId, contentType);
+    return { ...upload, publicId, type };
+  }
+
+  async confirmProgressPhotoUpload(
+    appointmentId: string,
+    businessId: string,
+    publicId: string,
+    type: "before" | "after" | "progress" = "progress",
+  ) {
+    const appointment = await getOwnedAppointmentOrThrow(
+      prisma,
+      appointmentId,
+      businessId,
+      { business: true },
+    );
+    if (!isModuleEnabled(appointment.business.vertical ?? "", "appointmentPhotos")) {
+      throw invalidStateError("Appointment photos are not enabled for this business", "MODULE_DISABLED");
+    }
+    const prefix = `appointments/${businessId}/${appointmentId}/`;
+    if (!publicId.startsWith(prefix)) {
+      throw invalidStateError("Invalid appointment photo path", "INVALID_FILE_PATH");
+    }
+    const url = Supabase.getPublicUrl(publicId);
+
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const photo = await tx.photo.create({
+          data: {
+            businessId,
+            url,
+            publicId,
+            kind: "appointment",
+            type,
+          },
+        });
+
+        const appointmentPhoto = await tx.appointmentPhoto.create({
+          data: {
+            appointmentId,
+            photoId: photo.id,
+            type,
+          },
+          include: {
+            photo: true,
+          },
+        });
+
+        return appointmentPhoto;
+      });
+
+    } catch (error) {
+      await Supabase.deleteFile(publicId);
+      throw error;
+    }
+  }
+
+  async listAppointmentPhotos(appointmentId: string, businessId: string) {
+    await getOwnedAppointmentOrThrow(prisma, appointmentId, businessId);
+
+    return prisma.appointmentPhoto.findMany({
+      where: {
+        appointmentId,
+      },
+      include: {
+        photo: true,
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+    });
+  }
+
+  async deleteAppointmentPhoto(
+    appointmentId: string,
+    businessId: string,
+    appointmentPhotoId: string,
+  ) {
+    await getOwnedAppointmentOrThrow(prisma, appointmentId, businessId);
+
+    const row = await prisma.appointmentPhoto.findUnique({
+      where: {
+        id: appointmentPhotoId,
+      },
+      include: {
+        photo: true,
+      },
+    });
+
+    if (!row || row.appointmentId !== appointmentId) {
+      throw notFoundError("Appointment photo not found");
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.appointmentPhoto.delete({
+        where: {
+          id: appointmentPhotoId,
+        },
+      });
+
+      await tx.photo.delete({
+        where: {
+          id: row.photoId,
+        },
+      });
+    });
+
+    if (row.photo.publicId) {
+      await Supabase.deleteFile(row.photo.publicId);
+    }
+
+    return { success: true };
+  }
+
+  // #EndRegion Photos
   async updateAppointment(
     id: string,
     businessId: string,

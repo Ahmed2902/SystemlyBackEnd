@@ -9,7 +9,6 @@ const configured = Boolean(
   process.env.SUPABASE_STORAGE_BUCKET,
 );
 
-// Always use the Service Role Key on the backend so your backend can bypass user-level RLS policies.
 const supabase = configured
   ? createClient(
       process.env.SUPABASE_URL!,
@@ -18,8 +17,22 @@ const supabase = configured
   : null;
 
 const BUCKET_NAME = process.env.SUPABASE_STORAGE_BUCKET || "uploads";
+
 const PLACEHOLDER_URL =
   "https://via.placeholder.com/800x600?text=upload+not+configured";
+
+type UploadFileOptions = {
+  folder?: string;
+
+  /**
+   * Backward compatibility with your older call:
+   * Supabase.uploadFile(file, { path: "appointments" })
+   */
+  path?: string;
+
+  contentType?: string;
+  upsert?: boolean;
+};
 
 function deleteLocalFile(filePath: string) {
   try {
@@ -31,45 +44,98 @@ function deleteLocalFile(filePath: string) {
       fs.unlinkSync(abs);
     }
   } catch {
-    // ignore cleanup errors
+    // Ignore cleanup errors.
   }
 }
 
-/**
- * Generates a unique filename while preserving extension if possible
- */
 function generateUniqueFileName(originalName?: string): string {
-  const uuid = crypto.randomUUID();
-  if (originalName) {
-    const ext = path.extname(originalName);
-    return `${uuid}${ext}`;
+  const id = crypto.randomUUID();
+
+  if (!originalName) {
+    return id;
   }
-  return uuid;
+
+  const ext = path.extname(originalName).toLowerCase();
+  return `${id}${ext}`;
 }
 
-/**
- * Supports:
- * - string path (local file path)
- * - multer file object (.path or .buffer)
- * - Buffer
- */
-/**
- * Supports:
- * - string path (local absolute file path)
- * - multer disk storage object (.path)
- * - multer memory storage object (.buffer)
- * - Raw Buffer object
- */
-export const uploadFile = async (input: any, opts: any = {}) => {
-  if (!configured || !supabase) {
-    const localPath =
-      typeof input === "string"
-        ? input
-        : typeof input?.path === "string"
-          ? input.path
-          : null;
+function normalizeFolder(folder?: string) {
+  if (!folder) return "";
 
-    if (localPath) deleteLocalFile(localPath);
+  return folder.replace(/^\/+/, "").replace(/\/+$/, "").trim();
+}
+
+function getInputOriginalName(input: any): string | undefined {
+  if (input?.originalname) return input.originalname;
+
+  if (typeof input === "string") {
+    return path.basename(input);
+  }
+
+  if (typeof input?.path === "string") {
+    return path.basename(input.path);
+  }
+
+  return undefined;
+}
+
+function getInputContentType(input: any, fallback?: string): string {
+  if (fallback && fallback.trim()) {
+    return fallback;
+  }
+
+  if (input?.mimetype && String(input.mimetype).trim()) {
+    return String(input.mimetype);
+  }
+
+  if (input?.type && String(input.type).trim()) {
+    return String(input.type);
+  }
+
+  return "application/octet-stream";
+}
+
+async function readInputAsBuffer(input: any) {
+  let fileBody: Buffer;
+  let localFilePathToDelete: string | null = null;
+
+  if (typeof input === "string") {
+    localFilePathToDelete = input;
+    fileBody = fs.readFileSync(input);
+    return { fileBody, localFilePathToDelete };
+  }
+
+  if (input && typeof input.path === "string") {
+    localFilePathToDelete = input.path;
+    fileBody = fs.readFileSync(input.path);
+    return { fileBody, localFilePathToDelete };
+  }
+
+  if (input?.buffer && Buffer.isBuffer(input.buffer)) {
+    fileBody = input.buffer;
+    return { fileBody, localFilePathToDelete };
+  }
+
+  if (Buffer.isBuffer(input)) {
+    fileBody = input;
+    return { fileBody, localFilePathToDelete };
+  }
+
+  throw new Error("Unsupported input format for uploadFile");
+}
+
+export const uploadFile = async (input: any, opts: UploadFileOptions = {}) => {
+  const localPath =
+    typeof input === "string"
+      ? input
+      : typeof input?.path === "string"
+        ? input.path
+        : null;
+
+  if (!configured || !supabase) {
+    if (localPath) {
+      deleteLocalFile(localPath);
+    }
 
     return {
       url: PLACEHOLDER_URL,
@@ -77,91 +143,46 @@ export const uploadFile = async (input: any, opts: any = {}) => {
     };
   }
 
-  try {
-    let fileBody: Buffer;
-    let localFilePathToDelete: string | null = null;
-    let originalName: string | undefined = input?.originalname;
+  const { fileBody, localFilePathToDelete } = await readInputAsBuffer(input);
 
-    // 1. Parse the input source into a standard Buffer payload
-    if (
-      typeof input === "string" ||
-      (input && typeof input.path === "string")
-    ) {
-      const filePath = typeof input === "string" ? input : input.path;
-      localFilePathToDelete = filePath;
-      originalName =
-        typeof input === "string" ? path.basename(input) : input.originalname;
+  const originalName = getInputOriginalName(input);
+  const fileName = generateUniqueFileName(originalName);
 
-      fileBody = fs.readFileSync(filePath);
-    } else {
-      const buffer: Buffer | undefined =
-        input?.buffer && Buffer.isBuffer(input.buffer)
-          ? input.buffer
-          : Buffer.isBuffer(input)
-            ? input
-            : undefined;
+  const folder = normalizeFolder(opts.folder ?? opts.path);
+  const storagePath = folder ? `${folder}/${fileName}` : fileName;
 
-      if (!buffer) {
-        throw new Error("Unsupported input format for uploadFile");
-      }
-      fileBody = buffer;
-    }
+  const contentType = getInputContentType(input, opts.contentType);
 
-    // 2. Determine target unique filename inside your bucket
-    const fileName = generateUniqueFileName(originalName);
-    const storagePath = opts.path ? `${opts.path}/${fileName}` : fileName;
+  const { data, error } = await supabase.storage
+    .from(BUCKET_NAME)
+    .upload(storagePath, fileBody, {
+      upsert: opts.upsert ?? true,
+      contentType,
+    });
 
-    // 3. Robust Content-Type verification to prevent 415 header crashes
-    let detectedMimeType: string = "application/octet-stream"; // Safe default binary fallback
+  if (localFilePathToDelete) {
+    deleteLocalFile(localFilePathToDelete);
+  }
 
-    if (
-      input &&
-      typeof input.mimetype === "string" &&
-      input.mimetype.trim() !== ""
-    ) {
-      detectedMimeType = input.mimetype;
-    } else if (
-      input &&
-      typeof input.type === "string" &&
-      input.type.trim() !== ""
-    ) {
-      detectedMimeType = input.type;
-    }
-
-    // 4. Upload payload to Supabase Storage
-    const { data, error } = await supabase.storage
-      .from(BUCKET_NAME)
-      .upload(storagePath, fileBody, {
-        upsert: true,
-        contentType: detectedMimeType,
-        ...opts,
-      });
-
-    // Clean up local system file immediately if uploaded via temporary disk storage
-    if (localFilePathToDelete) {
-      deleteLocalFile(localFilePathToDelete);
-    }
-
-    if (error) throw error;
-
-    // 5. Construct and extract the Public URL
-    const { data: urlData } = supabase.storage
-      .from(BUCKET_NAME)
-      .getPublicUrl(data.path);
-
-    return {
-      url: urlData.publicUrl,
-      publicId: data.path, // Full file reference used by deleteFile logic later
-    };
-  } catch (error) {
+  if (error) {
     throw error;
   }
+
+  const { data: urlData } = supabase.storage
+    .from(BUCKET_NAME)
+    .getPublicUrl(data.path);
+
+  return {
+    url: urlData.publicUrl,
+    publicId: data.path,
+  };
 };
 
 export const deleteFile = async (publicId: string) => {
-  if (!configured || !supabase || publicId === "placeholder") return true;
+  if (!configured || !supabase || publicId === "placeholder") {
+    return true;
+  }
 
-  // Supabase remove expects an array of paths
   const { data, error } = await supabase.storage
     .from(BUCKET_NAME)
     .remove([publicId]);
@@ -171,8 +192,7 @@ export const deleteFile = async (publicId: string) => {
     return false;
   }
 
-  // Returns true if files were removed successfully
-  return data && data.length > 0;
+  return Boolean(data && data.length > 0);
 };
 
 export const getUploadUrl = async (filePath: string, contentType: string) => {
@@ -180,26 +200,34 @@ export const getUploadUrl = async (filePath: string, contentType: string) => {
     throw new Error("Supabase is not configured");
   }
 
-  // Generates a secure, temporary signed upload URL valid for 60 seconds
   const { data, error } = await supabase.storage
     .from(BUCKET_NAME)
     .createSignedUploadUrl(filePath);
 
-  if (error) throw error;
+  if (error) {
+    throw error;
+  }
 
-  // Get the public URL that this file will have once uploaded
   const { data: urlData } = supabase.storage
     .from(BUCKET_NAME)
     .getPublicUrl(filePath);
 
   return {
-    uploadUrl: data.signedUrl, // The frontend will PUT binary data directly to this
-    publicUrl: urlData.publicUrl, // The permanent image address
+    uploadUrl: data.signedUrl,
+    publicUrl: urlData.publicUrl,
+    contentType,
   };
+};
+
+export const getPublicUrl = (filePath: string): string => {
+  if (!configured || !supabase) return PLACEHOLDER_URL;
+  const { data } = supabase.storage.from(BUCKET_NAME).getPublicUrl(filePath);
+  return data.publicUrl;
 };
 
 export default {
   uploadFile,
   deleteFile,
   getUploadUrl,
+  getPublicUrl,
 };

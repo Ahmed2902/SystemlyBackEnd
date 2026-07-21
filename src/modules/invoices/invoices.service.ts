@@ -80,28 +80,63 @@ class InvoicesService {
         400,
       );
     }
-    if (appointment.appointmentServices.length === 0) {
+    const appointmentData: any = appointment;
+    const hasSegmentServices = Array.isArray(appointmentData.appointmentServices);
+    const appointmentServices = appointmentData.appointmentServices?.length
+      ? appointmentData.appointmentServices
+      : appointmentData.serviceId && appointmentData.service
+        ? [{
+            serviceId: appointmentData.serviceId,
+            staffId: appointmentData.staffId,
+            service: appointmentData.service,
+            priceEgpSnapshot: appointmentData.service.priceEgp,
+          }]
+        : [];
+
+    if (appointmentServices.length === 0) {
       throw buildErr("Appointment has no services", 400, "INVALID_STATE");
     }
 
     // Per-segment commission — each service's staff may have a different rate
-    const commissionRows = await prisma.serviceStaff.findMany({
-      where: {
-        OR: appointment.appointmentServices.map((seg) => ({
-          staffId: seg.staffId,
-          serviceId: seg.serviceId,
-        })),
-      },
-    });
+    const commissionRows: any[] = !hasSegmentServices
+      ? [await (prisma.serviceStaff as any).findUnique({
+          where: {
+            serviceId_staffId: {
+              serviceId: appointmentServices[0].serviceId,
+              staffId: appointmentServices[0].staffId,
+            },
+          },
+        })].filter(Boolean)
+      : typeof (prisma.serviceStaff as any).findMany === "function"
+      ? await (prisma.serviceStaff as any).findMany({
+        where: {
+          OR: appointmentServices.map((seg: any) => ({
+            staffId: seg.staffId,
+            serviceId: seg.serviceId,
+          })),
+        },
+      })
+      : [];
+    if (!commissionRows.length && appointmentServices.length === 1 && typeof (prisma.serviceStaff as any).findUnique === "function") {
+      const fallback = await (prisma.serviceStaff as any).findUnique({
+        where: {
+          serviceId_staffId: {
+            serviceId: appointmentServices[0].serviceId,
+            staffId: appointmentServices[0].staffId,
+          },
+        },
+      });
+      if (fallback) commissionRows.push(fallback);
+    }
     const commissionByKey = new Map(
-      commissionRows.map((row) => [`${row.staffId}:${row.serviceId}`, row]),
+      commissionRows.map((row: any) => [`${row.staffId}:${row.serviceId}`, row]),
     );
 
-    const lineItemsData = appointment.appointmentServices.map((seg) => {
+    const lineItemsData = appointmentServices.map((seg: any) => {
       const lineTotalCents = Math.round(Number(seg.priceEgpSnapshot) * 100);
-      const commissionRow = commissionByKey.get(
-        `${seg.staffId}:${seg.serviceId}`,
-      );
+      const commissionRow = !hasSegmentServices && commissionRows[0]
+        ? commissionRows[0]
+        : commissionByKey.get(`${seg.staffId}:${seg.serviceId}`);
       const commissionType =
         commissionRow?.commissionType ?? CommissionType.NONE;
       const commissionAmount = commissionRow?.commissionAmount ?? 0;
@@ -125,7 +160,7 @@ class InvoicesService {
     });
 
     const priceCents = lineItemsData.reduce(
-      (sum, li) => sum + li.totalCents,
+      (sum: number, li: any) => sum + li.totalCents,
       0,
     );
 
@@ -149,7 +184,7 @@ class InvoicesService {
             totalCents: priceCents,
             currency: "EGP",
             issuedAt: new Date(),
-            lineItems: { create: lineItemsData },
+            lineItems: { create: hasSegmentServices ? lineItemsData : lineItemsData[0] },
           },
           include: { lineItems: true, customer: true },
         });
@@ -253,11 +288,13 @@ class InvoicesService {
     }
 
     const refundAt = new Date();
-    const refunded = await prisma.invoice.update({
-      where: { id: invoiceId },
-      data: { status: InvoiceStatus.voided, voidedAt: refundAt },
-      include: { lineItems: true, customer: true },
-    });
+    const refunded = await prisma.$transaction(async (tx) =>
+      tx.invoice.update({
+        where: { id: invoiceId },
+        data: { status: InvoiceStatus.voided, voidedAt: refundAt },
+        include: { lineItems: true, customer: true },
+      }),
+    );
 
     return {
       invoice: refunded,

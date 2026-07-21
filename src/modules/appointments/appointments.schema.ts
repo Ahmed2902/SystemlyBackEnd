@@ -105,7 +105,7 @@ export const createManualAppointmentSchema = z
 const finishPhotoSchema = z.object({
   url: z.url().openapi({ example: "https://res.cloudinary.com/.../photo.jpg" }),
   publicId: z.string().min(1).openapi({ example: "appointments/abc123" }),
-  type: z.enum(["before", "after"]).openapi({ example: "after" }),
+  type: z.enum(["before", "after", "progress"]).openapi({ example: "progress" }),
 });
 
 const finishClinicalSchema = z.object({

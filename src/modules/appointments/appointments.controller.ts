@@ -183,12 +183,125 @@ class AppointmentsController {
     }
   }
 
-  async deleteAppointment(req: Request, res: Response, next: NextFunction) {
+  async presignProgressPhoto(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parsed = appointmentIdParamsSchema.safeParse(req.params);
+      if (!parsed.success) return next(parsed.error);
+
+      const businessId = req.user?.businessId;
+      if (!businessId) {
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
+      }
+
+      const contentType = req.body?.contentType;
+      if (typeof contentType !== "string" || !contentType) {
+        return fail(res, "contentType is required", 400, "BAD_REQUEST");
+      }
+      const rawType = req.body?.type ?? "progress";
+      const allowedTypes = ["before", "after", "progress"] as const;
+      if (!allowedTypes.includes(rawType)) {
+        return fail(res, "Invalid photo type", 400, "BAD_REQUEST");
+      }
+
+      const result = await appointmentsService.createProgressPhotoUploadTicket(
+        parsed.data.appointmentId,
+        businessId,
+        contentType,
+        rawType,
+      );
+
+      return ok(res, result);
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async confirmProgressPhoto(req: Request, res: Response, next: NextFunction) {
     try {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
       const businessId = req.user?.businessId;
       if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      const publicId = req.body?.publicId;
+      if (typeof publicId !== "string" || !publicId) {
+        return fail(res, "publicId is required", 400, "BAD_REQUEST");
+      }
+      const rawType = req.body?.type ?? "progress";
+      const allowedTypes = ["before", "after", "progress"] as const;
+      if (!allowedTypes.includes(rawType)) {
+        return fail(res, "Invalid photo type", 400, "BAD_REQUEST");
+      }
+      const result = await appointmentsService.confirmProgressPhotoUpload(
+        parsed.data.appointmentId,
+        businessId,
+        publicId,
+        rawType,
+      );
+      return ok(res, result, 201);
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async listAppointmentPhotos(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parsed = appointmentIdParamsSchema.safeParse(req.params);
+      if (!parsed.success) return next(parsed.error);
+
+      const businessId = req.user?.businessId;
+      if (!businessId) {
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
+      }
+
+      const photos = await appointmentsService.listAppointmentPhotos(
+        parsed.data.appointmentId,
+        businessId,
+      );
+
+      return ok(res, photos);
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async deleteAppointmentPhoto(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
+    try {
+      const parsed = appointmentIdParamsSchema.safeParse(req.params);
+      if (!parsed.success) return next(parsed.error);
+
+      const businessId = req.user?.businessId;
+      if (!businessId) {
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
+      }
+
+      const photoId = req.params.photoId;
+      if (!photoId) {
+        return fail(res, "Photo id is required", 400, "BAD_REQUEST");
+      }
+
+      const result = await appointmentsService.deleteAppointmentPhoto(
+        parsed.data.appointmentId,
+        businessId,
+        String(photoId),
+      );
+
+      return ok(res, result);
+    } catch (err) {
+      return next(err);
+    }
+  }
+
+  async deleteAppointment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parsed = appointmentIdParamsSchema.safeParse(req.params);
+      if (!parsed.success) return next(parsed.error);
+      const businessId = req.user?.businessId;
+      if (!businessId)
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
       const result = await appointmentsService.deleteCancelledAppointment(
         parsed.data.appointmentId,
         businessId,
