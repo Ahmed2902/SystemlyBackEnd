@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import type { Prisma } from "@prisma/client";
+import { BookingChannel, Prisma } from "@prisma/client";
 import { toUtcFromBusinessTime } from "../../utils/timezone";
 import { generateCancelToken } from "../../utils/token.util";
 import {
@@ -10,6 +10,15 @@ import { resolveEligibleStaffBySelection } from "./eligibility.service";
 import type { ScheduledSegment, ServiceSelection } from "./types";
 
 type TxClient = Prisma.TransactionClient;
+
+type SchedulingError = Error & { statusCode?: number; code?: string };
+
+function schedulingError(message: string, statusCode: number, code?: string) {
+  const error = new Error(message) as SchedulingError;
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
+}
 
 export interface CreateAppointmentCoreParams {
   businessId: string;
@@ -22,13 +31,7 @@ export interface CreateAppointmentCoreParams {
   acquisitionSource?: string;
   status: "pending" | "confirmed";
   generateToken: boolean;
-  bookingChannel?:
-    | "UNKNOWN"
-    | "WEBSITE"
-    | "FRONT_DESK"
-    | "WHATSAPP"
-    | "PHONE"
-    | "OTHER";
+  bookingChannel?: BookingChannel;
 }
 
 interface UpsertCustomerParams {
@@ -46,9 +49,7 @@ export async function scheduleServiceSegments(
   businessId: string,
 ): Promise<ScheduledSegment[]> {
   if (selections.length === 0) {
-    const err: any = new Error("At least one service is required");
-    err.statusCode = 400;
-    throw err;
+    throw schedulingError("At least one service is required", 400);
   }
 
   const serviceIds = selections.map((selection) => selection.serviceId);
@@ -62,9 +63,7 @@ export async function scheduleServiceSegments(
   });
 
   if (services.length !== uniqueServiceIds.length) {
-    const err: any = new Error("One or more services not found");
-    err.statusCode = 404;
-    throw err;
+    throw schedulingError("One or more services not found", 404);
   }
 
   const serviceById = new Map(services.map((service) => [service.id, service]));
@@ -94,22 +93,24 @@ export async function scheduleServiceSegments(
 
   const segments: ScheduledSegment[] = [];
 
-  for (let i = 0; i < selections.length; i++) {
-    const selection = selections[i];
-    const service = serviceById.get(selection.serviceId)!;
-    const segmentEnd = segmentStart.plus({ minutes: service.durationMin });
+  for (let index = 0; index < selections.length; index += 1) {
+    const selection = selections[index];
+    const service = serviceById.get(selection.serviceId);
+    if (!service) {
+      throw schedulingError("Service not found", 404);
+    }
 
-    const assignedStaff = eligibleBySelection[i].find((staffId) =>
+    const segmentEnd = segmentStart.plus({ minutes: service.durationMin });
+    const assignedStaff = eligibleBySelection[index].find((staffId) =>
       isStaffFreeFor(freeByStaff.get(staffId) ?? [], segmentStart, segmentEnd),
     );
 
     if (!assignedStaff) {
-      const err: any = new Error(
+      throw schedulingError(
         "This time slot is no longer available for one of the selected services.",
+        409,
+        "SLOT_TAKEN",
       );
-      err.statusCode = 409;
-      err.code = "SLOT_TAKEN";
-      throw err;
     }
 
     segments.push({
@@ -159,7 +160,7 @@ export async function createAppointmentCore(
       status: params.status,
       cancelToken: params.generateToken ? generateCancelToken() : undefined,
       notes: params.notes || null,
-      bookingChannel: params.bookingChannel || "UNKNOWN",
+      bookingChannel: params.bookingChannel ?? BookingChannel.UNKNOWN,
     },
   });
 
@@ -186,20 +187,16 @@ export async function upsertCustomer(
   const { businessId, phone, name, acquisitionSource } = params;
 
   const existing = await tx.customer.findUnique({
-    where: {
-      businessId_phone: { businessId, phone } as any,
-    } as any,
+    where: { businessId_phone: { businessId, phone } },
   });
 
   if (existing) {
     return tx.customer.update({
       where: { id: existing.id },
       data: {
-        visitCount: { increment: 1 },
-        lastVisitAt: new Date(),
-        name: name || existing.name,
-        acquisitionSource: acquisitionSource ?? existing.acquisitionSource,
-      } as any,
+        name: name?.trim() || existing.name,
+        acquisitionSource: existing.acquisitionSource ?? acquisitionSource,
+      },
     });
   }
 
@@ -207,10 +204,11 @@ export async function upsertCustomer(
     data: {
       businessId,
       phone,
-      name: name || "",
-      visitCount: 1,
-      lastVisitAt: new Date(),
+      name: name?.trim() || "",
       acquisitionSource,
-    } as any,
+      visitCount: 0,
+      noShowCount: 0,
+      lastVisitAt: null,
+    },
   });
 }
