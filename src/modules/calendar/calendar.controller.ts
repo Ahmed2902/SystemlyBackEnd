@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
-import calendarService from "./calendar.service";
 import { fail, ok } from "../../shared/utils/response.util";
+import workspaceQuery from "../workspace/workspace.query";
 
 class CalendarController {
   async getWorkspace(req: Request, res: Response, next: NextFunction) {
@@ -20,8 +20,7 @@ class CalendarController {
         );
       }
 
-      const workspace = await calendarService.getWorkspace(businessId, date);
-      return ok(res, workspace);
+      return ok(res, await workspaceQuery.calendarDay(businessId, date));
     } catch (error) {
       return next(error);
     }
