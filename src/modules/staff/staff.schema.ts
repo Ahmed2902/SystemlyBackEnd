@@ -16,6 +16,11 @@ const dateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must use YYYY-MM-DD format");
 
+const queryBooleanSchema = z
+  .enum(["true", "false"])
+  .transform((value) => value === "true")
+  .optional();
+
 const commissionAmountSchema = z.number().min(0).multipleOf(0.01);
 
 const validateCommission = (data: {
@@ -66,7 +71,7 @@ export const staffDirectoryQuerySchema = z.object({
   status: z.enum(["all", "active", "inactive"]).default("all"),
   role: roleEnum.optional(),
   serviceId: z.string().uuid().optional(),
-  availableToday: z.coerce.boolean().optional(),
+  availableToday: queryBooleanSchema,
   page: z.coerce.number().int().positive().default(1),
   perPage: z.coerce.number().int().min(1).max(100).default(24),
 });
