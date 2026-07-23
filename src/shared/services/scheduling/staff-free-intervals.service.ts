@@ -5,7 +5,6 @@ import {
   getBusinessDayOfWeek,
   getBusinessDayRange,
   toStoredTimeOfDay,
-  toBusinessTime,
 } from "../../utils/timezone";
 
 export interface FreeInterval {
@@ -15,8 +14,35 @@ export interface FreeInterval {
 
 type SchedulingDb = Pick<
   Prisma.TransactionClient,
-  "availabilityOverride" | "availability" | "appointmentService" | "staffBreak"
+  "availabilityOverride" | "availability" | "appointmentService" | "staffBreak" | "staffTimeOff"
 >;
+
+function onBusinessDay(dayStart: DateTime, stored: Date) {
+  const value = toStoredTimeOfDay(stored);
+  return dayStart.set({
+    hour: value.hour,
+    minute: value.minute,
+    second: 0,
+    millisecond: 0,
+  });
+}
+
+function subtractBusy(work: FreeInterval, busy: FreeInterval[]) {
+  const free: FreeInterval[] = [];
+  let cursor = work.start;
+
+  for (const interval of busy) {
+    if (interval.end <= work.start || interval.start >= work.end) continue;
+    const start = interval.start < work.start ? work.start : interval.start;
+    const end = interval.end > work.end ? work.end : interval.end;
+    if (start > cursor) free.push({ start: cursor, end: start });
+    if (end > cursor) cursor = end;
+    if (cursor >= work.end) break;
+  }
+
+  if (cursor < work.end) free.push({ start: cursor, end: work.end });
+  return free;
+}
 
 export async function computeStaffFreeIntervals(
   staffIds: string[],
@@ -26,33 +52,33 @@ export async function computeStaffFreeIntervals(
   excludeAppointmentId?: string,
   db: SchedulingDb = prisma,
 ): Promise<Map<string, FreeInterval[]>> {
+  if (staffIds.length === 0) return new Map();
+
   const dayOfWeek = getBusinessDayOfWeek(date, tz);
   const { start: dayStartRaw, end: dayEndRaw } = getBusinessDayRange(tz, date);
   const dayStart = DateTime.fromJSDate(dayStartRaw).setZone(tz);
+  const dateValue = new Date(`${date}T00:00:00.000Z`);
 
-  const [overrides, availabilities, appointmentServices, breaks] =
+  const [overrides, availabilities, appointments, breaks, timeOff] =
     await Promise.all([
       db.availabilityOverride.findMany({
         where: {
           staffId: { in: staffIds },
           staff: { businessId },
-          overrideDate: new Date(date),
+          overrideDate: dateValue,
         },
       }),
       db.availability.findMany({
         where: { staffId: { in: staffIds }, staff: { businessId }, dayOfWeek },
+        orderBy: [{ staffId: "asc" }, { startTime: "asc" }],
       }),
       db.appointmentService.findMany({
         where: {
           staffId: { in: staffIds },
           appointment: {
-            ...(excludeAppointmentId
-              ? { id: { not: excludeAppointmentId } }
-              : {}),
+            ...(excludeAppointmentId ? { id: { not: excludeAppointmentId } } : {}),
             businessId,
-            status: {
-              notIn: ["cancelled_by_customer", "cancelled_by_business"],
-            },
+            status: { notIn: ["cancelled_by_customer", "cancelled_by_business"] },
           },
           AND: [
             { startsAt: { lt: dayEndRaw } },
@@ -61,100 +87,78 @@ export async function computeStaffFreeIntervals(
         },
       }),
       db.staffBreak.findMany({
+        where: { staffId: { in: staffIds }, businessId, breakDate: dateValue },
+      }),
+      db.staffTimeOff.findMany({
         where: {
           staffId: { in: staffIds },
           businessId,
-          breakDate: new Date(date),
+          startsOn: { lte: dateValue },
+          endsOn: { gte: dateValue },
         },
+        select: { staffId: true },
       }),
     ]);
 
-  const overrideMap = new Map(overrides.map((o) => [o.staffId, o]));
-  const availMap = new Map(availabilities.map((a) => [a.staffId, a]));
+  const overrideByStaff = new Map(overrides.map((row) => [row.staffId, row]));
+  const availabilityByStaff = new Map<string, typeof availabilities>();
   const busyByStaff = new Map<string, FreeInterval[]>();
+  const staffOnTimeOff = new Set(timeOff.map((row) => row.staffId));
 
-  for (const seg of appointmentServices) {
-    const arr = busyByStaff.get(seg.staffId) ?? [];
-    arr.push({
-      start: DateTime.fromJSDate(seg.startsAt).setZone(tz),
-      end: DateTime.fromJSDate(seg.endsAt).setZone(tz),
-    });
-    busyByStaff.set(seg.staffId, arr);
+  for (const row of availabilities) {
+    const rows = availabilityByStaff.get(row.staffId) ?? [];
+    rows.push(row);
+    availabilityByStaff.set(row.staffId, rows);
   }
 
-  for (const brk of breaks) {
-    const arr = busyByStaff.get(brk.staffId) ?? [];
-    const breakStart = toStoredTimeOfDay(brk.startTime);
-    const breakEnd = toStoredTimeOfDay(brk.endTime);
-    arr.push({
-      start: dayStart.set({
-        hour: breakStart.hour,
-        minute: breakStart.minute,
-        second: 0,
-        millisecond: 0,
-      }),
-      end: dayStart.set({
-        hour: breakEnd.hour,
-        minute: breakEnd.minute,
-        second: 0,
-        millisecond: 0,
-      }),
+  for (const row of appointments) {
+    const rows = busyByStaff.get(row.staffId) ?? [];
+    rows.push({
+      start: DateTime.fromJSDate(row.startsAt).setZone(tz),
+      end: DateTime.fromJSDate(row.endsAt).setZone(tz),
     });
-    busyByStaff.set(brk.staffId, arr);
+    busyByStaff.set(row.staffId, rows);
+  }
+
+  for (const row of breaks) {
+    const rows = busyByStaff.get(row.staffId) ?? [];
+    rows.push({
+      start: onBusinessDay(dayStart, row.startTime),
+      end: onBusinessDay(dayStart, row.endTime),
+    });
+    busyByStaff.set(row.staffId, rows);
   }
 
   const result = new Map<string, FreeInterval[]>();
 
   for (const staffId of staffIds) {
-    const override = overrideMap.get(staffId);
-    if (override?.isDayOff) {
+    const override = overrideByStaff.get(staffId);
+    if (staffOnTimeOff.has(staffId) || override?.isDayOff) {
       result.set(staffId, []);
       continue;
     }
 
-    let workStart: DateTime;
-    let workEnd: DateTime;
-
-    if (override?.startTime && override?.endTime) {
-      workStart = toStoredTimeOfDay(override.startTime);
-      workEnd = toStoredTimeOfDay(override.endTime);
-    } else {
-      const avail = availMap.get(staffId);
-      if (!avail) {
-        result.set(staffId, []);
-        continue;
-      }
-      workStart = toStoredTimeOfDay(avail.startTime);
-      workEnd = toStoredTimeOfDay(avail.endTime);
-    }
-
-    workStart = dayStart.set({
-      hour: workStart.hour,
-      minute: workStart.minute,
-      second: 0,
-      millisecond: 0,
-    });
-    workEnd = dayStart.set({
-      hour: workEnd.hour,
-      minute: workEnd.minute,
-      second: 0,
-      millisecond: 0,
-    });
+    const workIntervals: FreeInterval[] =
+      override?.startTime && override?.endTime
+        ? [{
+            start: onBusinessDay(dayStart, override.startTime),
+            end: onBusinessDay(dayStart, override.endTime),
+          }]
+        : (availabilityByStaff.get(staffId) ?? []).map((row) => ({
+            start: onBusinessDay(dayStart, row.startTime),
+            end: onBusinessDay(dayStart, row.endTime),
+          }));
 
     const busy = (busyByStaff.get(staffId) ?? []).sort(
       (a, b) => a.start.toMillis() - b.start.toMillis(),
     );
 
-    const free: FreeInterval[] = [];
-    let cursor = workStart;
-    for (const interval of busy) {
-      if (interval.start > cursor)
-        free.push({ start: cursor, end: interval.start });
-      if (interval.end > cursor) cursor = interval.end;
-    }
-    if (cursor < workEnd) free.push({ start: cursor, end: workEnd });
-
-    result.set(staffId, free);
+    result.set(
+      staffId,
+      workIntervals
+        .flatMap((work) => subtractBusy(work, busy))
+        .sort((a, b) => a.start.toMillis() - b.start.toMillis()),
+    );
   }
 
   return result;

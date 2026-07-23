@@ -1,5 +1,7 @@
+import { CommissionType, Roles } from "@prisma/client";
 import { Router } from "express";
 import staffController from "./staff.controller";
+import staffWorkspaceController from "./staff.workspace.controller";
 import {
   requireAuth,
   requireBusinessAccess,
@@ -7,144 +9,149 @@ import {
 } from "../../shared/middleware/auth.middleware";
 import validate from "../../shared/middleware/validate.middleware";
 import {
-  createStaffSchema,
+  acceptInviteSchema,
   assignServiceSchema,
-  updateServiceStaffSchema,
+  createInviteSchema,
+  createStaffBreakSchema,
+  createStaffSchema,
+  createTimeOffSchema,
   overridesSchema,
   replaceAvailabilitySchema,
+  updateServiceStaffSchema,
   updateStaffSchema,
-  createInviteSchema,
-  acceptInviteSchema,
 } from "./staff.schema";
 
 const router = Router();
+const OWNER_ROLES = [Roles.BusinessAdmin, Roles.SuperAdmin];
 
-router.get("/", requireAuth, staffController.list);
+const removeCommissionForOperationalUsers = (req: any, _res: any, next: any) => {
+  if (!OWNER_ROLES.includes(req.user?.role)) {
+    req.body = {
+      ...req.body,
+      commissionType: CommissionType.NONE,
+      commissionAmount: 0,
+    };
+  }
+  next();
+};
+
+router.use(requireAuth);
+
+// Directory and profile workspace
+router.get("/", staffWorkspaceController.list);
 router.post(
   "/",
-  requireAuth,
   validate.validateBody(createStaffSchema),
-  staffController.create,
+  staffWorkspaceController.create,
 );
+router.get("/:id/workspace", staffWorkspaceController.workspace);
 router.patch(
   "/:id",
-  requireAuth,
-  requireBusinessAccess,
   validate.validateBody(updateStaffSchema),
-  staffController.update,
+  staffWorkspaceController.update,
 );
 router.delete(
   "/:id",
-  requireAuth,
-  requireBusinessAccess,
-  staffController.remove,
+  requireRole(OWNER_ROLES),
+  staffWorkspaceController.deactivate,
 );
 
-// Service assignment & commission management
+// Service assignment and owner-only commission management
 router.post(
   "/:id/services",
-  requireAuth,
-  requireBusinessAccess,
+  removeCommissionForOperationalUsers,
   validate.validateBody(assignServiceSchema),
   staffController.assignServices,
 );
 router.get(
   "/:id/services/:serviceId",
-  requireAuth,
-  requireBusinessAccess,
+  requireRole(OWNER_ROLES),
   staffController.getServiceStaff,
 );
 router.patch(
   "/:id/services/:serviceId",
-  requireAuth,
-  requireBusinessAccess,
+  requireRole(OWNER_ROLES),
   validate.validateBody(updateServiceStaffSchema),
   staffController.updateServiceCommission,
 );
-router.delete(
-  "/:id/services/:serviceId",
-  requireAuth,
-  requireBusinessAccess,
-  staffController.unassignService,
-);
+router.delete("/:id/services/:serviceId", staffController.unassignService);
 
-router.get(
+// Weekly availability supports multiple intervals per day.
+router.get("/:id/availability", staffController.getAvailability);
+router.put(
   "/:id/availability",
-  requireAuth,
-  requireBusinessAccess,
-  staffController.getAvailability,
+  validate.validateBody(replaceAvailabilitySchema),
+  staffWorkspaceController.replaceAvailability,
 );
 router.get(
   "/:id/availability/overrides",
-  requireAuth,
-  requireBusinessAccess,
   staffController.listAvailabilityOverridesForDate,
-);
-router.get(
-  "/:id/commission",
-  requireAuth,
-  requireBusinessAccess,
-  staffController.getCommission,
-);
-router.put(
-  "/:id/availability",
-  requireAuth,
-  requireBusinessAccess,
-  validate.validateBody(replaceAvailabilitySchema),
-  staffController.replaceAvailability,
 );
 router.post(
   "/:id/availability/overrides",
-  requireAuth,
-  requireBusinessAccess,
   validate.validateBody(overridesSchema),
   staffController.addOverride,
 );
 router.delete(
   "/:id/availability/overrides/:overrideId",
-  requireAuth,
-  requireBusinessAccess,
   staffController.deleteOverride,
 );
 
+// Staff-specific partial-day breaks.
+router.post(
+  "/:id/breaks",
+  validate.validateBody(createStaffBreakSchema),
+  staffWorkspaceController.createBreak,
+);
+router.delete("/:id/breaks/:breakId", staffWorkspaceController.deleteBreak);
+
+// Full-day date-range time off.
+router.post(
+  "/:id/time-off",
+  validate.validateBody(createTimeOffSchema),
+  staffWorkspaceController.createTimeOff,
+);
+router.delete(
+  "/:id/time-off/:timeOffId",
+  staffWorkspaceController.deleteTimeOff,
+);
+
+// Financial reporting remains owner-only.
+router.get(
+  "/:id/commission",
+  requireRole(OWNER_ROLES),
+  staffController.getCommission,
+);
+
+// Account invites remain available for later, but V1 staff creation does not use them.
 router.post(
   "/invites",
-  requireAuth,
   requireBusinessAccess,
-  requireRole(["BusinessAdmin"]),
+  requireRole([Roles.BusinessAdmin]),
   validate.validateBody(createInviteSchema),
   staffController.createInvite,
 );
-
 router.post(
   "/invites/accept",
-  requireAuth,
   validate.validateBody(acceptInviteSchema),
   staffController.acceptInvite,
 );
 
-//# REGION: Staff Breaks
+// Legacy calendar break endpoints kept for compatibility.
 router.get(
   "/breaks",
-  requireAuth,
   requireBusinessAccess,
   staffController.listStaffBreaksForDate,
 );
-
 router.post(
   "/breaks",
-  requireAuth,
   requireBusinessAccess,
   staffController.createStaffBreak,
 );
-
 router.delete(
   "/breaks/:id",
-  requireAuth,
   requireBusinessAccess,
   staffController.removeStaffBreak,
 );
-//# END REGION: Staff Breaks
 
-//#endregion
 export default router;

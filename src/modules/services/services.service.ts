@@ -1,9 +1,10 @@
 import { Prisma, Roles } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
-import type {
-  CreateServiceBody,
-  ListServicesQuery,
-  UpdateServiceBody,
+import {
+  UNCATEGORIZED_FILTER,
+  type CreateServiceBody,
+  type ListServicesQuery,
+  type UpdateServiceBody,
 } from "./services.schema";
 
 type AuthUser = NonNullable<Express.Request["user"]>;
@@ -58,31 +59,41 @@ class ServicesService {
       throw buildError("Business id missing", 400, "BAD_REQUEST");
     }
 
-    const where: Prisma.ServiceWhereInput = { businessId };
+    const baseWhere: Prisma.ServiceWhereInput = { businessId };
 
     if (query.search) {
-      where.OR = [
+      baseWhere.OR = [
         { name: { contains: query.search, mode: "insensitive" } },
         { description: { contains: query.search, mode: "insensitive" } },
         { category: { contains: query.search, mode: "insensitive" } },
       ];
     }
 
-    if (query.category) {
+    if (query.status === "active") baseWhere.isActive = true;
+    if (query.status === "inactive") baseWhere.isActive = false;
+
+    const where: Prisma.ServiceWhereInput = { ...baseWhere };
+    if (query.category === UNCATEGORIZED_FILTER) {
+      where.AND = [
+        {
+          OR: [
+            { category: null },
+            { category: { equals: "Uncategorized", mode: "insensitive" } },
+          ],
+        },
+      ];
+    } else if (query.category) {
       where.category = { equals: query.category, mode: "insensitive" };
     }
 
-    if (query.status === "active") where.isActive = true;
-    if (query.status === "inactive") where.isActive = false;
-
-    const [items, allServices, staff] = await Promise.all([
+    const [items, categoryServices, staff] = await Promise.all([
       prisma.service.findMany({
         where,
         select: serviceSelect,
         orderBy: [{ isActive: "desc" }, { category: "asc" }, { name: "asc" }],
       }),
       prisma.service.findMany({
-        where: { businessId },
+        where: baseWhere,
         select: {
           id: true,
           name: true,
@@ -104,17 +115,21 @@ class ServicesService {
       string,
       {
         name: string;
+        value: string;
         total: number;
         active: number;
-        services: typeof allServices;
+        services: typeof categoryServices;
       }
     >();
 
-    for (const service of allServices) {
-      const categoryName = normalizeCategory(service.category) ?? "Uncategorized";
+    for (const service of categoryServices) {
+      const normalizedCategory = normalizeCategory(service.category);
+      const categoryName = normalizedCategory ?? "Uncategorized";
+      const categoryValue = normalizedCategory ?? UNCATEGORIZED_FILTER;
       const key = categoryName.toLocaleLowerCase();
       const existing = categoryMap.get(key) ?? {
         name: categoryName,
+        value: categoryValue,
         total: 0,
         active: 0,
         services: [],
@@ -144,15 +159,12 @@ class ServicesService {
       })),
       staff,
       canManageMoney: showMoney,
-      total: allServices.length,
-      activeTotal: allServices.filter((service) => service.isActive).length,
+      total: items.length,
+      activeTotal: items.filter((service) => service.isActive).length,
     };
   }
 
-  async createService(
-    user: AuthUser,
-    payload: CreateServiceBody,
-  ) {
+  async createService(user: AuthUser, payload: CreateServiceBody) {
     const businessId = user.businessId;
     if (!businessId) {
       throw buildError("Business id missing", 400, "BAD_REQUEST");
@@ -187,11 +199,7 @@ class ServicesService {
     });
   }
 
-  async updateService(
-    id: string,
-    user: AuthUser,
-    payload: UpdateServiceBody,
-  ) {
+  async updateService(id: string, user: AuthUser, payload: UpdateServiceBody) {
     const businessId = user.businessId;
     if (!businessId) {
       throw buildError("Business id missing", 400, "BAD_REQUEST");

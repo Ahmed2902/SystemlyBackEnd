@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const UNCATEGORIZED_FILTER = "__uncategorized__";
+
 const categorySchema = z
   .string()
   .trim()
@@ -8,6 +10,14 @@ const categorySchema = z
   .transform((value) => value.replace(/\s+/g, " "));
 
 const staffIdsSchema = z.array(z.string().uuid()).default([]);
+
+const serviceDurationSchema = z
+  .number()
+  .int()
+  .min(5)
+  .refine((value) => value % 5 === 0, {
+    message: "Duration must be in 5-minute increments",
+  });
 
 export const listServicesQuerySchema = z.object({
   search: z.string().trim().optional(),
@@ -18,7 +28,7 @@ export const listServicesQuerySchema = z.object({
 export const createServiceSchema = z
   .object({
     name: z.string().trim().min(1).max(255).openapi({ example: "Teeth Whitening" }),
-    durationMin: z.number().int().min(1).openapi({ example: 60 }),
+    durationMin: serviceDurationSchema.openapi({ example: 60 }),
     priceEgp: z.number().nonnegative().optional().openapi({ example: 500 }),
     description: z
       .string()
@@ -41,7 +51,7 @@ export const updateServiceSchema = z
       .max(255)
       .optional()
       .openapi({ example: "Teeth Whitening Deluxe" }),
-    durationMin: z.number().int().min(1).optional().openapi({ example: 90 }),
+    durationMin: serviceDurationSchema.optional().openapi({ example: 90 }),
     priceEgp: z.number().nonnegative().optional().openapi({ example: 750 }),
     description: z
       .string()
