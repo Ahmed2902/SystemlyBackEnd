@@ -14,7 +14,6 @@ import {
   UpdateAppointmentBody,
   rescheduleAppointmentSchema,
 } from "./appointments.schema";
-import { isModuleEnabled } from "../../shared/config/verticals.config";
 
 class AppointmentsController {
   async listAppointments(req: Request, res: Response, next: NextFunction) {
@@ -32,8 +31,8 @@ class AppointmentsController {
         perPage: parsed.data.perPage,
       });
       return ok(res, data);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -41,76 +40,72 @@ class AppointmentsController {
     try {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
-      const appt = await appointmentsService.getAppointmentById(
+      const appointment = await appointmentsService.getAppointmentById(
         parsed.data.appointmentId,
       );
-      if (!appt) return fail(res, "Not found", 404);
-      return ok(res, appt);
-    } catch (err) {
-      return next(err);
+      if (!appointment) return fail(res, "Not found", 404);
+      return ok(res, appointment);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async update(req: Request, res: Response, next: NextFunction) {
     try {
-      const { appointmentId } = req.params;
+      const appointmentId = req.params.appointmentId;
       const businessId = req.user.businessId;
-
       if (!appointmentId) {
-        const err: any = new Error("Appointment id is required");
-        err.statusCode = 400;
-        err.code = "BAD_REQUEST";
-        throw err;
+        return fail(res, "Appointment id is required", 400, "BAD_REQUEST");
       }
       if (!businessId) {
-        const err: any = new Error("No business associated with this account");
-        err.statusCode = 403;
-        err.code = "FORBIDDEN";
-        throw err;
+        return fail(
+          res,
+          "No business associated with this account",
+          403,
+          "FORBIDDEN",
+        );
       }
-
       const updated = await appointmentsService.updateAppointment(
         String(appointmentId),
         businessId,
         req.body as UpdateAppointmentBody,
       );
-
-      res.json({ success: true, data: updated });
-    } catch (err) {
-      next(err);
+      return ok(res, updated);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async updateStatus(req: Request, res: Response, next: NextFunction) {
     try {
-      const paramsParsed = appointmentIdParamsSchema.safeParse(req.params);
-      if (!paramsParsed.success) return next(paramsParsed.error);
-      const bodyParsed = updateAppointmentStatusSchema.safeParse(req.body);
-      if (!bodyParsed.success) return next(bodyParsed.error);
+      const params = appointmentIdParamsSchema.safeParse(req.params);
+      if (!params.success) return next(params.error);
+      const body = updateAppointmentStatusSchema.safeParse(req.body);
+      if (!body.success) return next(body.error);
       const updated = await appointmentsService.updateStatus(
-        paramsParsed.data.appointmentId,
-        bodyParsed.data.status,
+        params.data.appointmentId,
+        body.data.status,
         req.user!.businessId!,
       );
       return ok(res, updated);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async updateNotes(req: Request, res: Response, next: NextFunction) {
     try {
-      const paramsParsed = appointmentIdParamsSchema.safeParse(req.params);
-      if (!paramsParsed.success) return next(paramsParsed.error);
-      const bodyParsed = updateAppointmentNotesSchema.safeParse(req.body);
-      if (!bodyParsed.success) return next(bodyParsed.error);
+      const params = appointmentIdParamsSchema.safeParse(req.params);
+      if (!params.success) return next(params.error);
+      const body = updateAppointmentNotesSchema.safeParse(req.body);
+      if (!body.success) return next(body.error);
       const updated = await appointmentsService.updateNotes(
-        paramsParsed.data.appointmentId,
-        bodyParsed.data.notes,
+        params.data.appointmentId,
+        body.data.notes,
       );
       return ok(res, updated);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -127,44 +122,42 @@ class AppointmentsController {
         req.user!.businessId!,
       );
       return ok(res, created, 201);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async rescheduleAppointment(req: Request, res: Response, next: NextFunction) {
     try {
-      const paramsParsed = appointmentIdParamsSchema.safeParse(req.params);
-      if (!paramsParsed.success) return next(paramsParsed.error);
-      const bodyParsed = rescheduleAppointmentSchema.safeParse(req.body);
-      if (!bodyParsed.success) return next(bodyParsed.error);
+      const params = appointmentIdParamsSchema.safeParse(req.params);
+      if (!params.success) return next(params.error);
+      const body = rescheduleAppointmentSchema.safeParse(req.body);
+      if (!body.success) return next(body.error);
       const updated = await appointmentsService.rescheduleAppointment(
-        paramsParsed.data.appointmentId,
+        params.data.appointmentId,
         req.user!.businessId!,
-        bodyParsed.data.startsAt,
+        body.data.startsAt,
       );
       return ok(res, updated);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async finishAppointment(req: Request, res: Response, next: NextFunction) {
     try {
-      const paramsParsed = appointmentIdParamsSchema.safeParse(req.params);
-      if (!paramsParsed.success) return next(paramsParsed.error);
-
-      const bodyParsed = await finishAppointmentSchema.safeParse(req.body);
-      if (!bodyParsed.success) return next(bodyParsed.error);
-
+      const params = appointmentIdParamsSchema.safeParse(req.params);
+      if (!params.success) return next(params.error);
+      const body = finishAppointmentSchema.safeParse(req.body);
+      if (!body.success) return next(body.error);
       const updated = await appointmentsService.finishAppointment(
-        paramsParsed.data.appointmentId,
+        params.data.appointmentId,
         String(req.user?.businessId),
-        bodyParsed.data,
+        body.data,
       );
       return ok(res, updated);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -178,8 +171,8 @@ class AppointmentsController {
         parsed.data,
       );
       return ok(res, result);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -187,12 +180,10 @@ class AppointmentsController {
     try {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
-
       const businessId = req.user?.businessId;
       if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
       }
-
       const contentType = req.body?.contentType;
       if (typeof contentType !== "string" || !contentType) {
         return fail(res, "contentType is required", 400, "BAD_REQUEST");
@@ -202,17 +193,15 @@ class AppointmentsController {
       if (!allowedTypes.includes(rawType)) {
         return fail(res, "Invalid photo type", 400, "BAD_REQUEST");
       }
-
       const result = await appointmentsService.createProgressPhotoUploadTicket(
         parsed.data.appointmentId,
         businessId,
         contentType,
         rawType,
       );
-
       return ok(res, result);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -238,8 +227,8 @@ class AppointmentsController {
         rawType,
       );
       return ok(res, result, 201);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -247,20 +236,17 @@ class AppointmentsController {
     try {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
-
       const businessId = req.user?.businessId;
       if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
       }
-
       const photos = await appointmentsService.listAppointmentPhotos(
         parsed.data.appointmentId,
         businessId,
       );
-
       return ok(res, photos);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -272,26 +258,22 @@ class AppointmentsController {
     try {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
-
       const businessId = req.user?.businessId;
       if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
       }
-
       const photoId = req.params.photoId;
       if (!photoId) {
         return fail(res, "Photo id is required", 400, "BAD_REQUEST");
       }
-
       const result = await appointmentsService.deleteAppointmentPhoto(
         parsed.data.appointmentId,
         businessId,
         String(photoId),
       );
-
       return ok(res, result);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -300,76 +282,76 @@ class AppointmentsController {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
       const businessId = req.user?.businessId;
-      if (!businessId)
+      if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
+      }
       const result = await appointmentsService.deleteCancelledAppointment(
         parsed.data.appointmentId,
         businessId,
       );
       return ok(res, result);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async revertAppointment(req: Request, res: Response, next: NextFunction) {
     try {
-      console.log("Revert appointment called with params:", req.params);
-      console.log("Revert appointment called with body:", req.body);
-      const apptId = revertAppointmentParamsSchema.safeParse(req.params);
-      if (!apptId.success) return next(apptId.error);
-      console.log("Revert appointment called with params 2:", req.params);
-
-      const businessId = revertAppointmentSchema.safeParse(req.body);
-      if (!businessId.success) return next(businessId.error);
-      console.log("Revert appointment called with body 2:", req.body);
+      const params = revertAppointmentParamsSchema.safeParse(req.params);
+      if (!params.success) return next(params.error);
+      const body = revertAppointmentSchema.safeParse(req.body);
+      if (!body.success) return next(body.error);
       const result = await appointmentsService.revertAppointment(
-        apptId.data.appointmentId,
-        businessId.data.businessId,
+        params.data.appointmentId,
+        body.data.businessId,
       );
       return ok(res, result);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async uncancel(req: Request, res: Response, next: NextFunction) {
     try {
-      const { appointmentId } = req.params;
+      const appointmentId = String(req.params.appointmentId);
       const businessId = req.user.businessId;
       if (!businessId) {
-        const err: any = new Error("No business associated with this account");
-        err.statusCode = 403;
-        err.code = "FORBIDDEN";
-        throw err;
+        return fail(
+          res,
+          "No business associated with this account",
+          403,
+          "FORBIDDEN",
+        );
       }
       const updated = await appointmentsService.uncancelAppointment(
-        String(appointmentId),
+        appointmentId,
         businessId,
       );
-      res.json({ success: true, data: updated });
-    } catch (err) {
-      next(err);
+      return ok(res, updated);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async markNoShow(req: Request, res: Response, next: NextFunction) {
     try {
-      const { appointmentId } = req.params;
+      const appointmentId = String(req.params.appointmentId);
       const businessId = req.user.businessId;
       if (!businessId) {
-        const err: any = new Error("No business associated with this account");
-        err.statusCode = 403;
-        err.code = "FORBIDDEN";
-        throw err;
+        return fail(
+          res,
+          "No business associated with this account",
+          403,
+          "FORBIDDEN",
+        );
       }
       const updated = await appointmentsService.markNoShowManual(
-        String(appointmentId),
+        appointmentId,
         businessId,
       );
-      res.json({ success: true, data: updated });
-    } catch (err) {
-      next(err);
+      return ok(res, updated);
+    } catch (error) {
+      return next(error);
     }
   }
 }

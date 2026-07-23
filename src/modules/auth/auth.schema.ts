@@ -7,8 +7,6 @@ const normalizedEmailSchema = z
   .email()
   .transform((value) => value.toLowerCase().trim());
 
-// ── Request schemas ──────────────────────────────────────────────
-
 export const registerBodySchema = z
   .object({
     name: z.string().min(2).max(100).openapi({
@@ -63,15 +61,10 @@ export const resetPasswordBodySchema = z
   })
   .openapi({ description: "Password reset payload" });
 
+// The refresh token is accepted only from the secure HTTP-only cookie.
 export const refreshTokenBodySchema = z
-  .object({
-    refreshToken: z
-      .string()
-      .min(1)
-      .optional()
-      .openapi({ example: "refresh-token-abc" }),
-  })
-  .openapi({ description: "Token refresh request" });
+  .object({})
+  .openapi({ description: "Refresh the current cookie-backed session" });
 
 export const refreshTokenInputSchema = z.object({
   refreshToken: z.string().min(1).openapi({ example: "refresh-token-abc" }),
@@ -97,8 +90,6 @@ export const oauthSignInInputSchema = z.object({
   emailVerified: z.boolean().optional().openapi({ example: true }),
 });
 
-// ── Response schemas ─────────────────────────────────────────────
-
 export const registerResponseSchema = z
   .object({
     userId: z.string().openapi({ example: "user-abc123" }),
@@ -115,6 +106,13 @@ export const authUserSchema = z
     name: z.string().openapi({ example: "Ahmed Hassan" }),
     email: z.string().email().openapi({ example: "ahmed@example.com" }),
     businessId: z.string().nullable().openapi({ example: "biz-123" }),
+    role: z.string().openapi({ example: "BusinessAdmin" }),
+    vertical: z.string().nullable().optional().openapi({ example: "salon" }),
+    timezone: z
+      .string()
+      .nullable()
+      .optional()
+      .openapi({ example: "Africa/Cairo" }),
   })
   .openapi({ description: "Authenticated user info" });
 
@@ -156,14 +154,11 @@ export const logoutResponseSchema = z
   })
   .openapi({ description: "Logout response" });
 
-// ── Types ────────────────────────────────────────────────────────
-
 export type RegisterBody = z.infer<typeof registerBodySchema>;
 export type LoginBody = z.infer<typeof loginBodySchema>;
 export type VerifyEmailQuery = z.infer<typeof verifyEmailQuerySchema>;
 export type EmailBody = z.infer<typeof emailBodySchema>;
 export type ResetPasswordBody = z.infer<typeof resetPasswordBodySchema>;
-export type RefreshTokenBody = z.infer<typeof refreshTokenBodySchema>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenInputSchema>;
 export type GetMeInput = z.infer<typeof getMeInputSchema>;
 export type OauthSignInInput = z.infer<typeof oauthSignInInputSchema>;

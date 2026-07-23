@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { fail, ok } from "../../shared/utils/response.util";
+import workspaceQuery from "../workspace/workspace.query";
 import {
   collectPaymentSchema,
   invoiceIdParamsSchema,
@@ -15,7 +16,7 @@ class InvoiceWorkspaceController {
       if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       const parsed = listInvoicesQuerySchema.safeParse(req.query);
       if (!parsed.success) return next(parsed.error);
-      return ok(res, await invoiceWorkspaceService.list(businessId, parsed.data));
+      return ok(res, await workspaceQuery.invoiceList(businessId, parsed.data));
     } catch (error) {
       return next(error);
     }
@@ -27,7 +28,7 @@ class InvoiceWorkspaceController {
       if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       const parsed = invoiceIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
-      return ok(res, await invoiceWorkspaceService.get(parsed.data.id, businessId));
+      return ok(res, await workspaceQuery.invoiceDetail(parsed.data.id, businessId));
     } catch (error) {
       return next(error);
     }
@@ -87,7 +88,7 @@ class InvoiceWorkspaceController {
       if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       const params = invoiceIdParamsSchema.safeParse(req.params);
       if (!params.success) return next(params.error);
-      const invoice = await invoiceWorkspaceService.get(params.data.id, businessId);
+      const invoice = await workspaceQuery.invoiceDetail(params.data.id, businessId);
 
       const PDFDocument = require("pdfkit");
       const doc = new PDFDocument({ margin: 48, size: "A4" });
@@ -135,7 +136,9 @@ class InvoiceWorkspaceController {
       doc.moveDown();
       doc.text(`Customer: ${invoice.customer.name}`);
       if (invoice.customer.phone) doc.text(`Phone: ${invoice.customer.phone}`);
-      if (invoice.business.phone) doc.text(`Business phone: ${invoice.business.phone}`);
+      if (invoice.business.phone) {
+        doc.text(`Business phone: ${invoice.business.phone}`);
+      }
       if (invoice.business.address || invoice.business.city) {
         doc.text(
           `Business address: ${[invoice.business.address, invoice.business.city]
@@ -151,7 +154,9 @@ class InvoiceWorkspaceController {
           `${item.description}   ${item.quantity} x EGP ${(item.unitPriceCents / 100).toFixed(2)}`,
           { continued: true },
         );
-        doc.text(`EGP ${(item.totalCents / 100).toFixed(2)}`, { align: "right" });
+        doc.text(`EGP ${(item.totalCents / 100).toFixed(2)}`, {
+          align: "right",
+        });
       }
 
       doc.moveDown().fillColor("#0f172a");

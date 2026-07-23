@@ -1,28 +1,37 @@
-import type { NextFunction, Request, Response } from "express";
+import type { CookieOptions, NextFunction, Request, Response } from "express";
 import authService from "./auth.service";
 import { ok, fail } from "../../shared/utils/response.util";
+import { AUTH_CONSTANTS } from "../../shared/config/config";
 import {
   emailBodySchema,
   loginBodySchema,
   registerBodySchema,
   resetPasswordBodySchema,
   verifyEmailQuerySchema,
-  refreshTokenInputSchema,
   getMeInputSchema,
 } from "./auth.schema";
 
 const REFRESH_COOKIE_NAME = "refreshToken";
-
-const REFRESH_COOKIE_OPTIONS = {
+const REFRESH_COOKIE_OPTIONS: CookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
-  // When frontend is hosted on a different domain (production), use SameSite=None
-  sameSite:
-    process.env.NODE_ENV === "production"
-      ? ("none" as const)
-      : ("strict" as const),
-  maxAge: 30 * 24 * 60 * 60 * 1000,
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+  maxAge: AUTH_CONSTANTS.REFRESH_TOKEN_TTL_SECONDS * 1000,
+  path: "/",
 };
+
+function setRefreshCookie(res: Response, token: string) {
+  res.cookie(REFRESH_COOKIE_NAME, token, REFRESH_COOKIE_OPTIONS);
+}
+
+function clearRefreshCookie(res: Response) {
+  res.clearCookie(REFRESH_COOKIE_NAME, REFRESH_COOKIE_OPTIONS);
+}
+
+function errorCode(error: unknown) {
+  if (!error || typeof error !== "object" || !("code" in error)) return null;
+  return typeof error.code === "string" ? error.code : null;
+}
 
 class AuthController {
   async register(req: Request, res: Response, next: NextFunction) {
@@ -38,8 +47,8 @@ class AuthController {
             "Account created. Please check your email to verify your account.",
         },
       });
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -48,21 +57,11 @@ class AuthController {
       const parsed = verifyEmailQuerySchema.safeParse(req.query);
       if (!parsed.success) return next(parsed.error);
       const result = await authService.verifyEmail(parsed.data);
-      res.cookie(
-        REFRESH_COOKIE_NAME,
-        result.refreshToken,
-        REFRESH_COOKIE_OPTIONS,
-      );
-      res.cookie("accessToken", result.accessToken, {
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax",
-        maxAge: 15 * 60 * 1000, // match your actual access token expiry
-        path: "/",
-      });
-      return ok(res, { accessToken: result.accessToken, user: result.user });
-    } catch (err) {
-      return next(err);
+      setRefreshCookie(res, result.refreshToken);
+      const user = await authService.getMe({ userId: result.user.id });
+      return ok(res, { accessToken: result.accessToken, user });
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -71,42 +70,28 @@ class AuthController {
       const parsed = loginBodySchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
       const result = await authService.login(parsed.data);
-      res.cookie(
-        REFRESH_COOKIE_NAME,
-        result.refreshToken,
-        REFRESH_COOKIE_OPTIONS,
-      );
-      res.cookie("accessToken", result.accessToken, {
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax",
-        maxAge: 15 * 60 * 1000, // match your actual access token expiry
-        path: "/",
-      });
-      return ok(res, { accessToken: result.accessToken, user: result.user });
-    } catch (err) {
-      return next(err);
+      setRefreshCookie(res, result.refreshToken);
+      const user = await authService.getMe({ userId: result.user.id });
+      return ok(res, { accessToken: result.accessToken, user });
+    } catch (error) {
+      return next(error);
     }
   }
 
   async refresh(req: Request, res: Response, next: NextFunction) {
     try {
-      const refreshTokenSource =
-        (req as any).cookies?.[REFRESH_COOKIE_NAME] || req.body?.refreshToken;
-      const parsed = refreshTokenInputSchema.safeParse({
-        refreshToken: refreshTokenSource,
-      });
-      if (!parsed.success)
+      const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+      if (typeof refreshToken !== "string" || !refreshToken) {
         return fail(res, "No refresh token", 401, "UNAUTHORIZED");
-      const result = await authService.refreshToken(parsed.data);
-      res.cookie(
-        REFRESH_COOKIE_NAME,
-        result.refreshToken,
-        REFRESH_COOKIE_OPTIONS,
-      );
+      }
+      const result = await authService.refreshToken({ refreshToken });
+      setRefreshCookie(res, result.refreshToken);
       return ok(res, { accessToken: result.accessToken });
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      if (errorCode(error) === "INVALID_REFRESH_TOKEN") {
+        clearRefreshCookie(res);
+      }
+      return next(error);
     }
   }
 
@@ -120,8 +105,8 @@ class AuthController {
         message:
           "If this email is registered, a verification link has been sent.",
       });
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -135,8 +120,8 @@ class AuthController {
         message:
           "If this email is registered, a password reset link has been sent.",
       });
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -149,34 +134,35 @@ class AuthController {
         success: result.success,
         message: "Password updated. You can now log in.",
       });
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async logout(req: Request, res: Response) {
     try {
-      const refreshToken = (req as any).cookies?.[REFRESH_COOKIE_NAME];
-      if (refreshToken) await authService.revokeRefreshToken(refreshToken);
+      const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+      if (typeof refreshToken === "string" && refreshToken) {
+        await authService.revokeRefreshToken(refreshToken);
+      }
     } catch {
-      // ignore revoke errors
+      // Clearing the browser cookie still signs the user out locally.
     }
-    res.clearCookie(REFRESH_COOKIE_NAME, REFRESH_COOKIE_OPTIONS);
+    clearRefreshCookie(res);
     return ok(res, { message: "Logged out successfully" });
   }
 
   async getMe(req: Request, res: Response, next: NextFunction) {
     try {
-      const parsed = getMeInputSchema.safeParse({
-        userId: (req as any).user?.id,
-      });
-      if (!parsed.success)
+      const parsed = getMeInputSchema.safeParse({ userId: req.user?.id });
+      if (!parsed.success) {
         return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
-      const safeUser = await authService.getMe(parsed.data);
+      }
+      const user = await authService.getMe(parsed.data);
       res.set("Cache-Control", "no-store");
-      return ok(res, safeUser);
-    } catch (err) {
-      return next(err);
+      return ok(res, user);
+    } catch (error) {
+      return next(error);
     }
   }
 }

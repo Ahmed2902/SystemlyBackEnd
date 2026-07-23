@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import customersService from "./customers.service";
+import workspaceQuery from "../workspace/workspace.query";
 import { ok, fail } from "../../shared/utils/response.util";
 import {
   createCustomerSchema,
@@ -22,10 +23,7 @@ class CustomersController {
       }
       const parsed = listCustomersQuerySchema.safeParse(req.query);
       if (!parsed.success) return next(parsed.error);
-      return ok(
-        res,
-        await customersService.listCustomers(businessId, parsed.data),
-      );
+      return ok(res, await workspaceQuery.customerList(businessId, parsed.data));
     } catch (error) {
       return next(error);
     }
@@ -57,12 +55,12 @@ class CustomersController {
       }
       const parsed = customerIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
-      const data = await customersService.getCustomerById(
+      const customer = await customersService.getCustomerById(
         parsed.data.id,
         businessId,
       );
-      if (!data) return fail(res, "Customer not found", 404, "NOT_FOUND");
-      return ok(res, data);
+      if (!customer) return fail(res, "Customer not found", 404, "NOT_FOUND");
+      return ok(res, customer);
     } catch (error) {
       return next(error);
     }
@@ -78,7 +76,7 @@ class CustomersController {
       if (!parsed.success) return next(parsed.error);
       return ok(
         res,
-        await customersService.getWorkspace(parsed.data.id, businessId),
+        await workspaceQuery.customerDetail(parsed.data.id, businessId),
       );
     } catch (error) {
       return next(error);
@@ -141,7 +139,7 @@ class CustomersController {
       if (!parsed.success) return next(parsed.error);
       return ok(
         res,
-        await customersService.getAppointments(parsed.data.id, businessId),
+        await workspaceQuery.customerAppointments(parsed.data.id, businessId),
       );
     } catch (error) {
       return next(error);

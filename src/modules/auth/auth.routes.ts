@@ -1,7 +1,10 @@
 import { Router } from "express";
 import authController from "./auth.controller";
 import * as googleOauth from "./google.oauth";
-import { authRateLimit } from "../../shared/middleware/rateLimit.middleware";
+import {
+  authRateLimit,
+  refreshRateLimit,
+} from "../../shared/middleware/rateLimit.middleware";
 import { requireAuth } from "../../shared/middleware/auth.middleware";
 import validate from "../../shared/middleware/validate.middleware";
 import { csrfProtection } from "../../shared/middleware/CSRF";
@@ -24,9 +27,6 @@ import {
 
 const router = Router();
 
-/* -------------------------
-   AUTH (PUBLIC)
--------------------------- */
 router.post(
   "/register",
   authRateLimit,
@@ -95,9 +95,6 @@ router.post(
   authController.login,
 );
 
-/* -------------------------
-   OAUTH (NO CSRF HERE)
--------------------------- */
 router.get(
   "/oauth/google",
   doc({ summary: "Google OAuth redirect", tags: ["auth"], security: false }),
@@ -109,16 +106,13 @@ router.get(
   googleOauth.googleCallback,
 );
 
-/* -------------------------
-   TOKEN MANAGEMENT
--------------------------- */
 router.post(
   "/refresh",
-  authRateLimit,
+  refreshRateLimit,
   csrfProtection,
   doc({
     summary: "Refresh access token",
-    description: "Exchange a valid refresh token for a new access token.",
+    description: "Exchange the secure refresh cookie for a new access token.",
     tags: ["auth"],
     security: false,
     responses: {
@@ -129,9 +123,6 @@ router.post(
   authController.refresh,
 );
 
-/* -------------------------
-   LOGOUT
--------------------------- */
 router.post(
   "/logout",
   csrfProtection,
@@ -147,9 +138,6 @@ router.post(
   authController.logout,
 );
 
-/* -------------------------
-   PASSWORD RESET FLOW
--------------------------- */
 router.post(
   "/forgot-password",
   authRateLimit,
@@ -185,9 +173,6 @@ router.post(
   authController.resetPassword,
 );
 
-/* -------------------------
-   AUTH USER
--------------------------- */
 router.get(
   "/me",
   requireAuth,
@@ -202,7 +187,6 @@ router.get(
   authController.getMe,
 );
 
-// somewhere in auth.routes.ts, public
 router.get("/csrf-token", csrfProtection, (req, res) => {
   res.json({ success: true, data: { csrfToken: req.csrfToken() } });
 });
