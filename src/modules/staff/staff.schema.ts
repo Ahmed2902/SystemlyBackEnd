@@ -169,8 +169,13 @@ export const acceptInviteSchema = z.object({
   token: z.string().min(1),
 });
 
-export type StaffCreateInput = z.infer<typeof createStaffSchema>;
-export type StaffUpdateInput = z.infer<typeof updateStaffSchema>;
+type StaffCreatePayload = z.infer<typeof createStaffSchema>;
+type StaffUpdatePayload = z.infer<typeof updateStaffSchema>;
+
+export type StaffWorkspaceCreateInput = StaffCreatePayload;
+export type StaffWorkspaceUpdateInput = StaffUpdatePayload;
+export type StaffCreateInput = Omit<StaffCreatePayload, "serviceIds">;
+export type StaffUpdateInput = Omit<StaffUpdatePayload, "serviceIds">;
 export type StaffDirectoryQuery = z.infer<typeof staffDirectoryQuerySchema>;
 export type AssignServiceInput = z.infer<typeof assignServiceSchema>;
 export type UpdateServiceStaffInput = z.infer<typeof updateServiceStaffSchema>;
