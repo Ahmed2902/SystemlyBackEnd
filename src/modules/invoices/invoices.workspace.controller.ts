@@ -103,8 +103,7 @@ class InvoiceWorkspaceController {
         try {
           const response = await fetch(invoice.business.logoUrl);
           if (response.ok) {
-            const logo = Buffer.from(await response.arrayBuffer());
-            doc.image(logo, 48, 42, { fit: [72, 54] });
+            doc.image(await response.buffer(), 48, 42, { fit: [72, 54] });
           }
         } catch {
           // The receipt remains valid when an external logo cannot be fetched.
@@ -113,6 +112,7 @@ class InvoiceWorkspaceController {
 
       doc
         .fontSize(19)
+        .fillColor("#0f172a")
         .text(invoice.business.name, 132, 48, { align: "right" })
         .fontSize(11)
         .fillColor("#475569")
@@ -125,7 +125,9 @@ class InvoiceWorkspaceController {
       if (invoice.paidAt) {
         doc.text(`Paid: ${invoice.paidAt.toLocaleString("en-GB")}`);
       }
-      doc.text(`Payment method: ${String(invoice.paymentMethod ?? "").replaceAll("_", " ")}`);
+      doc.text(
+        `Payment method: ${String(invoice.paymentMethod ?? "").replace(/_/g, " ")}`,
+      );
       if (invoice.paymentReference) {
         doc.text(`Reference: ${invoice.paymentReference}`);
       }
@@ -144,8 +146,10 @@ class InvoiceWorkspaceController {
       doc.moveDown(1.5).fontSize(12).text("Items").moveDown(0.5);
       doc.fontSize(9).fillColor("#334155");
       for (const item of invoice.lineItems) {
-        const line = `${item.description}   ${item.quantity} × EGP ${(item.unitPriceCents / 100).toFixed(2)}`;
-        doc.text(line, { continued: true });
+        doc.text(
+          `${item.description}   ${item.quantity} x EGP ${(item.unitPriceCents / 100).toFixed(2)}`,
+          { continued: true },
+        );
         doc.text(`EGP ${(item.totalCents / 100).toFixed(2)}`, { align: "right" });
       }
 
@@ -162,7 +166,11 @@ class InvoiceWorkspaceController {
         align: "right",
       });
       if (invoice.notes) {
-        doc.moveDown().fontSize(9).fillColor("#475569").text(`Notes: ${invoice.notes}`);
+        doc
+          .moveDown()
+          .fontSize(9)
+          .fillColor("#475569")
+          .text(`Notes: ${invoice.notes}`);
       }
       doc.end();
     } catch (error) {
