@@ -294,6 +294,7 @@ class AppointmentsService {
       customItems: Array<{
         id?: string;
         description: string;
+        quantity: number;
         priceCents: number;
       }>;
       discountCents?: number;
@@ -413,6 +414,7 @@ class AppointmentsService {
           data: payload.customItems.map((c) => ({
             appointmentId: id,
             description: c.description,
+            quantity: c.quantity,
             priceCents: c.priceCents,
           })),
         });
