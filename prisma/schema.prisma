@@ -374,12 +374,12 @@ model Appointment {
 }
 
 model AppointmentCustomItem {
-  id             String      @id @default(uuid()) @db.Uuid
-  appointmentId  String      @map("appointment_id") @db.Uuid
-  description    String      @db.VarChar(255)
-  quantity       Int         @default(1)
-  unitPriceCents Int         @map("unit_price_cents")
-  createdAt      DateTime    @default(now()) @map("created_at")
+  id            String   @id @default(uuid()) @db.Uuid
+  appointmentId String   @map("appointment_id") @db.Uuid
+  description   String   @db.VarChar(255)
+  quantity      Int      @default(1)
+  priceCents    Int      @map("price_cents")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
@@ -393,7 +393,7 @@ model AppointmentService {
   staffId             String   @map("staff_id") @db.Uuid
   order               Int      @default(0)
   startsAt            DateTime @map("starts_at")
-  endsAt              DateTime @map("ends_at")
+  endsAt               DateTime @map("ends_at")
   durationMinSnapshot Int      @map("duration_min_snapshot")
   priceEgpSnapshot    Decimal  @map("price_egp_snapshot") @db.Decimal(10, 2)
 
