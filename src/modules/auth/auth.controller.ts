@@ -24,6 +24,15 @@ function setRefreshCookie(res: Response, token: string) {
   res.cookie(REFRESH_COOKIE_NAME, token, REFRESH_COOKIE_OPTIONS);
 }
 
+function clearRefreshCookie(res: Response) {
+  res.clearCookie(REFRESH_COOKIE_NAME, REFRESH_COOKIE_OPTIONS);
+}
+
+function errorCode(error: unknown) {
+  if (!error || typeof error !== "object" || !("code" in error)) return null;
+  return typeof error.code === "string" ? error.code : null;
+}
+
 class AuthController {
   async register(req: Request, res: Response, next: NextFunction) {
     try {
@@ -79,6 +88,9 @@ class AuthController {
       setRefreshCookie(res, result.refreshToken);
       return ok(res, { accessToken: result.accessToken });
     } catch (error) {
+      if (errorCode(error) === "INVALID_REFRESH_TOKEN") {
+        clearRefreshCookie(res);
+      }
       return next(error);
     }
   }
@@ -136,7 +148,7 @@ class AuthController {
     } catch {
       // Clearing the browser cookie still signs the user out locally.
     }
-    res.clearCookie(REFRESH_COOKIE_NAME, REFRESH_COOKIE_OPTIONS);
+    clearRefreshCookie(res);
     return ok(res, { message: "Logged out successfully" });
   }
 
