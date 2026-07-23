@@ -2,7 +2,6 @@ import {
   AppointmentStatus,
   CommissionType,
   InvoiceStatus,
-  PaymentMethod,
   Prisma,
 } from "@prisma/client";
 import { DateTime } from "luxon";
@@ -13,7 +12,10 @@ import type {
   VoidInvoiceInput,
 } from "./invoices.workspace.schema";
 
-const ACTIVE_INVOICE_STATUSES = [InvoiceStatus.paid, InvoiceStatus.voided];
+const ACTIVE_INVOICE_STATUSES: InvoiceStatus[] = [
+  InvoiceStatus.paid,
+  InvoiceStatus.voided,
+];
 
 const buildError = (message: string, statusCode: number, code: string) => {
   const error = new Error(message) as Error & {
@@ -240,7 +242,8 @@ class InvoiceWorkspaceService {
           );
           const commissionType =
             commission?.commissionType ?? CommissionType.NONE;
-          const commissionAmount = commission?.commissionAmount ?? new Prisma.Decimal(0);
+          const commissionAmount =
+            commission?.commissionAmount ?? new Prisma.Decimal(0);
 
           return {
             description: segment.service.name,
@@ -263,9 +266,9 @@ class InvoiceWorkspaceService {
         const customLines = appointment.customItems.map((item) => ({
           description: item.description,
           quantity: item.quantity,
-          unitPriceCents: item.unitPriceCents,
+          unitPriceCents: item.priceCents,
           taxCents: 0,
-          totalCents: item.quantity * item.unitPriceCents,
+          totalCents: item.quantity * item.priceCents,
           serviceId: null,
           staffId: null,
           commissionType: CommissionType.NONE,
@@ -376,12 +379,11 @@ class InvoiceWorkspaceService {
         );
       }
 
-      const voidedAt = new Date();
       await tx.invoice.update({
         where: { id: invoice.id },
         data: {
           status: InvoiceStatus.voided,
-          voidedAt,
+          voidedAt: new Date(),
           voidedByUserId: userId,
           voidReason: input.reason,
         },
