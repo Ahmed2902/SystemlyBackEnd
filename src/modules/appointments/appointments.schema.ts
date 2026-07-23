@@ -30,7 +30,7 @@ export const updateAppointmentSchema = z.object({
         id: z.string().uuid().optional(),
         description: z.string().min(1).max(255),
         quantity: z.number().int().min(1).default(1),
-        unitPriceCents: z.number().int().min(0),
+        priceCents: z.number().int().min(0),
       }),
     )
     .default([]),
@@ -51,21 +51,16 @@ export const listAppointmentsQuerySchema = z
       example: "2026-03-15",
       description: "Filter by specific date",
     }),
-    from: z
-      .string()
-      .optional()
-      .openapi({ example: "2026-03-01", description: "Start date range" }),
-    to: z
-      .string()
-      .optional()
-      .openapi({ example: "2026-03-31", description: "End date range" }),
+    from: z.string().optional().openapi({
+      example: "2026-03-01",
+      description: "Start date range",
+    }),
+    to: z.string().optional().openapi({
+      example: "2026-03-31",
+      description: "End date range",
+    }),
     page: z.coerce.number().int().positive().optional().openapi({ example: 1 }),
-    perPage: z.coerce
-      .number()
-      .int()
-      .positive()
-      .optional()
-      .openapi({ example: 20 }),
+    perPage: z.coerce.number().int().positive().optional().openapi({ example: 20 }),
   })
   .openapi({ description: "Query parameters for listing appointments" });
 
@@ -85,10 +80,7 @@ export const rescheduleAppointmentSchema = z
 
 export const updateAppointmentNotesSchema = z
   .object({
-    notes: z
-      .string()
-      .optional()
-      .openapi({ example: "Patient requested morning appointment" }),
+    notes: z.string().optional().openapi({ example: "Patient requested morning appointment" }),
   })
   .openapi({ description: "Update appointment notes" });
 
@@ -110,26 +102,14 @@ const finishPhotoSchema = z.object({
 });
 
 const finishClinicalSchema = z.object({
-  notes: z
-    .string()
-    .max(5000)
-    .optional()
-    .openapi({ example: "Procedure completed successfully" }),
-  diagnosis: z
-    .string()
-    .max(2000)
-    .optional()
-    .openapi({ example: "Caries removal" }),
+  notes: z.string().max(5000).optional().openapi({ example: "Procedure completed successfully" }),
+  diagnosis: z.string().max(2000).optional().openapi({ example: "Caries removal" }),
   prescriptionJson: z.record(z.string(), z.any()).optional(),
 });
 
 export const finishAppointmentSchema = z
   .object({
-    notes: z
-      .string()
-      .max(2000)
-      .optional()
-      .openapi({ example: "Patient satisfied" }),
+    notes: z.string().max(2000).optional().openapi({ example: "Patient satisfied" }),
     photos: z.array(finishPhotoSchema).max(20).optional(),
     clinical: finishClinicalSchema.optional(),
   })
@@ -138,28 +118,18 @@ export const finishAppointmentSchema = z
   });
 
 export const appointmentIdParamsSchema = z
-  .object({
-    appointmentId: z.string().min(1).openapi({ example: "apt-789" }),
-  })
+  .object({ appointmentId: z.string().min(1).openapi({ example: "apt-789" }) })
   .openapi({ description: "Appointment ID parameter" });
 
 export const cancelAppointmentSchema = z
-  .object({
-    reason: z.string().max(500).optional(),
-  })
+  .object({ reason: z.string().max(500).optional() })
   .openapi({ description: "Cancel an appointment (staff/business-initiated)" });
 
 export type CancelAppointmentBody = z.infer<typeof cancelAppointmentSchema>;
 export type ListAppointmentsQuery = z.infer<typeof listAppointmentsQuerySchema>;
-export type UpdateAppointmentStatusBody = z.infer<
-  typeof updateAppointmentStatusSchema
->;
-export type UpdateAppointmentNotesBody = z.infer<
-  typeof updateAppointmentNotesSchema
->;
-export type CreateManualAppointmentBody = z.infer<
-  typeof createManualAppointmentSchema
->;
+export type UpdateAppointmentStatusBody = z.infer<typeof updateAppointmentStatusSchema>;
+export type UpdateAppointmentNotesBody = z.infer<typeof updateAppointmentNotesSchema>;
+export type CreateManualAppointmentBody = z.infer<typeof createManualAppointmentSchema>;
 export type FinishAppointmentInput = z.infer<typeof finishAppointmentSchema>;
 export type RevertAppointmentInput = z.infer<typeof revertAppointmentSchema>;
 export type UpdateAppointmentBody = z.infer<typeof updateAppointmentSchema>;
