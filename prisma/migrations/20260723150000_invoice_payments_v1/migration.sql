@@ -1,15 +1,13 @@
 -- Immediate-payment invoice workflow for V1.
 CREATE TYPE "PaymentMethod" AS ENUM ('CASH', 'CARD', 'BANK_TRANSFER', 'MOBILE_WALLET');
 
--- Custom items now snapshot quantity and unit price.
-ALTER TABLE "appointment_custom_items"
-  RENAME COLUMN "price_cents" TO "unit_price_cents";
+-- Existing price_cents becomes the unit-price snapshot; quantity is new.
 ALTER TABLE "appointment_custom_items"
   ADD COLUMN "quantity" INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE "appointment_custom_items"
   ADD CONSTRAINT "appointment_custom_items_quantity_check" CHECK ("quantity" > 0);
 ALTER TABLE "appointment_custom_items"
-  ADD CONSTRAINT "appointment_custom_items_unit_price_check" CHECK ("unit_price_cents" >= 0);
+  ADD CONSTRAINT "appointment_custom_items_price_check" CHECK ("price_cents" >= 0);
 
 -- Allow a voided invoice to remain in history while a replacement invoice is collected.
 DROP INDEX IF EXISTS "invoices_appointment_id_key";
