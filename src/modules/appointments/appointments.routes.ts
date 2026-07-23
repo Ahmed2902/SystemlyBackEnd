@@ -1,5 +1,6 @@
 import { Router } from "express";
 import appointmentsController from "./appointments.controller";
+import appointmentCustomItemsController from "./appointment-custom-items.controller";
 import {
   requireAuth,
   requireRole,
@@ -20,7 +21,6 @@ import {
   revertAppointmentParamsSchema,
   updateAppointmentSchema,
 } from "./appointments.schema";
-
 
 const router = Router();
 
@@ -86,26 +86,31 @@ router.post(
   validate.validateParams(appointmentIdParamsSchema),
   appointmentsController.confirmProgressPhoto,
 );
-
 router.get(
   "/:appointmentId/photos",
   requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   appointmentsController.listAppointmentPhotos,
 );
-
 router.delete(
   "/:appointmentId/photos/:photoId",
   requireAppointmentOwnerOrAdmin,
   appointmentsController.deleteAppointmentPhoto,
 );
+
+router.put(
+  "/:appointmentId/custom-items",
+  requireAppointmentOwnerOrAdmin,
+  validate.validateParams(appointmentIdParamsSchema),
+  appointmentCustomItemsController.replace,
+);
+
 router.delete(
   "/:appointmentId",
   requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   appointmentsController.deleteAppointment,
 );
-
 router.post(
   "/:appointmentId/revert",
   requireAppointmentOwnerOrAdmin,
@@ -113,14 +118,12 @@ router.post(
   validate.validateBody(revertAppointmentSchema),
   appointmentsController.revertAppointment,
 );
-
 router.patch(
   "/:appointmentId",
   requireAppointmentOwnerOrAdmin,
   validate.validateBody(updateAppointmentSchema),
   appointmentsController.update,
 );
-
 router.post(
   "/:appointmentId/uncancel",
   requireAppointmentOwnerOrAdmin,
@@ -133,8 +136,6 @@ router.post(
   validate.validateParams(revertAppointmentParamsSchema),
   appointmentsController.markNoShow,
 );
-
-//not used,  Collect-payment instead
 router.post(
   "/:appointmentId/finish",
   requireAppointmentOwnerOrAdmin,

@@ -44,6 +44,13 @@ enum InvoiceStatus {
   voided
 }
 
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  MOBILE_WALLET
+}
+
 enum BookingChannel {
   UNKNOWN
   WEBSITE
@@ -88,6 +95,7 @@ model Business {
   websiteContent     WebsiteContent?
   photos             Photo[]
   invoices           Invoice[]
+  invoiceCounters    InvoiceCounter[]
   loyaltyAccounts    LoyaltyAccount[]
   staffBreaks        StaffBreak[]
   staffTimeOff       StaffTimeOff[]
@@ -115,6 +123,8 @@ model BusinessUser {
   business              Business?     @relation(fields: [businessId], references: [id], onDelete: Cascade)
   currentRefreshToken   RefreshToken? @relation("CurrentRefreshToken", fields: [currentRefreshTokenId], references: [id])
   refreshTokens         RefreshToken[]
+  paidInvoices          Invoice[]     @relation("InvoicePaidBy")
+  voidedInvoices        Invoice[]     @relation("InvoiceVoidedBy")
 
   @@index([businessId])
   @@map("business_users")
@@ -261,12 +271,12 @@ model Service {
 }
 
 model ServiceStaff {
-  serviceId       String         @map("service_id") @db.Uuid
-  staffId         String         @map("staff_id") @db.Uuid
-  service         Service        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  staff           Staff          @relation(fields: [staffId], references: [id], onDelete: Cascade)
-  commissionType  CommissionType @default(NONE) @map("commission_type")
-  commissionAmount Decimal       @default(0) @map("commission_amount") @db.Decimal(10, 2)
+  serviceId        String         @map("service_id") @db.Uuid
+  staffId          String         @map("staff_id") @db.Uuid
+  service          Service        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  staff            Staff          @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  commissionType   CommissionType @default(NONE) @map("commission_type")
+  commissionAmount Decimal        @default(0) @map("commission_amount") @db.Decimal(10, 2)
 
   @@id([serviceId, staffId])
   @@index([staffId])
@@ -290,15 +300,15 @@ model Availability {
 }
 
 model AvailabilityOverride {
-  id           String   @id @default(uuid()) @db.Uuid
-  staffId      String   @map("staff_id") @db.Uuid
-  overrideDate DateTime @map("override_date") @db.Date
-  isDayOff     Boolean  @default(false) @map("is_day_off")
+  id           String    @id @default(uuid()) @db.Uuid
+  staffId      String    @map("staff_id") @db.Uuid
+  overrideDate DateTime  @map("override_date") @db.Date
+  isDayOff     Boolean   @default(false) @map("is_day_off")
   startTime    DateTime? @map("start_time")
   endTime      DateTime? @map("end_time")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  staff        Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  staff        Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
 
   @@unique([staffId, overrideDate])
   @@map("availability_overrides")
@@ -353,7 +363,7 @@ model Appointment {
   customItems         AppointmentCustomItem[]
   appointmentServices AppointmentService[]
   notificationLogs    NotificationLog[]
-  invoice             Invoice?
+  invoices            Invoice[]
   appointmentPhotos   AppointmentPhoto[]
   clinicVisitRecord   ClinicVisitRecord?
 
@@ -364,11 +374,12 @@ model Appointment {
 }
 
 model AppointmentCustomItem {
-  id            String      @id @default(uuid()) @db.Uuid
-  appointmentId String      @map("appointment_id") @db.Uuid
-  description   String      @db.VarChar(255)
-  priceCents    Int         @map("price_cents")
-  createdAt     DateTime    @default(now()) @map("created_at")
+  id            String   @id @default(uuid()) @db.Uuid
+  appointmentId String   @map("appointment_id") @db.Uuid
+  description   String   @db.VarChar(255)
+  quantity      Int      @default(1)
+  priceCents    Int      @map("price_cents")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
 
@@ -382,7 +393,7 @@ model AppointmentService {
   staffId             String   @map("staff_id") @db.Uuid
   order               Int      @default(0)
   startsAt            DateTime @map("starts_at")
-  endsAt              DateTime @map("ends_at")
+  endsAt               DateTime @map("ends_at")
   durationMinSnapshot Int      @map("duration_min_snapshot")
   priceEgpSnapshot    Decimal  @map("price_egp_snapshot") @db.Decimal(10, 2)
 
@@ -475,7 +486,7 @@ model Invoice {
   appointmentId       String?              @map("appointment_id") @db.Uuid
   customerId          String               @map("customer_id") @db.Uuid
   invoiceNumber       String               @db.VarChar(80)
-  status              InvoiceStatus        @default(draft)
+  status              InvoiceStatus        @default(paid)
   subtotalCents       Int                  @map("subtotal_cents")
   taxCents            Int                  @default(0) @map("tax_cents")
   totalCents          Int                  @map("total_cents")
@@ -484,6 +495,11 @@ model Invoice {
   issuedAt            DateTime             @default(now()) @map("issued_at")
   paidAt              DateTime?            @map("paid_at")
   voidedAt            DateTime?            @map("voided_at")
+  paymentMethod       PaymentMethod?       @map("payment_method")
+  paymentReference    String?              @map("payment_reference") @db.VarChar(255)
+  paidByUserId        String?              @map("paid_by_user_id") @db.Uuid
+  voidedByUserId      String?              @map("voided_by_user_id") @db.Uuid
+  voidReason          String?              @map("void_reason") @db.Text
   etaReceiptUid       String?              @map("eta_receipt_uid") @db.VarChar(255)
   etaSubmittedAt      DateTime?            @map("eta_submitted_at")
   createdAt           DateTime             @default(now()) @map("created_at")
@@ -496,12 +512,28 @@ model Invoice {
   lineItems           InvoiceLineItem[]
   loyaltyTransactions LoyaltyTransaction[]
   insuranceClaim      InsuranceClaim?
+  paidBy              BusinessUser?        @relation("InvoicePaidBy", fields: [paidByUserId], references: [id], onDelete: SetNull)
+  voidedBy            BusinessUser?        @relation("InvoiceVoidedBy", fields: [voidedByUserId], references: [id], onDelete: SetNull)
 
   @@unique([businessId, invoiceNumber])
-  @@unique([appointmentId])
+  @@index([appointmentId])
+  @@index([businessId, status, issuedAt])
   @@index([businessId, issuedAt])
   @@index([customerId])
+  @@index([paymentMethod])
   @@map("invoices")
+}
+
+model InvoiceCounter {
+  businessId String   @map("business_id") @db.Uuid
+  year       Int
+  lastNumber Int      @default(0) @map("last_number")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@id([businessId, year])
+  @@map("invoice_counters")
 }
 
 model InvoiceLineItem {
