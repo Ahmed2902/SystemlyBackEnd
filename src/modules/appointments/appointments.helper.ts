@@ -54,10 +54,12 @@ export function isCancelled(status: AppointmentStatus): boolean {
 export function isLocked(appt: {
   status: AppointmentStatus;
   invoice?: { status: InvoiceStatus } | null;
+  invoices?: Array<{ status: InvoiceStatus }>;
 }): boolean {
   return (
     appt.status === AppointmentStatus.completed ||
-    appt.invoice?.status === InvoiceStatus.paid
+    appt.invoice?.status === InvoiceStatus.paid ||
+    appt.invoices?.some((invoice) => invoice.status === InvoiceStatus.paid) === true
   );
 }
 
@@ -85,6 +87,7 @@ export async function getOwnedAppointmentOrThrow<
 export function assertEditable(appt: {
   status: AppointmentStatus;
   invoice?: { status: InvoiceStatus } | null;
+  invoices?: Array<{ status: InvoiceStatus }>;
 }) {
   if (isLocked(appt)) {
     throw invalidStateError(
@@ -101,12 +104,13 @@ export function assertEditable(appt: {
 
 /** Voids a paid invoice tied to this appointment, if one exists. No-op otherwise. */
 export async function voidInvoiceIfPaid(tx: TxClient, appointmentId: string) {
-  const existingInvoice = await tx.invoice.findUnique({
-    where: { appointmentId },
+  const existingInvoice = await tx.invoice.findFirst({
+    where: { appointmentId, status: { not: InvoiceStatus.voided } },
+    orderBy: { issuedAt: "desc" },
   });
-  if (existingInvoice && existingInvoice.status !== InvoiceStatus.voided) {
-    await tx.invoice.update({
-      where: { appointmentId },
+  if (existingInvoice) {
+    await tx.invoice.updateMany({
+      where: { appointmentId, status: { not: InvoiceStatus.voided } },
       data: { status: InvoiceStatus.voided, voidedAt: new Date() },
     });
   }

@@ -1,5 +1,4 @@
 import type { NextFunction, Request, Response } from "express";
-import fetch from "node-fetch";
 import { fail, ok } from "../../shared/utils/response.util";
 import {
   collectPaymentSchema,
@@ -103,7 +102,9 @@ class InvoiceWorkspaceController {
         try {
           const response = await fetch(invoice.business.logoUrl);
           if (response.ok) {
-            doc.image(await response.buffer(), 48, 42, { fit: [72, 54] });
+            doc.image(Buffer.from(await response.arrayBuffer()), 48, 42, {
+              fit: [72, 54],
+            });
           }
         } catch {
           // The receipt remains valid when an external logo cannot be fetched.

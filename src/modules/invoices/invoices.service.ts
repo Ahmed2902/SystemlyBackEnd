@@ -39,8 +39,9 @@ class InvoicesService {
    * Requires the appointment to be in "confirmed" or "completed" status.
    */
   async checkout(appointmentId: string, businessId: string) {
-    const existing = await prisma.invoice.findUnique({
-      where: { appointmentId },
+    const existing = await prisma.invoice.findFirst({
+      where: { appointmentId, status: { not: InvoiceStatus.voided } },
+      orderBy: { issuedAt: "desc" },
       include: { lineItems: true, customer: true },
     });
 
@@ -81,16 +82,20 @@ class InvoicesService {
       );
     }
     const appointmentData: any = appointment;
-    const hasSegmentServices = Array.isArray(appointmentData.appointmentServices);
+    const hasSegmentServices = Array.isArray(
+      appointmentData.appointmentServices,
+    );
     const appointmentServices = appointmentData.appointmentServices?.length
       ? appointmentData.appointmentServices
       : appointmentData.serviceId && appointmentData.service
-        ? [{
-            serviceId: appointmentData.serviceId,
-            staffId: appointmentData.staffId,
-            service: appointmentData.service,
-            priceEgpSnapshot: appointmentData.service.priceEgp,
-          }]
+        ? [
+            {
+              serviceId: appointmentData.serviceId,
+              staffId: appointmentData.staffId,
+              service: appointmentData.service,
+              priceEgpSnapshot: appointmentData.service.priceEgp,
+            },
+          ]
         : [];
 
     if (appointmentServices.length === 0) {
@@ -99,25 +104,31 @@ class InvoicesService {
 
     // Per-segment commission — each service's staff may have a different rate
     const commissionRows: any[] = !hasSegmentServices
-      ? [await (prisma.serviceStaff as any).findUnique({
-          where: {
-            serviceId_staffId: {
-              serviceId: appointmentServices[0].serviceId,
-              staffId: appointmentServices[0].staffId,
+      ? [
+          await (prisma.serviceStaff as any).findUnique({
+            where: {
+              serviceId_staffId: {
+                serviceId: appointmentServices[0].serviceId,
+                staffId: appointmentServices[0].staffId,
+              },
             },
-          },
-        })].filter(Boolean)
+          }),
+        ].filter(Boolean)
       : typeof (prisma.serviceStaff as any).findMany === "function"
-      ? await (prisma.serviceStaff as any).findMany({
-        where: {
-          OR: appointmentServices.map((seg: any) => ({
-            staffId: seg.staffId,
-            serviceId: seg.serviceId,
-          })),
-        },
-      })
-      : [];
-    if (!commissionRows.length && appointmentServices.length === 1 && typeof (prisma.serviceStaff as any).findUnique === "function") {
+        ? await (prisma.serviceStaff as any).findMany({
+            where: {
+              OR: appointmentServices.map((seg: any) => ({
+                staffId: seg.staffId,
+                serviceId: seg.serviceId,
+              })),
+            },
+          })
+        : [];
+    if (
+      !commissionRows.length &&
+      appointmentServices.length === 1 &&
+      typeof (prisma.serviceStaff as any).findUnique === "function"
+    ) {
       const fallback = await (prisma.serviceStaff as any).findUnique({
         where: {
           serviceId_staffId: {
@@ -129,14 +140,18 @@ class InvoicesService {
       if (fallback) commissionRows.push(fallback);
     }
     const commissionByKey = new Map(
-      commissionRows.map((row: any) => [`${row.staffId}:${row.serviceId}`, row]),
+      commissionRows.map((row: any) => [
+        `${row.staffId}:${row.serviceId}`,
+        row,
+      ]),
     );
 
     const lineItemsData = appointmentServices.map((seg: any) => {
       const lineTotalCents = Math.round(Number(seg.priceEgpSnapshot) * 100);
-      const commissionRow = !hasSegmentServices && commissionRows[0]
-        ? commissionRows[0]
-        : commissionByKey.get(`${seg.staffId}:${seg.serviceId}`);
+      const commissionRow =
+        !hasSegmentServices && commissionRows[0]
+          ? commissionRows[0]
+          : commissionByKey.get(`${seg.staffId}:${seg.serviceId}`);
       const commissionType =
         commissionRow?.commissionType ?? CommissionType.NONE;
       const commissionAmount = commissionRow?.commissionAmount ?? 0;
@@ -184,7 +199,9 @@ class InvoicesService {
             totalCents: priceCents,
             currency: "EGP",
             issuedAt: new Date(),
-            lineItems: { create: hasSegmentServices ? lineItemsData : lineItemsData[0] },
+            lineItems: {
+              create: hasSegmentServices ? lineItemsData : lineItemsData[0],
+            },
           },
           include: { lineItems: true, customer: true },
         });
@@ -193,8 +210,9 @@ class InvoicesService {
       return invoice;
     } catch (err: any) {
       if (err?.code === "P2002") {
-        const retry = await prisma.invoice.findUnique({
-          where: { appointmentId },
+        const retry = await prisma.invoice.findFirst({
+          where: { appointmentId, status: { not: InvoiceStatus.voided } },
+          orderBy: { issuedAt: "desc" },
           include: { lineItems: true, customer: true },
         });
         if (retry) return retry;
@@ -382,9 +400,29 @@ class InvoicesService {
       const disc = discountCents ?? appointment.discountCents ?? 0;
       const totalCents = Math.max(0, subtotalCents - disc);
 
-      const invoice = await tx.invoice.upsert({
-        where: { appointmentId },
-        create: {
+      const existingInvoice = await tx.invoice.findFirst({
+        where: { appointmentId, status: { not: InvoiceStatus.voided } },
+        orderBy: { issuedAt: "desc" },
+        select: { id: true },
+      });
+      const invoice = existingInvoice
+        ? await tx.invoice.update({
+            where: { id: existingInvoice.id },
+            data: {
+              status: InvoiceStatus.paid,
+              subtotalCents,
+              discountCents,
+              totalCents,
+              paidAt: new Date(),
+              lineItems: {
+                deleteMany: {},
+                create: [...serviceLineItems, ...customLineItems],
+              },
+            },
+            include: { lineItems: true },
+          })
+        : await tx.invoice.create({
+            data: {
           appointmentId,
           businessId,
           customerId: appointment.customerId,
@@ -397,20 +435,9 @@ class InvoicesService {
           issuedAt: new Date(),
           paidAt: new Date(),
           lineItems: { create: [...serviceLineItems, ...customLineItems] },
-        },
-        update: {
-          status: InvoiceStatus.paid,
-          subtotalCents,
-          discountCents,
-          totalCents,
-          paidAt: new Date(),
-          lineItems: {
-            deleteMany: {},
-            create: [...serviceLineItems, ...customLineItems],
-          },
-        },
-        include: { lineItems: true },
-      });
+            },
+            include: { lineItems: true },
+          });
 
       return invoice;
     });

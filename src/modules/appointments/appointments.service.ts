@@ -1,6 +1,6 @@
 import { prisma } from "../../shared/db/prisma";
 import crypto from "crypto";
-import { Roles, AppointmentStatus } from "@prisma/client";
+import { Roles, AppointmentStatus, InvoiceStatus } from "@prisma/client";
 import type {
   CreateManualAppointmentBody,
   ListAppointmentsQuery,
@@ -34,10 +34,21 @@ const APPOINTMENT_DETAIL_INCLUDE = {
   appointmentServices: { include: { service: true, staff: true } },
   staff: true,
   customItems: true,
-  invoice: true,
+  invoices: {
+    where: { status: { not: "voided" } },
+    orderBy: { issuedAt: "desc" },
+    take: 1,
+  },
   clinicVisitRecord: true,
   appointmentPhotos: { include: { photo: true } },
 } as const;
+
+function withCurrentInvoice<T extends { invoices: unknown[] }>({
+  invoices,
+  ...appointment
+}: T) {
+  return { ...appointment, invoice: invoices[0] ?? null };
+}
 
 class AppointmentsService {
   async listAppointments(opts: ListAppointmentsInput) {
@@ -85,7 +96,8 @@ class AppointmentsService {
       prisma.appointment.count({ where }),
     ]);
 
-    const masked = items.map((it: any) => {
+    const masked = items.map((raw: any) => {
+      const it = withCurrentInvoice(raw);
       const hasOwnSegment = it.appointmentServices.some(
         (seg: any) => seg.staffId === user.id,
       );
@@ -106,10 +118,11 @@ class AppointmentsService {
   }
 
   async getAppointmentById(id: string) {
-    return prisma.appointment.findUnique({
+    const appointment = await prisma.appointment.findUnique({
       where: { id },
       include: APPOINTMENT_DETAIL_INCLUDE,
     });
+    return appointment ? withCurrentInvoice(appointment) : null;
   }
   // #Region Photos
   async createProgressPhotoUploadTicket(
@@ -295,7 +308,11 @@ class AppointmentsService {
     return prisma.$transaction(async (tx) => {
       const appt = await getOwnedAppointmentOrThrow(tx, id, businessId, {
         appointmentServices: true,
-        invoice: true,
+        invoices: {
+          where: { status: { not: InvoiceStatus.voided } },
+          orderBy: { issuedAt: "desc" },
+          take: 1,
+        },
         business: true,
       });
 
@@ -413,7 +430,7 @@ class AppointmentsService {
             new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
         );
 
-      return tx.appointment.update({
+      const updated = await tx.appointment.update({
         where: { id },
         data: {
           discountCents: payload.discountCents ?? 0,
@@ -423,6 +440,7 @@ class AppointmentsService {
         },
         include: APPOINTMENT_DETAIL_INCLUDE,
       });
+      return withCurrentInvoice(updated);
     });
   }
 
@@ -434,7 +452,11 @@ class AppointmentsService {
     return prisma.$transaction(async (tx) => {
       const appt = await getOwnedAppointmentOrThrow(tx, id, businessId, {
         customer: true,
-        invoice: true,
+        invoices: {
+          where: { status: { not: InvoiceStatus.voided } },
+          orderBy: { issuedAt: "desc" },
+          take: 1,
+        },
       });
       assertEditable(appt);
 

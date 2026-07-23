@@ -62,7 +62,12 @@ class CalendarService {
           customItems: {
             select: { id: true, description: true, priceCents: true },
           },
-          invoice: { select: { status: true } },
+          invoices: {
+            where: { status: { not: "voided" } },
+            orderBy: { issuedAt: "desc" },
+            take: 1,
+            select: { status: true },
+          },
           clinicVisitRecord: {
             select: {
               notes: true,
@@ -126,7 +131,17 @@ class CalendarService {
       }),
     ]);
 
-    return { date, timezone, appointments, staff, breaks, services };
+    return {
+      date,
+      timezone,
+      appointments: appointments.map(({ invoices, ...appointment }) => ({
+        ...appointment,
+        invoice: invoices[0] ?? null,
+      })),
+      staff,
+      breaks,
+      services,
+    };
   }
 }
 

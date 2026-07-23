@@ -44,8 +44,19 @@ const appointmentSelect = {
       staff: { select: { id: true, name: true } },
     },
   },
-  invoice: { select: { status: true } },
+  invoices: {
+    where: { status: { not: "voided" } },
+    orderBy: { issuedAt: "desc" as const },
+    take: 1,
+    select: { status: true },
+  },
 } satisfies Prisma.AppointmentSelect;
+
+function withCurrentInvoice<
+  T extends { invoices: Array<{ status: string }> },
+>({ invoices, ...appointment }: T) {
+  return { ...appointment, invoice: invoices[0] ?? null };
+}
 
 class CustomersService {
   async listCustomers(businessId: string, query: ListCustomersQuery) {
@@ -223,19 +234,20 @@ class CustomersService {
       select: appointmentSelect,
     });
 
-    const visits = appointments.filter(
+    const normalizedAppointments = appointments.map(withCurrentInvoice);
+    const visits = normalizedAppointments.filter(
       (appointment) => appointment.status === AppointmentStatus.completed,
     );
-    const noShows = appointments.filter(
+    const noShows = normalizedAppointments.filter(
       (appointment) => appointment.status === AppointmentStatus.no_show,
     );
-    const upcoming = appointments
+    const upcoming = normalizedAppointments
       .filter(
         (appointment) =>
           appointment.startsAt >= now && ACTIVE_STATUSES.includes(appointment.status),
       )
       .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
-    const history = appointments.filter(
+    const history = normalizedAppointments.filter(
       (appointment) => !upcoming.some((item) => item.id === appointment.id),
     );
 

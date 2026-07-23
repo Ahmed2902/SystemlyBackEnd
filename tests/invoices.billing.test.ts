@@ -1,6 +1,7 @@
 jest.mock("../src/shared/db/prisma", () => ({
   prisma: {
     invoice: {
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
       updateMany: jest.fn(),
@@ -56,7 +57,7 @@ test("checkout snapshots staff commission onto the invoice line", async () => {
     lineItems: [],
     customer: { id: "cus1" },
   };
-  prismaAny.invoice.findUnique.mockResolvedValueOnce(null);
+  prismaAny.invoice.findFirst.mockResolvedValueOnce(null);
   prismaAny.appointment.findUnique.mockResolvedValueOnce({
     id: "appt1",
     businessId: "bus1",

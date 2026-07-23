@@ -37,6 +37,7 @@ const makeTx = (conflict = false) => ({
     createMany: async () => ({ count: 1 }),
   },
   staffBreak: { findMany: async () => [] },
+  staffTimeOff: { findMany: async () => [] },
   customer: {
     findUnique: async () => null,
     create: async () => ({ id: "c1" }),
