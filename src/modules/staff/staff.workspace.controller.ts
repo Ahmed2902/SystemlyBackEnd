@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { fail, ok } from "../../shared/utils/response.util";
+import workspaceQuery from "../workspace/workspace.query";
 import {
   createStaffBreakSchema,
   createStaffSchema,
@@ -16,7 +17,7 @@ class StaffWorkspaceController {
       if (!req.user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
       const parsed = staffDirectoryQuerySchema.safeParse(req.query);
       if (!parsed.success) return next(parsed.error);
-      return ok(res, await staffWorkspaceService.listDirectory(req.user, parsed.data));
+      return ok(res, await workspaceQuery.staffDirectory(req.user, parsed.data));
     } catch (error) {
       return next(error);
     }
@@ -27,7 +28,7 @@ class StaffWorkspaceController {
       if (!req.user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
       return ok(
         res,
-        await staffWorkspaceService.getWorkspace(String(req.params.id), req.user),
+        await workspaceQuery.staffDetail(String(req.params.id), req.user),
       );
     } catch (error) {
       return next(error);
