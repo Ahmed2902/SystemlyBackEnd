@@ -1,145 +1,199 @@
-import { Roles, CommissionType } from "@prisma/client";
+import { CommissionType, Roles, StaffTimeOffType } from "@prisma/client";
 import { z } from "zod";
 
 const commissionTypeEnum = z.nativeEnum(CommissionType);
+const roleEnum = z.nativeEnum(Roles);
+const timeOffTypeEnum = z.nativeEnum(StaffTimeOffType);
+
+const optionalText = (max: number) =>
+  z.string().trim().max(max).optional().or(z.literal(""));
+
+const timeSchema = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Time must use HH:mm format");
+
+const dateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must use YYYY-MM-DD format");
+
+const commissionAmountSchema = z.number().min(0).multipleOf(0.01);
+
+const validateCommission = (data: {
+  commissionType: CommissionType;
+  commissionAmount: number;
+}) => {
+  if (data.commissionType === CommissionType.NONE) {
+    return data.commissionAmount === 0;
+  }
+  if (data.commissionType === CommissionType.PERCENT) {
+    return data.commissionAmount > 0 && data.commissionAmount <= 100;
+  }
+  return data.commissionAmount >= 0;
+};
 
 export const createStaffSchema = z.object({
-  name: z.string().min(1).max(255).openapi({ example: "Dr. Mona Ahmed" }),
-  role: z.enum(Roles).optional().openapi({ example: Roles.Staff }),
-  photoUrl: z
-    .string()
-    .url()
-    .optional()
-    .openapi({ example: "https://res.cloudinary.com/.../staff.jpg" }),
-  isActive: z.boolean().optional().openapi({ example: true }),
+  name: z.string().trim().min(1).max(255).openapi({ example: "Dr. Mona Ahmed" }),
+  role: roleEnum.optional().default(Roles.Staff).openapi({ example: Roles.Staff }),
+  jobTitle: optionalText(120).openapi({ example: "Lead Therapist" }),
+  yearsExperience: z.number().int().min(0).max(80).nullable().optional(),
+  bio: optionalText(4000).openapi({ example: "Specializes in rehabilitation and sports recovery." }),
+  phone: optionalText(30).openapi({ example: "+201001234567" }),
+  email: z.string().trim().email().nullable().optional().or(z.literal("")),
+  photoUrl: z.string().url().nullable().optional().or(z.literal("")),
+  isActive: z.boolean().optional().default(true),
+  serviceIds: z.array(z.string().uuid()).optional().default([]),
 });
 
-export const updateStaffSchema = z.object({
-  name: z
-    .string()
-    .min(1)
-    .max(255)
-    .optional()
-    .openapi({ example: "Dr. Mona Ahmed" }),
-  role: z.enum(Roles).optional().openapi({ example: Roles.Staff }),
-  photoUrl: z
-    .string()
-    .url()
-    .optional()
-    .openapi({ example: "https://res.cloudinary.com/.../staff.jpg" }),
-  isActive: z.boolean().optional().openapi({ example: true }),
+export const updateStaffSchema = z
+  .object({
+    name: z.string().trim().min(1).max(255).optional(),
+    role: roleEnum.optional(),
+    jobTitle: optionalText(120).nullable(),
+    yearsExperience: z.number().int().min(0).max(80).nullable().optional(),
+    bio: optionalText(4000).nullable(),
+    phone: optionalText(30).nullable(),
+    email: z.string().trim().email().nullable().optional().or(z.literal("")),
+    photoUrl: z.string().url().nullable().optional().or(z.literal("")),
+    isActive: z.boolean().optional(),
+    serviceIds: z.array(z.string().uuid()).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required",
+  });
+
+export const staffDirectoryQuerySchema = z.object({
+  search: z.string().trim().optional(),
+  status: z.enum(["all", "active", "inactive"]).default("all"),
+  role: roleEnum.optional(),
+  serviceId: z.string().uuid().optional(),
+  availableToday: z.coerce.boolean().optional(),
+  page: z.coerce.number().int().positive().default(1),
+  perPage: z.coerce.number().int().min(1).max(100).default(24),
 });
 
 export const assignServiceSchema = z
   .object({
-    serviceId: z
-      .string()
-      .uuid()
-      .openapi({ example: "123e4567-e89b-12d3-a456-426614174000" }),
-    commissionType: commissionTypeEnum
-      .optional()
-      .default(CommissionType.NONE)
-      .openapi({ example: CommissionType.PERCENT }),
-    commissionAmount: z
-      .number()
-      .int()
-      .min(0)
-      .optional()
-      .default(0)
-      .openapi({ example: 30 }),
+    serviceId: z.string().uuid(),
+    commissionType: commissionTypeEnum.optional().default(CommissionType.NONE),
+    commissionAmount: commissionAmountSchema.optional().default(0),
   })
-  .refine(
-    (data) => {
-      if (data.commissionType === CommissionType.NONE) {
-        return data.commissionAmount === 0;
-      }
-      if (data.commissionType === CommissionType.PERCENT) {
-        return data.commissionAmount >= 0 && data.commissionAmount <= 100;
-      }
-      return data.commissionAmount >= 0;
-    },
-    {
-      message:
-        "commissionAmount must be 0 when type is NONE, and between 0-100 when type is PERCENT",
-    },
-  );
+  .refine(validateCommission, {
+    message:
+      "Commission must be 0 for NONE, between 0.01 and 100 for PERCENT, and non-negative for FLAT",
+  });
 
 export const updateServiceStaffSchema = z
   .object({
-    commissionType: commissionTypeEnum.openapi({
-      example: CommissionType.PERCENT,
-    }),
-    commissionAmount: z.number().int().min(0).openapi({ example: 30 }),
+    commissionType: commissionTypeEnum,
+    commissionAmount: commissionAmountSchema,
   })
-  .refine(
-    (data) => {
-      if (data.commissionType === CommissionType.NONE) {
-        return data.commissionAmount === 0;
-      }
-      if (data.commissionType === CommissionType.PERCENT) {
-        return data.commissionAmount >= 0 && data.commissionAmount <= 100;
-      }
-      return true;
-    },
-    {
-      message:
-        "commissionAmount must be 0 when type is NONE, and between 0-100 when type is PERCENT",
-    },
-  );
+  .refine(validateCommission, {
+    message:
+      "Commission must be 0 for NONE, between 0.01 and 100 for PERCENT, and non-negative for FLAT",
+  });
 
-export const availabilityEntrySchema = z.object({
-  dayOfWeek: z.number().int().min(0).max(6).openapi({ example: 1 }),
-  startTime: z.string().min(1).openapi({ example: "09:00" }),
-  endTime: z.string().min(1).openapi({ example: "17:00" }),
-  breakAfterMin: z.number().optional().openapi({ example: 30 }),
-});
+export const availabilityEntrySchema = z
+  .object({
+    dayOfWeek: z.number().int().min(0).max(6),
+    startTime: timeSchema,
+    endTime: timeSchema,
+    breakAfterMin: z.number().int().min(0).nullable().optional(),
+  })
+  .refine((entry) => entry.startTime < entry.endTime, {
+    message: "Availability end time must be after start time",
+  });
 
-export const replaceAvailabilitySchema = z
-  .array(availabilityEntrySchema)
-  .openapi({ description: "Replace staff availability schedule" });
+export const replaceAvailabilitySchema = z.array(availabilityEntrySchema);
 
-export const overridesSchema = z.object({
-  overrideDate: z.string().min(1).openapi({ example: "2026-03-25" }),
-  isDayOff: z.boolean().optional().openapi({ example: false }),
-  startTime: z.string().optional().openapi({ example: "10:00" }),
-  endTime: z.string().optional().openapi({ example: "14:00" }),
-});
+export const overridesSchema = z
+  .object({
+    overrideDate: dateSchema,
+    isDayOff: z.boolean().optional().default(false),
+    startTime: timeSchema.optional(),
+    endTime: timeSchema.optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.isDayOff) return;
+    if (!value.startTime || !value.endTime) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Start and end times are required unless the date is a day off",
+      });
+      return;
+    }
+    if (value.startTime >= value.endTime) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Override end time must be after start time",
+      });
+    }
+  });
+
+export const createStaffBreakSchema = z
+  .object({
+    breakDate: dateSchema,
+    startTime: timeSchema,
+    endTime: timeSchema,
+    label: optionalText(100),
+  })
+  .refine((value) => value.startTime < value.endTime, {
+    message: "Break end time must be after start time",
+  });
+
+export const createTimeOffSchema = z
+  .object({
+    startsOn: dateSchema,
+    endsOn: dateSchema,
+    type: timeOffTypeEnum.optional().default(StaffTimeOffType.VACATION),
+    label: optionalText(120),
+    notes: optionalText(2000),
+  })
+  .refine((value) => value.endsOn >= value.startsOn, {
+    message: "Time off end date must be on or after the start date",
+  });
 
 export const staffPaginationSchema = z.object({
   items: z.array(z.unknown()),
-  total: z.number().int().nonnegative().openapi({ example: 42 }),
-  page: z.number().int().positive().openapi({ example: 1 }),
-  perPage: z.number().int().positive().openapi({ example: 20 }),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  perPage: z.number().int().positive(),
+});
+
+export const createInviteSchema = z.object({
+  email: z.string().email(),
+  role: roleEnum,
+  expiresInDays: z.number().int().positive().optional(),
+});
+
+export const acceptInviteSchema = z.object({
+  token: z.string().min(1),
 });
 
 export type StaffCreateInput = z.infer<typeof createStaffSchema>;
 export type StaffUpdateInput = z.infer<typeof updateStaffSchema>;
+export type StaffDirectoryQuery = z.infer<typeof staffDirectoryQuerySchema>;
 export type AssignServiceInput = z.infer<typeof assignServiceSchema>;
 export type UpdateServiceStaffInput = z.infer<typeof updateServiceStaffSchema>;
 export type AvailabilityEntry = z.infer<typeof availabilityEntrySchema>;
 export type AvailabilityOverrideInput = z.infer<typeof overridesSchema>;
+export type StaffBreakInput = z.infer<typeof createStaffBreakSchema>;
+export type StaffTimeOffInput = z.infer<typeof createTimeOffSchema>;
 export type StaffListResult = z.infer<typeof staffPaginationSchema>;
+export type CreateInviteInput = z.infer<typeof createInviteSchema>;
+export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
 
 export const staffSchemas = {
   createStaffSchema,
   updateStaffSchema,
+  staffDirectoryQuerySchema,
   assignServiceSchema,
   updateServiceStaffSchema,
   availabilityEntrySchema,
   replaceAvailabilitySchema,
   overridesSchema,
+  createStaffBreakSchema,
+  createTimeOffSchema,
   staffPaginationSchema,
+  createInviteSchema,
+  acceptInviteSchema,
 };
-
-export const createInviteSchema = z.object({
-  email: z.string().email().openapi({ example: "staff@clinic.com" }),
-  role: z.enum(Roles).openapi({ example: Roles.Staff }),
-  expiresInDays: z.number().int().positive().optional().openapi({ example: 7 }),
-});
-
-export const acceptInviteSchema = z.object({
-  token: z.string().min(1).openapi({ example: "invite-token-xyz" }),
-});
-
-export type CreateInviteInput = z.infer<typeof createInviteSchema>;
-export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
