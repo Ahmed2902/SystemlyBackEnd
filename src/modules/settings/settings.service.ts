@@ -1,6 +1,5 @@
 import crypto from "crypto";
 import path from "path";
-import { Prisma } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
 import Supabase from "../../shared/services/Supabase.Service";
 import type {
@@ -84,7 +83,7 @@ class SettingsService {
     businessId: string,
     input: UpdateWebsiteSettingsInput,
   ) {
-    const data: Prisma.WebsiteContentUncheckedUpdateInput = {
+    const values = {
       tagline: cleanNullable(input.tagline),
       aboutText: cleanNullable(input.aboutText),
       template: cleanNullable(input.template),
@@ -102,8 +101,8 @@ class SettingsService {
 
     return prisma.websiteContent.upsert({
       where: { businessId },
-      update: data,
-      create: { businessId, ...data },
+      update: values,
+      create: { businessId, ...values },
     });
   }
 
