@@ -16,7 +16,7 @@ export const updateAppointmentSchema = z.object({
   segments: z
     .array(
       z.object({
-        id: z.string().uuid().optional(), // absent = new segment
+        id: z.string().uuid().optional(),
         serviceId: z.string().uuid(),
         staffId: z.string().uuid(),
         startsAt: z.string().datetime(),
@@ -29,7 +29,8 @@ export const updateAppointmentSchema = z.object({
       z.object({
         id: z.string().uuid().optional(),
         description: z.string().min(1).max(255),
-        priceCents: z.number().int().min(0),
+        quantity: z.number().int().min(1).default(1),
+        unitPriceCents: z.number().int().min(0),
       }),
     )
     .default([]),
@@ -149,7 +150,6 @@ export const cancelAppointmentSchema = z
   .openapi({ description: "Cancel an appointment (staff/business-initiated)" });
 
 export type CancelAppointmentBody = z.infer<typeof cancelAppointmentSchema>;
-
 export type ListAppointmentsQuery = z.infer<typeof listAppointmentsQuerySchema>;
 export type UpdateAppointmentStatusBody = z.infer<
   typeof updateAppointmentStatusSchema
@@ -161,6 +161,5 @@ export type CreateManualAppointmentBody = z.infer<
   typeof createManualAppointmentSchema
 >;
 export type FinishAppointmentInput = z.infer<typeof finishAppointmentSchema>;
-
 export type RevertAppointmentInput = z.infer<typeof revertAppointmentSchema>;
 export type UpdateAppointmentBody = z.infer<typeof updateAppointmentSchema>;
