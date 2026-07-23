@@ -2,6 +2,7 @@ import { CommissionType, Roles } from "@prisma/client";
 import { Router } from "express";
 import staffController from "./staff.controller";
 import staffWorkspaceController from "./staff.workspace.controller";
+import staffPhotoController from "./staff-photo.controller";
 import {
   requireAuth,
   requireBusinessAccess,
@@ -37,7 +38,6 @@ const removeCommissionForOperationalUsers = (req: any, _res: any, next: any) => 
 
 router.use(requireAuth);
 
-// Directory and profile workspace
 router.get("/", staffWorkspaceController.list);
 router.post(
   "/",
@@ -56,7 +56,10 @@ router.delete(
   staffWorkspaceController.deactivate,
 );
 
-// Service assignment and owner-only commission management
+router.post("/:id/photo/presign", staffPhotoController.presign);
+router.post("/:id/photo/confirm", staffPhotoController.confirm);
+router.delete("/:id/photo", staffPhotoController.remove);
+
 router.post(
   "/:id/services",
   removeCommissionForOperationalUsers,
@@ -76,7 +79,6 @@ router.patch(
 );
 router.delete("/:id/services/:serviceId", staffController.unassignService);
 
-// Weekly availability supports multiple intervals per day.
 router.get("/:id/availability", staffController.getAvailability);
 router.put(
   "/:id/availability",
@@ -97,7 +99,6 @@ router.delete(
   staffController.deleteOverride,
 );
 
-// Staff-specific partial-day breaks.
 router.post(
   "/:id/breaks",
   validate.validateBody(createStaffBreakSchema),
@@ -105,7 +106,6 @@ router.post(
 );
 router.delete("/:id/breaks/:breakId", staffWorkspaceController.deleteBreak);
 
-// Full-day date-range time off.
 router.post(
   "/:id/time-off",
   validate.validateBody(createTimeOffSchema),
@@ -116,14 +116,12 @@ router.delete(
   staffWorkspaceController.deleteTimeOff,
 );
 
-// Financial reporting remains owner-only.
 router.get(
   "/:id/commission",
   requireRole(OWNER_ROLES),
   staffController.getCommission,
 );
 
-// Account invites remain available for later, but V1 staff creation does not use them.
 router.post(
   "/invites",
   requireBusinessAccess,
@@ -137,7 +135,6 @@ router.post(
   staffController.acceptInvite,
 );
 
-// Legacy calendar break endpoints kept for compatibility.
 router.get(
   "/breaks",
   requireBusinessAccess,
