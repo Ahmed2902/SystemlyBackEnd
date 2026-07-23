@@ -174,8 +174,8 @@ type StaffUpdatePayload = z.infer<typeof updateStaffSchema>;
 
 export type StaffWorkspaceCreateInput = StaffCreatePayload;
 export type StaffWorkspaceUpdateInput = StaffUpdatePayload;
-export type StaffCreateInput = Omit<StaffCreatePayload, "serviceIds">;
-export type StaffUpdateInput = Omit<StaffUpdatePayload, "serviceIds">;
+export type StaffCreateInput = StaffCreatePayload;
+export type StaffUpdateInput = StaffUpdatePayload;
 export type StaffDirectoryQuery = z.infer<typeof staffDirectoryQuerySchema>;
 export type AssignServiceInput = z.infer<typeof assignServiceSchema>;
 export type UpdateServiceStaffInput = z.infer<typeof updateServiceStaffSchema>;
