@@ -185,14 +185,18 @@ export async function assertSegmentsAssignable(
       staffId: string;
       startsAt: Date;
       endsAt: Date;
+      checkEligibility?: boolean;
     }>;
   },
 ) {
   const { businessId, businessTimezone, excludeAppointmentId, segments } = opts;
   if (segments.length === 0) return;
 
+  const segmentsRequiringEligibility = segments.filter(
+    (segment) => segment.checkEligibility !== false,
+  );
   const eligibilityRows = await Promise.all(
-    segments.map((segment) =>
+    segmentsRequiringEligibility.map((segment) =>
       tx.serviceStaff.findFirst({
         where: {
           serviceId: segment.serviceId,
@@ -208,7 +212,8 @@ export async function assertSegmentsAssignable(
     ),
   );
 
-  for (const row of eligibilityRows) {
+  for (let index = 0; index < eligibilityRows.length; index += 1) {
+    const row = eligibilityRows[index];
     if (
       !row ||
       !row.staff.isActive ||
@@ -216,8 +221,9 @@ export async function assertSegmentsAssignable(
       row.staff.businessId !== businessId ||
       row.service.businessId !== businessId
     ) {
+      const segment = segmentsRequiringEligibility[index];
       throw invalidStateError(
-        "Staff is not eligible for this service",
+        `Staff ${segment.staffId} is not eligible for service ${segment.serviceId}`,
         "STAFF_INELIGIBLE",
       );
     }

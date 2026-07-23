@@ -325,16 +325,28 @@ class AppointmentsService {
         })),
       );
 
+      const existingSegmentById = new Map(
+        appt.appointmentServices.map((segment) => [segment.id, segment]),
+      );
       await assertSegmentsAssignable(tx, {
         businessId,
         businessTimezone: appt.business.timezone,
         excludeAppointmentId: id,
-        segments: payload.segments.map((s) => ({
-          serviceId: s.serviceId,
-          staffId: s.staffId,
-          startsAt: new Date(s.startsAt),
-          endsAt: new Date(s.endsAt),
-        })),
+        segments: payload.segments.map((segment) => {
+          const existingSegment = segment.id
+            ? existingSegmentById.get(segment.id)
+            : undefined;
+          return {
+            serviceId: segment.serviceId,
+            staffId: segment.staffId,
+            startsAt: new Date(segment.startsAt),
+            endsAt: new Date(segment.endsAt),
+            checkEligibility:
+              !existingSegment ||
+              existingSegment.serviceId !== segment.serviceId ||
+              existingSegment.staffId !== segment.staffId,
+          };
+        }),
       });
 
       const incomingIds = payload.segments
