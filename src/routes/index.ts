@@ -14,6 +14,7 @@ import invoicesRoutes from "../modules/invoices/invoices.routes";
 import analyticsRoutes from "../modules/analytics/analytics.routes";
 import onboardingRoutes from "../modules/onboarding/onboarding.routes";
 import calendarRoutes from "../modules/calendar/calendar.routes";
+import settingsRoutes from "../modules/settings/settings.routes";
 
 const router = Router();
 
@@ -43,5 +44,6 @@ router.use("/billing", billingRoutes);
 router.use("/invoices", invoicesRoutes);
 router.use("/analytics", analyticsRoutes);
 router.use("/onboarding", onboardingRoutes);
+router.use("/settings", settingsRoutes);
 
 export default router;
