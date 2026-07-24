@@ -5,7 +5,7 @@ import { BUSINESS_TIMEZONE } from "../presets";
 import { bucketLeadTimeDays, type LeadTimeBucket } from "../utils";
 
 export interface BookingHeatmapRow {
-  weekday: number; // 0 = Sunday ... 6 = Saturday
+  weekday: number;
   hour: number;
   count: number;
 }
@@ -22,12 +22,6 @@ export interface BookingLeadTimeRow {
   count: number;
 }
 
-/**
- * Appointment volume by weekday + hour -- helps an owner see peak demand
- * windows. Plain GROUP BY, no gap-filling needed since a heatmap cell with
- * zero bookings is meaningfully different from one with one booking (the
- * frontend can render absence as 0 directly, no generate_series required).
- */
 export async function getBookingHeatmap(
   businessId: string,
   from: Date,
@@ -47,17 +41,13 @@ export async function getBookingHeatmap(
     ORDER BY weekday, hour
   `);
 
-  return rows.map((r) => ({
-    weekday: r.weekday,
-    hour: r.hour,
-    count: Number(r.count),
+  return rows.map((row) => ({
+    weekday: row.weekday,
+    hour: row.hour,
+    count: Number(row.count),
   }));
 }
 
-/**
- * Most-booked services by appointment count. Needs the service name/category
- * joined, so this stays raw SQL rather than prisma.groupBy.
- */
 export async function getMostBookedServices(
   businessId: string,
   from: Date,
@@ -82,19 +72,14 @@ export async function getMostBookedServices(
     LIMIT ${limit}
   `);
 
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    category: r.category,
-    count: Number(r.count),
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    count: Number(row.count),
   }));
 }
 
-/**
- * Booking lead time: diff between Appointment.createdAt and startsAt,
- * bucketed into named ranges. A per-row computed-then-bucketed value,
- * not an aggregate -- stays in JS.
- */
 export async function computeBookingLeadTimes(
   businessId: string,
   from: Date,
@@ -106,11 +91,11 @@ export async function computeBookingLeadTimes(
   });
 
   const counts = new Map<LeadTimeBucket, number>();
-  for (const appt of appointments) {
-    const startsLocal = DateTime.fromJSDate(appt.startsAt).setZone(
+  for (const appointment of appointments) {
+    const startsLocal = DateTime.fromJSDate(appointment.startsAt).setZone(
       BUSINESS_TIMEZONE,
     );
-    const createdLocal = DateTime.fromJSDate(appt.createdAt).setZone(
+    const createdLocal = DateTime.fromJSDate(appointment.createdAt).setZone(
       BUSINESS_TIMEZONE,
     );
     const diffDays = Math.max(startsLocal.diff(createdLocal, "days").days, 0);
@@ -120,9 +105,11 @@ export async function computeBookingLeadTimes(
 
   const order: LeadTimeBucket[] = [
     "same_day",
-    "1_2_days",
-    "3_7_days",
-    "1_week_plus",
+    "1_3_days",
+    "4_7_days",
+    "8_14_days",
+    "15_plus_days",
   ];
+
   return order.map((bucket) => ({ bucket, count: counts.get(bucket) ?? 0 }));
 }
