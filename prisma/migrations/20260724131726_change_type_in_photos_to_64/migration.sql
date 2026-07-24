@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "photos" ALTER COLUMN "type" SET DATA TYPE VARCHAR(64);

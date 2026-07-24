@@ -613,7 +613,7 @@ model Photo {
   url               String             @db.Text
   publicId          String?            @map("public_id") @db.VarChar(255)
   kind              String             @db.VarChar(30)
-  type              String?            @db.VarChar(30)
+  type              String?            @db.VarChar(64) //its a econdary idintefier for the photo, like a staff id or logo
   position          Int                @default(0)
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt
