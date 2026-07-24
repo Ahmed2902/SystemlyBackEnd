@@ -1,62 +1,28 @@
 import { Router } from "express";
+import { Roles } from "@prisma/client";
 import analyticsController from "./analytics.controller";
 import validate from "../../shared/middleware/validate.middleware";
 import { AnalyticsStatsQuerySchema } from "./analytics.schema";
 import {
   requireAuth,
   requireBusinessAccess,
+  requireRole,
 } from "../../shared/middleware/auth.middleware";
 
 const router = Router();
+const ownerOnly = requireRole(Roles.BusinessAdmin);
+const middleware = [
+  requireAuth,
+  requireBusinessAccess,
+  ownerOnly,
+  validate.validateQuery(AnalyticsStatsQuerySchema),
+] as const;
 
-router.get(
-  "/dashboard",
-  requireAuth,
-  requireBusinessAccess,
-  validate.validateQuery(AnalyticsStatsQuerySchema),
-  analyticsController.getOverview,
-);
-router.get(
-  "/revenue",
-  requireAuth,
-  requireBusinessAccess,
-  validate.validateQuery(AnalyticsStatsQuerySchema),
-  analyticsController.getRevenue,
-);
-router.get(
-  "/customers",
-  requireAuth,
-  requireBusinessAccess,
-  validate.validateQuery(AnalyticsStatsQuerySchema),
-  analyticsController.getCustomers,
-);
-router.get(
-  "/staff",
-  requireAuth,
-  requireBusinessAccess,
-  validate.validateQuery(AnalyticsStatsQuerySchema),
-  analyticsController.getStaff,
-);
-router.get(
-  "/operations",
-  requireAuth,
-  requireBusinessAccess,
-  validate.validateQuery(AnalyticsStatsQuerySchema),
-  analyticsController.getOperations,
-);
-router.get(
-  "/growth",
-  requireAuth,
-  requireBusinessAccess,
-  validate.validateQuery(AnalyticsStatsQuerySchema),
-  analyticsController.getGrowth,
-);
-// router.get(
-//   "/businesses/:businessId/stats",
-//   requireAuth,
-//   requireBusinessAccess,
-//   validate.validateQuery(AnalyticsStatsQuerySchema),
-//   analyticsController,
-// );
+router.get("/dashboard", ...middleware, analyticsController.getOverview);
+router.get("/revenue", ...middleware, analyticsController.getRevenue);
+router.get("/customers", ...middleware, analyticsController.getCustomers);
+router.get("/staff", ...middleware, analyticsController.getStaff);
+router.get("/operations", ...middleware, analyticsController.getOperations);
+router.get("/growth", ...middleware, analyticsController.getGrowth);
 
 export default router;
