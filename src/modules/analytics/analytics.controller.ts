@@ -7,6 +7,18 @@ function parsePreset(req: Request) {
   return preset;
 }
 
+function resolveBusinessId(req: Request) {
+  const businessId = req.user?.businessId;
+  if (!businessId) {
+    throw new AnalyticsError(
+      "Business id missing",
+      400,
+      "BUSINESS_ID_MISSING",
+    );
+  }
+  return String(businessId);
+}
+
 function handleError(err: unknown, res: Response, next: NextFunction) {
   if (err instanceof AnalyticsError) {
     return res
@@ -16,13 +28,12 @@ function handleError(err: unknown, res: Response, next: NextFunction) {
   return next(err);
 }
 
-class analyticsController {
+class AnalyticsController {
   async getOverview(req: Request, res: Response, next: NextFunction) {
     try {
-      const preset = parsePreset(req);
       const data = await analyticsService.getDashboardOverview(
-        String(req.params.businessId),
-        preset,
+        resolveBusinessId(req),
+        parsePreset(req),
       );
       res.json(data);
     } catch (err) {
@@ -32,10 +43,9 @@ class analyticsController {
 
   async getRevenue(req: Request, res: Response, next: NextFunction) {
     try {
-      const preset = parsePreset(req);
       const data = await analyticsService.getRevenueAnalytics(
-        String(req.params.businessId),
-        preset,
+        resolveBusinessId(req),
+        parsePreset(req),
       );
       res.json(data);
     } catch (err) {
@@ -45,10 +55,9 @@ class analyticsController {
 
   async getCustomers(req: Request, res: Response, next: NextFunction) {
     try {
-      const preset = parsePreset(req);
       const data = await analyticsService.getCustomerAnalytics(
-        String(req.params.businessId),
-        preset,
+        resolveBusinessId(req),
+        parsePreset(req),
       );
       res.json(data);
     } catch (err) {
@@ -58,10 +67,9 @@ class analyticsController {
 
   async getStaff(req: Request, res: Response, next: NextFunction) {
     try {
-      const preset = parsePreset(req);
       const data = await analyticsService.getStaffAnalytics(
-        String(req.params.businessId),
-        preset,
+        resolveBusinessId(req),
+        parsePreset(req),
       );
       res.json(data);
     } catch (err) {
@@ -71,10 +79,9 @@ class analyticsController {
 
   async getOperations(req: Request, res: Response, next: NextFunction) {
     try {
-      const preset = parsePreset(req);
       const data = await analyticsService.getOperationsAnalytics(
-        String(req.params.businessId),
-        preset,
+        resolveBusinessId(req),
+        parsePreset(req),
       );
       res.json(data);
     } catch (err) {
@@ -84,10 +91,9 @@ class analyticsController {
 
   async getGrowth(req: Request, res: Response, next: NextFunction) {
     try {
-      const preset = parsePreset(req);
       const data = await analyticsService.getGrowthAnalytics(
-        String(req.params.businessId),
-        preset,
+        resolveBusinessId(req),
+        parsePreset(req),
       );
       res.json(data);
     } catch (err) {
@@ -96,5 +102,4 @@ class analyticsController {
   }
 }
 
-const analyticsControllerInstance = new analyticsController();
-export default analyticsControllerInstance;
+export default new AnalyticsController();
