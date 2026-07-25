@@ -1,3 +1,4 @@
+import { AppointmentStatus } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "../../shared/db/prisma";
 import redis from "../../shared/config/redis";
@@ -68,18 +69,16 @@ function sum<T>(rows: T[], getter: (row: T) => number) {
   return rows.reduce((total, row) => total + getter(row), 0);
 }
 
-function latestRate(rows: { rate: number }[]) {
-  return rows.at(-1)?.rate ?? 0;
-}
-
 function retentionRate(
   rows: customerQueries.RetentionCohortRow[],
   field: "retained30" | "retained60" | "retained90",
   days: number,
 ) {
   const cutoff = DateTime.now().setZone(BUSINESS_TIMEZONE).minus({ days });
-  const mature = rows.filter(
-    (row) => DateTime.fromJSDate(row.cohortStart).setZone(BUSINESS_TIMEZONE) <= cutoff,
+  const mature = rows.filter((row) =>
+    DateTime.fromJSDate(row.cohortStart)
+      .setZone(BUSINESS_TIMEZONE)
+      .endOf("month") <= cutoff,
   );
   const total = sum(mature, (row) => row.totalCustomers);
   if (!total) return null;
@@ -91,15 +90,30 @@ class AnalyticsService {
     return withCache(getCacheKey(businessId, "revenue", preset), async () => {
       const business = await resolveBusiness(businessId);
       const { from, to, granularity } = resolveRange(preset, business.createdAt);
-      const [trend, byCategory, byWeekday, averageInvoiceValue, outstanding, averageInvoiceValueTrend] =
+      const [trend, byCategory, byWeekday, averageInvoiceValue, averageInvoiceValueTrend] =
         await Promise.all([
           revenueQueries.getRevenueTrend(businessId, from, to, granularity),
           revenueQueries.getRevenueByCategory(businessId, from, to),
           revenueQueries.getRevenueByWeekday(businessId, from, to),
           revenueQueries.getAverageInvoiceValue(businessId, from, to),
-          revenueQueries.getOutstandingInvoices(businessId),
           revenueQueries.getAverageInvoiceValueTrend(businessId, from, to, granularity),
         ]);
+
+      const topCategory = byCategory[0]
+        ? {
+            category: byCategory[0].category,
+            totalCents: byCategory[0].totalCents,
+          }
+        : null;
+      const bestWeekdayRow = [...byWeekday].sort(
+        (a, b) => b.totalCents - a.totalCents,
+      )[0];
+      const bestWeekday = bestWeekdayRow
+        ? {
+            weekday: bestWeekdayRow.weekday,
+            totalCents: bestWeekdayRow.totalCents,
+          }
+        : null;
 
       return {
         ...metadata(preset, from, to, granularity),
@@ -107,14 +121,13 @@ class AnalyticsService {
           revenueCents: sum(trend, (row) => row.totalCents),
           paidInvoiceCount: sum(trend, (row) => row.invoiceCount),
           averageInvoiceCents: averageInvoiceValue.averageCents,
-          outstandingInvoiceCount: outstanding.count,
-          outstandingTotalCents: outstanding.totalCents,
+          topCategory,
+          bestWeekday,
         },
         trend,
         byCategory,
         byWeekday,
         averageInvoiceValue,
-        outstanding,
         averageInvoiceValueTrend,
       };
     });
@@ -140,6 +153,7 @@ class AnalyticsService {
         retentionCohorts,
         noShowRate,
         cancellationRate,
+        outcomeCounts,
       ] = await Promise.all([
         customerQueries.getNewVsReturningCustomers(businessId, from, to, granularity),
         customerQueries.getCustomerLifetimeValue(businessId, from, to),
@@ -150,7 +164,34 @@ class AnalyticsService {
         customerQueries.computeRetentionCohorts(businessId),
         customerQueries.getNoShowRateOverTime(businessId, from, to, granularity),
         customerQueries.getCancellationRateOverTime(businessId, from, to, granularity),
+        prisma.appointment.groupBy({
+          by: ["status"],
+          where: {
+            businessId,
+            startsAt: { gte: from, lte: to },
+            status: {
+              in: [
+                AppointmentStatus.completed,
+                AppointmentStatus.no_show,
+                AppointmentStatus.cancelled_by_customer,
+                AppointmentStatus.cancelled_by_business,
+              ],
+            },
+          },
+          _count: true,
+        }),
       ]);
+
+      const outcomeCountByStatus = new Map(
+        outcomeCounts.map((row) => [row.status, row._count]),
+      );
+      const completedCount = outcomeCountByStatus.get(AppointmentStatus.completed) ?? 0;
+      const noShowCount = outcomeCountByStatus.get(AppointmentStatus.no_show) ?? 0;
+      const cancellationCount =
+        (outcomeCountByStatus.get(AppointmentStatus.cancelled_by_customer) ?? 0) +
+        (outcomeCountByStatus.get(AppointmentStatus.cancelled_by_business) ?? 0);
+      const appointmentOutcomeCount = completedCount + noShowCount + cancellationCount;
+      const noShowDenominator = completedCount + noShowCount;
 
       return {
         ...metadata(preset, from, to, granularity),
@@ -158,8 +199,16 @@ class AnalyticsService {
           newCustomers: sum(newVsReturning, (row) => row.newCustomers),
           returningCustomers: sum(newVsReturning, (row) => row.returningCustomers),
           lapsedCustomerCount: lapsedTotal,
-          noShowRate: latestRate(noShowRate),
-          cancellationRate: latestRate(cancellationRate),
+          noShowRate:
+            noShowDenominator > 0 ? (noShowCount / noShowDenominator) * 100 : 0,
+          noShowCount,
+          completedCount,
+          cancellationRate:
+            appointmentOutcomeCount > 0
+              ? (cancellationCount / appointmentOutcomeCount) * 100
+              : 0,
+          cancellationCount,
+          appointmentOutcomeCount,
         },
         retentionSummary: {
           day30Rate: retentionRate(retentionCohorts, "retained30", 30),
@@ -170,7 +219,11 @@ class AnalyticsService {
         lifetimeValue,
         lifetimeValueAllTime,
         acquisitionSources,
-        lapsedCustomers: { total: lapsedTotal, items: lapsedItems },
+        lapsedCustomers: {
+          total: lapsedTotal,
+          thresholdDays: DEFAULT_LAPSED_DAYS,
+          items: lapsedItems,
+        },
         retentionCohorts,
         noShowRate,
         cancellationRate,

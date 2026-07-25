@@ -17,7 +17,7 @@ export interface RevenueCategoryRow {
 }
 
 export interface RevenueWeekdayRow {
-  weekday: number; // 0 = Sunday ... 6 = Saturday (Postgres EXTRACT(DOW) convention)
+  weekday: number;
   totalCents: number;
   invoiceCount: number;
 }
@@ -29,19 +29,10 @@ export interface AverageInvoiceValue {
 
 export interface AverageInvoiceValueTrendRow {
   bucket: Date;
-  averageCents: number;
+  averageCents: number | null;
   invoiceCount: number;
 }
 
-export interface OutstandingInvoices {
-  count: number;
-  totalCents: number;
-}
-
-/**
- * Revenue trend bucketed by granularity, zero-filled via generate_series so
- * the chart has no gaps for periods with no paid invoices.
- */
 export async function getRevenueTrend(
   businessId: string,
   from: Date,
@@ -49,7 +40,6 @@ export async function getRevenueTrend(
   granularity: Granularity,
 ): Promise<RevenueTrendRow[]> {
   const safeGranularity = assertSafeGranularity(granularity);
-
   const rows = await prisma.$queryRaw<
     { bucket: Date; total_cents: bigint; invoice_count: bigint }[]
   >(Prisma.sql`
@@ -78,10 +68,6 @@ export async function getRevenueTrend(
   }));
 }
 
-/**
- * Revenue grouped by service category, sourced from InvoiceLineItem since
- * that's where serviceId/category and totalCents per line live.
- */
 export async function getRevenueByCategory(
   businessId: string,
   from: Date,
@@ -111,10 +97,6 @@ export async function getRevenueByCategory(
   }));
 }
 
-/**
- * Revenue averaged by day of week (0=Sunday..6=Saturday, Postgres EXTRACT(DOW)).
- * Useful for spotting weekend/weekday demand swings.
- */
 export async function getRevenueByWeekday(
   businessId: string,
   from: Date,
@@ -142,10 +124,6 @@ export async function getRevenueByWeekday(
   }));
 }
 
-/**
- * Average paid invoice value over the range. Simple aggregate -- no raw SQL
- * needed, this is exactly what prisma.aggregate is for.
- */
 export async function getAverageInvoiceValue(
   businessId: string,
   from: Date,
@@ -167,10 +145,6 @@ export async function getAverageInvoiceValue(
   };
 }
 
-/**
- * Average invoice value bucketed over time, zero-filled via generate_series.
- * Mirrors getRevenueTrend's shape but averages instead of sums.
- */
 export async function getAverageInvoiceValueTrend(
   businessId: string,
   from: Date,
@@ -178,7 +152,6 @@ export async function getAverageInvoiceValueTrend(
   granularity: Granularity,
 ): Promise<AverageInvoiceValueTrendRow[]> {
   const safeGranularity = assertSafeGranularity(granularity);
-
   const rows = await prisma.$queryRaw<
     { bucket: Date; average_cents: number | null; invoice_count: bigint }[]
   >(Prisma.sql`
@@ -202,27 +175,7 @@ export async function getAverageInvoiceValueTrend(
 
   return rows.map((r) => ({
     bucket: r.bucket,
-    averageCents: Math.round(r.average_cents ?? 0),
+    averageCents: r.average_cents == null ? null : Math.round(r.average_cents),
     invoiceCount: Number(r.invoice_count),
   }));
-}
-
-/**
- * Outstanding (sent but not yet paid) invoices. Intentionally NOT
- * date-ranged -- an unpaid invoice from last month is still outstanding
- * today, regardless of which preset the dashboard is viewing.
- */
-export async function getOutstandingInvoices(
-  businessId: string,
-): Promise<OutstandingInvoices> {
-  const result = await prisma.invoice.aggregate({
-    where: { businessId, status: "sent" },
-    _sum: { totalCents: true },
-    _count: true,
-  });
-
-  return {
-    count: result._count,
-    totalCents: result._sum.totalCents ?? 0,
-  };
 }
