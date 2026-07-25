@@ -43,17 +43,27 @@ export async function getRevenueTrend(
   const rows = await prisma.$queryRaw<
     { bucket: Date; total_cents: bigint; invoice_count: bigint }[]
   >(Prisma.sql`
+    WITH buckets AS (
+      SELECT bucket
+      FROM generate_series(
+        ${from}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE},
+        ${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE},
+        ${`1 ${safeGranularity}`}::interval
+      ) AS series(bucket)
+      UNION
+      SELECT ${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}
+    )
     SELECT
       buckets.bucket,
       COALESCE(SUM(i.total_cents), 0) AS total_cents,
       COALESCE(COUNT(i.id), 0) AS invoice_count
-    FROM generate_series(
-      DATE_TRUNC(${safeGranularity}, ${from}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}),
-      DATE_TRUNC(${safeGranularity}, ${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}),
-      ${`1 ${safeGranularity}`}::interval
-    ) AS buckets(bucket)
+    FROM buckets
     LEFT JOIN invoices i
-      ON DATE_TRUNC(${safeGranularity}, i.paid_at AT TIME ZONE ${BUSINESS_TIMEZONE}) = buckets.bucket
+      ON (i.paid_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE}) >= buckets.bucket
+      AND (i.paid_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE}) < LEAST(
+        buckets.bucket + ${`1 ${safeGranularity}`}::interval,
+        (${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}) + interval '1 millisecond'
+      )
       AND i.business_id = ${businessId}::uuid
       AND i.status = 'paid'
       AND i.paid_at BETWEEN ${from} AND ${to}
@@ -106,7 +116,9 @@ export async function getRevenueByWeekday(
     { weekday: number; total_cents: bigint; invoice_count: bigint }[]
   >(Prisma.sql`
     SELECT
-      EXTRACT(DOW FROM i.paid_at AT TIME ZONE ${BUSINESS_TIMEZONE})::int AS weekday,
+      EXTRACT(
+        DOW FROM (i.paid_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE})
+      )::int AS weekday,
       SUM(i.total_cents) AS total_cents,
       COUNT(*) AS invoice_count
     FROM invoices i
@@ -155,17 +167,27 @@ export async function getAverageInvoiceValueTrend(
   const rows = await prisma.$queryRaw<
     { bucket: Date; average_cents: number | null; invoice_count: bigint }[]
   >(Prisma.sql`
+    WITH buckets AS (
+      SELECT bucket
+      FROM generate_series(
+        ${from}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE},
+        ${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE},
+        ${`1 ${safeGranularity}`}::interval
+      ) AS series(bucket)
+      UNION
+      SELECT ${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}
+    )
     SELECT
       buckets.bucket,
       AVG(i.total_cents)::float AS average_cents,
       COUNT(i.id) AS invoice_count
-    FROM generate_series(
-      DATE_TRUNC(${safeGranularity}, ${from}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}),
-      DATE_TRUNC(${safeGranularity}, ${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}),
-      ${`1 ${safeGranularity}`}::interval
-    ) AS buckets(bucket)
+    FROM buckets
     LEFT JOIN invoices i
-      ON DATE_TRUNC(${safeGranularity}, i.paid_at AT TIME ZONE ${BUSINESS_TIMEZONE}) = buckets.bucket
+      ON (i.paid_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE}) >= buckets.bucket
+      AND (i.paid_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE}) < LEAST(
+        buckets.bucket + ${`1 ${safeGranularity}`}::interval,
+        (${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}) + interval '1 millisecond'
+      )
       AND i.business_id = ${businessId}::uuid
       AND i.status = 'paid'
       AND i.paid_at BETWEEN ${from} AND ${to}

@@ -31,8 +31,18 @@ export async function getBookingHeatmap(
     { weekday: number; hour: number; count: bigint }[]
   >(Prisma.sql`
     SELECT
-      EXTRACT(DOW FROM a.starts_at AT TIME ZONE ${BUSINESS_TIMEZONE})::int AS weekday,
-      EXTRACT(HOUR FROM a.starts_at AT TIME ZONE ${BUSINESS_TIMEZONE})::int AS hour,
+      -- Prisma stores these DateTime values as UTC in PostgreSQL's
+      -- timezone-less timestamp column. Convert UTC -> business-local time
+      -- before extracting the weekday/hour; applying the business timezone
+      -- directly makes PostgreSQL return a timestamptz and extraction then
+      -- uses the database session timezone (which shifted Cairo bookings
+      -- several hours backwards in the heatmap).
+      EXTRACT(
+        DOW FROM (a.starts_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE})
+      )::int AS weekday,
+      EXTRACT(
+        HOUR FROM (a.starts_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE})
+      )::int AS hour,
       COUNT(*) AS count
     FROM appointments a
     WHERE a.business_id = ${businessId}::uuid
