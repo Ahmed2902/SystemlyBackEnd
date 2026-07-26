@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { isTemplateAllowedForVertical } from "../../shared/config/templates.config";
 
 const serviceSchema = z.object({
   clientId: z.string(),
   name: z.string().min(1).max(255),
   category: z.string().max(80).optional(),
+  description: z.string().max(2000).optional(),
   priceEgp: z.number().positive(),
   durationMin: z.number().int().positive(),
 });
@@ -18,6 +20,9 @@ const staffSchema = z.object({
   clientId: z.string(),
   name: z.string().min(1).max(255),
   role: z.enum(["Staff", "Receptionist"]),
+  jobTitle: z.string().max(120).optional(),
+  bio: z.string().max(3000).optional(),
+  yearsExperience: z.number().int().min(0).max(80).optional(),
   photoUrl: z.string().url().optional(),
   serviceClientIds: z.array(z.string()),
   availability: z.array(availabilitySchema),
@@ -28,32 +33,40 @@ const faqSchema = z.object({
   answer: z.string().min(1),
 });
 
-export const completeOnboardingSchema = z.object({
-  vertical: z.string().min(1).max(80),
-  templateId: z.string().min(1).max(80),
-  name: z.string().min(1).max(255),
-  slug: z
-    .string()
-    .min(1)
-    .max(120)
-    .regex(/^[a-z0-9-]+$/),
-  phone: z.string().min(1).max(30),
-  city: z.string().max(120).optional(),
-  address: z.string().optional(),
-  tagline: z.string().optional(),
-  aboutText: z.string().optional(),
-  heroPhotoUrl: z.url().optional(),
-  logoUrl: z.url().optional(),
-  galleryPhotoUrls: z.array(z.string().url()).default([]),
-  primaryColor: z.string().max(30),
-  sectionOrder: z.array(z.string()),
-  showTeam: z.boolean(),
-  showFaq: z.boolean(),
-  instagram: z.string().max(255).optional(),
-  whatsapp: z.string().max(30).optional(),
-  services: z.array(serviceSchema).min(1),
-  staff: z.array(staffSchema).min(1),
-  faqs: z.array(faqSchema).default([]),
-});
+export const completeOnboardingSchema = z
+  .object({
+    vertical: z.enum(["salon", "clinic"]),
+    templateId: z.string().min(1).max(80),
+    name: z.string().min(1).max(255),
+    slug: z.string().min(1).max(120).regex(/^[a-z0-9-]+$/),
+    phone: z.string().min(1).max(30),
+    city: z.string().max(120).optional(),
+    address: z.string().optional(),
+    timezone: z.string().min(1).max(80).default("Africa/Cairo"),
+    language: z.enum(["en", "ar"]).default("en"),
+    tagline: z.string().optional(),
+    aboutText: z.string().optional(),
+    heroPhotoUrl: z.string().url().optional(),
+    logoUrl: z.string().url().optional(),
+    galleryPhotoUrls: z.array(z.string().url()).default([]),
+    primaryColor: z.string().max(30),
+    sectionOrder: z.array(z.string()),
+    showTeam: z.boolean(),
+    showFaq: z.boolean(),
+    instagram: z.string().max(255).optional(),
+    whatsapp: z.string().max(30).optional(),
+    services: z.array(serviceSchema).min(1),
+    staff: z.array(staffSchema).min(1),
+    faqs: z.array(faqSchema).default([]),
+  })
+  .superRefine((input, context) => {
+    if (!isTemplateAllowedForVertical(input.templateId, input.vertical)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["templateId"],
+        message: "Template is not available for the selected business vertical",
+      });
+    }
+  });
 
 export type CompleteOnboardingInput = z.infer<typeof completeOnboardingSchema>;
