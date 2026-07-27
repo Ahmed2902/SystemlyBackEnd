@@ -1,11 +1,13 @@
 import crypto from "crypto";
 import { Roles } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
-import { enqueueEmailJob } from "../../queues/emailQueue";
 import type { CreateInviteInput } from "./staff.schema";
 
 const buildError = (message: string, statusCode: number, code: string) => {
-  const error: any = new Error(message);
+  const error = new Error(message) as Error & {
+    statusCode: number;
+    code: string;
+  };
   error.statusCode = statusCode;
   error.code = code;
   return error;
@@ -15,28 +17,24 @@ function normaliseEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+function hashToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
 class StaffInviteService {
-  async create(
-    businessId: string,
-    inviterId: string,
-    input: CreateInviteInput,
-  ) {
+  async create(businessId: string, input: CreateInviteInput) {
     const email = normaliseEmail(input.email);
     const expiresInDays = input.expiresInDays ?? 7;
     const token = crypto.randomBytes(32).toString("hex");
-    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    const tokenHash = hashToken(token);
     const expiresAt = new Date(
       Date.now() + expiresInDays * 24 * 60 * 60 * 1000,
     );
 
-    const [business, inviter, existingUser] = await Promise.all([
+    const [business, existingUser] = await Promise.all([
       prisma.business.findUnique({
         where: { id: businessId },
-        select: { name: true },
-      }),
-      prisma.businessUser.findUnique({
-        where: { id: inviterId },
-        select: { name: true },
+        select: { id: true },
       }),
       prisma.businessUser.findUnique({
         where: { email },
@@ -60,49 +58,43 @@ class StaffInviteService {
       );
     }
 
-    await prisma.staffInvite.updateMany({
-      where: {
-        businessId,
-        email,
-        acceptedAt: null,
-      },
-      data: { expiresAt: new Date(0) },
+    const invite = await prisma.$transaction(async (tx) => {
+      await tx.staffInvite.updateMany({
+        where: {
+          businessId,
+          email,
+          acceptedAt: null,
+        },
+        data: { expiresAt: new Date(0) },
+      });
+
+      return tx.staffInvite.create({
+        data: {
+          businessId,
+          email,
+          role: input.role,
+          tokenHash,
+          expiresAt,
+        },
+      });
     });
 
-    const invite = await prisma.staffInvite.create({
-      data: {
-        businessId,
-        email,
-        role: input.role,
-        tokenHash,
-        expiresAt,
-      },
-    });
-
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
-    const acceptUrl = `${frontendUrl}/invite?token=${token}`;
-
-    await enqueueEmailJob("staff_invite", {
-      to: email,
-      businessId,
-      inviterName: inviter?.name || null,
-      businessName: business.name,
-      acceptUrl,
-      idempotencyKey: `staff-invite:${invite.id}`,
-    });
+    const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:3000").replace(
+      /\/$/,
+      "",
+    );
 
     return {
       id: invite.id,
       expiresAt: invite.expiresAt,
-      acceptUrl,
-      delivery: "queued" as const,
+      acceptUrl: `${frontendUrl}/invite?token=${token}`,
+      delivery: "manual" as const,
     };
   }
 
   async accept(token: string, userId: string) {
-    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
     const invite = await prisma.staffInvite.findUnique({
-      where: { tokenHash },
+      where: { tokenHash: hashToken(token) },
     });
 
     if (!invite) throw buildError("Invalid invitation", 400, "INVALID_INVITE");
@@ -116,9 +108,7 @@ class StaffInviteService {
       throw buildError("Invalid invitation role", 400, "INVALID_INVITE_ROLE");
     }
 
-    const user = await prisma.businessUser.findUnique({
-      where: { id: userId },
-    });
+    const user = await prisma.businessUser.findUnique({ where: { id: userId } });
     if (!user) throw buildError("User not found", 404, "NOT_FOUND");
     if (normaliseEmail(user.email) !== normaliseEmail(invite.email)) {
       throw buildError(
@@ -136,6 +126,23 @@ class StaffInviteService {
     }
 
     return prisma.$transaction(async (tx) => {
+      const claimed = await tx.staffInvite.updateMany({
+        where: {
+          id: invite.id,
+          acceptedAt: null,
+          expiresAt: { gt: new Date() },
+        },
+        data: { acceptedAt: new Date() },
+      });
+
+      if (claimed.count !== 1) {
+        throw buildError(
+          "Invitation is expired or already used",
+          409,
+          "INVITE_NOT_AVAILABLE",
+        );
+      }
+
       const staff = await tx.staff.upsert({
         where: {
           businessId_email: {
@@ -162,11 +169,6 @@ class StaffInviteService {
           businessId: invite.businessId,
           role: invite.role,
         },
-      });
-
-      await tx.staffInvite.update({
-        where: { id: invite.id },
-        data: { acceptedAt: new Date() },
       });
 
       return { staff, userId: user.id };
