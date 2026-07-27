@@ -13,6 +13,7 @@
     "prisma:migrate:deploy": "npx prisma migrate deploy --schema=prisma/schema.prisma",
     "seed:plans": "node dist/src/scripts/seedPlans.js",
     "email:test": "node dist/src/scripts/sendTestEmail.js",
+    "email:worker:test": "node dist/src/scripts/testEmailWorker.js",
     "migrate": "knex migrate:latest",
     "rollback": "knex migrate:rollback",
     "make": "knex migrate:make",
@@ -65,7 +66,7 @@
     "resend": "^6.11.0",
     "sib-api-v3-sdk": "^8.5.0",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1",
+    "swagger-ui-express": "^4.1.8",
     "ts-jest": "^29.4.9",
     "uuid": "^8.3.2",
     "zod": "^4.3.6"
@@ -77,7 +78,6 @@
     "@types/luxon": "^3.7.2",
     "@types/node": "^25.6.0",
     "@types/nodemailer": "^8.0.0",
-    "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
     "@types/uuid": "^8.3.4",
     "typescript": "^5.3.3"
