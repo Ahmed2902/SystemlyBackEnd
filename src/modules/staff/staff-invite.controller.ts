@@ -1,6 +1,9 @@
 import type { NextFunction, Request, Response } from "express";
 import { ok, fail } from "../../shared/utils/response.util";
-import { acceptInviteSchema, createInviteSchema } from "./staff.schema";
+import {
+  acceptInviteSchema,
+  createInviteSchema,
+} from "./staff-invite.schema";
 import staffInviteService from "./staff-invite.service";
 
 class StaffInviteController {
