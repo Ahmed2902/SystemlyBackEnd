@@ -3,6 +3,7 @@ import { Router } from "express";
 import staffController from "./staff.controller";
 import staffWorkspaceController from "./staff.workspace.controller";
 import staffPhotoController from "./staff-photo.controller";
+import staffInviteController from "./staff-invite.controller";
 import {
   requireAuth,
   requireBusinessAccess,
@@ -127,12 +128,12 @@ router.post(
   requireBusinessAccess,
   requireRole([Roles.BusinessAdmin]),
   validate.validateBody(createInviteSchema),
-  staffController.createInvite,
+  staffInviteController.create,
 );
 router.post(
   "/invites/accept",
   validate.validateBody(acceptInviteSchema),
-  staffController.acceptInvite,
+  staffInviteController.accept,
 );
 
 router.get(
