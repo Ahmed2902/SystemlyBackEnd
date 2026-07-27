@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { Roles } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
-import type { CreateInviteInput } from "./staff.schema";
+import type { CreateInviteInput } from "./staff-invite.schema";
 
 const buildError = (message: string, statusCode: number, code: string) => {
   const error = new Error(message) as Error & {
