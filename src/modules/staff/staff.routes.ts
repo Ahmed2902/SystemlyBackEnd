@@ -11,9 +11,7 @@ import {
 } from "../../shared/middleware/auth.middleware";
 import validate from "../../shared/middleware/validate.middleware";
 import {
-  acceptInviteSchema,
   assignServiceSchema,
-  createInviteSchema,
   createStaffBreakSchema,
   createStaffSchema,
   createTimeOffSchema,
@@ -22,6 +20,10 @@ import {
   updateServiceStaffSchema,
   updateStaffSchema,
 } from "./staff.schema";
+import {
+  acceptInviteSchema,
+  createInviteSchema,
+} from "./staff-invite.schema";
 
 const router = Router();
 const OWNER_ROLES = [Roles.BusinessAdmin, Roles.SuperAdmin];
@@ -126,7 +128,7 @@ router.get(
 router.post(
   "/invites",
   requireBusinessAccess,
-  requireRole([Roles.BusinessAdmin]),
+  requireRole(OWNER_ROLES),
   validate.validateBody(createInviteSchema),
   staffInviteController.create,
 );
