@@ -7,16 +7,12 @@ class StaffInviteController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const businessId = req.user?.businessId;
-      const inviterId = req.user?.id;
-      if (!businessId || !inviterId) {
+      if (!businessId) {
         return fail(res, "Business access required", 403, "FORBIDDEN");
       }
       const parsed = createInviteSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
-      return ok(
-        res,
-        await staffInviteService.create(businessId, inviterId, parsed.data),
-      );
+      return ok(res, await staffInviteService.create(businessId, parsed.data));
     } catch (error) {
       return next(error);
     }
