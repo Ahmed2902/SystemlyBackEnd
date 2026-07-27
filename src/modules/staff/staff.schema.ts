@@ -3,7 +3,6 @@ import { z } from "zod";
 
 const commissionTypeEnum = z.nativeEnum(CommissionType);
 const roleEnum = z.nativeEnum(Roles);
-const inviteRoleEnum = z.enum([Roles.Staff, Roles.Receptionist]);
 const timeOffTypeEnum = z.nativeEnum(StaffTimeOffType);
 
 const optionalText = (max: number) =>
@@ -166,10 +165,9 @@ export const staffPaginationSchema = z.object({
 });
 
 export const createInviteSchema = z.object({
-  email: z.string().trim().email(),
-  role: inviteRoleEnum,
-  staffId: z.string().uuid().optional(),
-  expiresInDays: z.number().int().min(1).max(30).optional(),
+  email: z.string().email(),
+  role: roleEnum,
+  expiresInDays: z.number().int().positive().optional(),
 });
 
 export const acceptInviteSchema = z.object({
