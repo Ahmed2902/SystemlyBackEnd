@@ -3,7 +3,9 @@ import sendEmailTask from "./email.worker";
 import etaReceiptTask from "./eta.worker";
 
 export const taskList: TaskList = {
-  send_email: sendEmailTask,
+  send_email: async (payload, helpers) => {
+    await sendEmailTask(payload, helpers);
+  },
   eta_receipt: etaReceiptTask,
 };
 
