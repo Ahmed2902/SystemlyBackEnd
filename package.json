@@ -19,7 +19,8 @@
     "test": "jest --runInBand --forceExit",
     "validate:openapi": "node scripts/validate-openapi.js",
     "generate:openapi": "node scripts/generate-openapi.js",
-    "studio:local": "node scripts/run-prisma-studio.js"
+    "studio:local": "node scripts/run-prisma-studio.js",
+    "perf:benchmark": "node scripts/benchmark-endpoints.js"
   },
   "keywords": [],
   "author": "",
