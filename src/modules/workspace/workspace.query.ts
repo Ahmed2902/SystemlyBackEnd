@@ -1,4 +1,4 @@
-import calendarService from "../calendar/calendar.service";
+import calendarQueryService from "../calendar/calendar.query.service";
 import customersService from "../customers/customers.service";
 import invoiceWorkspaceService from "../invoices/invoices.workspace.service";
 import staffWorkspaceService from "../staff/staff.workspace.service";
@@ -17,7 +17,7 @@ type AuthUser = NonNullable<Express.Request["user"]>;
  */
 class WorkspaceQuery {
   calendarDay(businessId: string, date: string) {
-    return calendarService.getWorkspace(businessId, date);
+    return calendarQueryService.getWorkspace(businessId, date);
   }
 
   customerList(businessId: string, query: ListCustomersQuery) {
