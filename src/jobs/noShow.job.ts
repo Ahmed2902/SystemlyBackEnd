@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import appointmentService from "../modules/appointments/appointments.service";
+import appointmentService from "../modules/appointments/appointments.command.service";
 
 const CRON_EXPRESSION = "30 * * * *"; // every hour at minute 30
 const TZ = "Africa/Cairo";

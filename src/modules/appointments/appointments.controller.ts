@@ -70,7 +70,8 @@ class AppointmentsController {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      if (!businessId)
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
 
       return ok(
         res,
@@ -122,7 +123,8 @@ class AppointmentsController {
       const body = updateAppointmentStatusSchema.safeParse(req.body);
       if (!body.success) return next(body.error);
       const businessId = businessIdFrom(req);
-      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      if (!businessId)
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
 
       return ok(
         res,
@@ -165,7 +167,8 @@ class AppointmentsController {
       const parsed = createManualAppointmentSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      if (!businessId)
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
 
       return ok(
         res,
@@ -187,7 +190,8 @@ class AppointmentsController {
       const body = rescheduleAppointmentSchema.safeParse(req.body);
       if (!body.success) return next(body.error);
       const businessId = businessIdFrom(req);
-      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      if (!businessId)
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
 
       return ok(
         res,
@@ -209,7 +213,8 @@ class AppointmentsController {
       const body = finishAppointmentSchema.safeParse(req.body);
       if (!body.success) return next(body.error);
       const businessId = businessIdFrom(req);
-      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      if (!businessId)
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
 
       return ok(
         res,
@@ -229,7 +234,8 @@ class AppointmentsController {
       const parsed = cancelAppointmentSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      if (!businessId)
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
 
       return ok(
         res,
@@ -249,14 +255,16 @@ class AppointmentsController {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      if (!businessId)
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
 
       const contentType = req.body?.contentType;
       if (typeof contentType !== "string" || !contentType) {
         return fail(res, "contentType is required", 400, "BAD_REQUEST");
       }
       const photoType = parsePhotoType(req.body?.type);
-      if (!photoType) return fail(res, "Invalid photo type", 400, "BAD_REQUEST");
+      if (!photoType)
+        return fail(res, "Invalid photo type", 400, "BAD_REQUEST");
 
       return ok(
         res,
@@ -277,14 +285,16 @@ class AppointmentsController {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      if (!businessId)
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
 
       const publicId = req.body?.publicId;
       if (typeof publicId !== "string" || !publicId) {
         return fail(res, "publicId is required", 400, "BAD_REQUEST");
       }
       const photoType = parsePhotoType(req.body?.type);
-      if (!photoType) return fail(res, "Invalid photo type", 400, "BAD_REQUEST");
+      if (!photoType)
+        return fail(res, "Invalid photo type", 400, "BAD_REQUEST");
 
       return ok(
         res,
@@ -310,7 +320,8 @@ class AppointmentsController {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      if (!businessId)
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
       if (!req.params.photoId) {
         return fail(res, "Photo id is required", 400, "BAD_REQUEST");
       }
@@ -333,7 +344,8 @@ class AppointmentsController {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      if (!businessId)
+        return fail(res, "Business id missing", 403, "FORBIDDEN");
 
       return ok(
         res,
