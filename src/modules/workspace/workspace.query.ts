@@ -1,5 +1,5 @@
 import calendarService from "../calendar/calendar.service";
-import customersService from "../customers/customers.service";
+import customersQueryService from "../customers/customers.query.service";
 import invoiceWorkspaceService from "../invoices/invoices.workspace.service";
 import staffWorkspaceService from "../staff/staff.workspace.service";
 import type { ListCustomersQuery } from "../customers/customers.schema";
@@ -21,15 +21,15 @@ class WorkspaceQuery {
   }
 
   customerList(businessId: string, query: ListCustomersQuery) {
-    return customersService.listCustomers(businessId, query);
+    return customersQueryService.listCustomers(businessId, query);
   }
 
   customerDetail(customerId: string, businessId: string) {
-    return customersService.getWorkspace(customerId, businessId);
+    return customersQueryService.getWorkspace(customerId, businessId);
   }
 
   customerAppointments(customerId: string, businessId: string) {
-    return customersService.getAppointments(customerId, businessId);
+    return customersQueryService.getAppointments(customerId, businessId);
   }
 
   staffDirectory(user: AuthUser, query: StaffDirectoryQuery) {
