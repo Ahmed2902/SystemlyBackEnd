@@ -1,6 +1,6 @@
 import calendarService from "../calendar/calendar.service";
 import customersService from "../customers/customers.service";
-import invoiceWorkspaceService from "../invoices/invoices.workspace.service";
+import invoicesQueryService from "../invoices/invoices.query.service";
 import staffWorkspaceService from "../staff/staff.workspace.service";
 import type { ListCustomersQuery } from "../customers/customers.schema";
 import type { ListInvoicesQuery } from "../invoices/invoices.workspace.schema";
@@ -41,11 +41,11 @@ class WorkspaceQuery {
   }
 
   invoiceList(businessId: string, query: ListInvoicesQuery) {
-    return invoiceWorkspaceService.list(businessId, query);
+    return invoicesQueryService.list(businessId, query);
   }
 
   invoiceDetail(invoiceId: string, businessId: string) {
-    return invoiceWorkspaceService.get(invoiceId, businessId);
+    return invoicesQueryService.get(invoiceId, businessId);
   }
 }
 
