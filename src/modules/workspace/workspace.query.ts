@@ -21,15 +21,15 @@ class WorkspaceQuery {
   }
 
   customerList(businessId: string, query: ListCustomersQuery) {
-    return customersService.listCustomers(businessId, query);
+    return customersQueryService.listCustomers(businessId, query);
   }
 
   customerDetail(customerId: string, businessId: string) {
-    return customersService.getWorkspace(customerId, businessId);
+    return customersQueryService.getWorkspace(customerId, businessId);
   }
 
   customerAppointments(customerId: string, businessId: string) {
-    return customersService.getAppointments(customerId, businessId);
+    return customersQueryService.getAppointments(customerId, businessId);
   }
 
   staffDirectory(user: AuthUser, query: StaffDirectoryQuery) {
@@ -41,11 +41,11 @@ class WorkspaceQuery {
   }
 
   invoiceList(businessId: string, query: ListInvoicesQuery) {
-    return invoiceWorkspaceService.list(businessId, query);
+    return invoicesQueryService.list(businessId, query);
   }
 
   invoiceDetail(invoiceId: string, businessId: string) {
-    return invoiceWorkspaceService.get(invoiceId, businessId);
+    return invoicesQueryService.get(invoiceId, businessId);
   }
 }
 

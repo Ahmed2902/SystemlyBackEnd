@@ -8,14 +8,9 @@ import { DateTime } from "luxon";
 import { prisma } from "../../shared/db/prisma";
 import type {
   CollectPaymentInput,
-  ListInvoicesQuery,
   VoidInvoiceInput,
 } from "./invoices.workspace.schema";
-
-const ACTIVE_INVOICE_STATUSES: InvoiceStatus[] = [
-  InvoiceStatus.paid,
-  InvoiceStatus.voided,
-];
+import { invoiceDetailInclude } from "./invoices.query.service";
 
 const buildError = (message: string, statusCode: number, code: string) => {
   const error = new Error(message) as Error & {
@@ -40,134 +35,7 @@ const commissionEarnedCents = (
   return 0;
 };
 
-const invoiceInclude = {
-  customer: {
-    select: { id: true, name: true, phone: true, email: true },
-  },
-  business: {
-    select: {
-      id: true,
-      name: true,
-      phone: true,
-      address: true,
-      city: true,
-      logoUrl: true,
-      timezone: true,
-    },
-  },
-  appointment: {
-    select: {
-      id: true,
-      startsAt: true,
-      endsAt: true,
-      status: true,
-      bookingChannel: true,
-    },
-  },
-  paidBy: { select: { id: true, name: true } },
-  voidedBy: { select: { id: true, name: true } },
-  lineItems: {
-    orderBy: { createdAt: "asc" as const },
-    include: {
-      service: { select: { id: true, name: true } },
-      staff: { select: { id: true, name: true } },
-    },
-  },
-} satisfies Prisma.InvoiceInclude;
-
-class InvoiceWorkspaceService {
-  async list(businessId: string, query: ListInvoicesQuery) {
-    const where: Prisma.InvoiceWhereInput = {
-      businessId,
-      status: query.status ?? { in: ACTIVE_INVOICE_STATUSES },
-    };
-
-    if (query.paymentMethod) where.paymentMethod = query.paymentMethod;
-
-    if (query.from || query.to) {
-      where.issuedAt = {
-        ...(query.from
-          ? { gte: DateTime.fromISO(query.from).startOf("day").toJSDate() }
-          : {}),
-        ...(query.to
-          ? { lte: DateTime.fromISO(query.to).endOf("day").toJSDate() }
-          : {}),
-      };
-    }
-
-    if (query.search) {
-      where.OR = [
-        { invoiceNumber: { contains: query.search, mode: "insensitive" } },
-        {
-          customer: {
-            is: {
-              OR: [
-                { name: { contains: query.search, mode: "insensitive" } },
-                { phone: { contains: query.search, mode: "insensitive" } },
-              ],
-            },
-          },
-        },
-      ];
-    }
-
-    const skip = (query.page - 1) * query.perPage;
-    const [items, total] = await Promise.all([
-      prisma.invoice.findMany({
-        where,
-        skip,
-        take: query.perPage,
-        orderBy: [{ issuedAt: "desc" }, { createdAt: "desc" }],
-        select: {
-          id: true,
-          invoiceNumber: true,
-          status: true,
-          issuedAt: true,
-          paidAt: true,
-          voidedAt: true,
-          paymentMethod: true,
-          totalCents: true,
-          currency: true,
-          customer: { select: { id: true, name: true, phone: true } },
-          appointment: {
-            select: {
-              id: true,
-              startsAt: true,
-              appointmentServices: {
-                orderBy: { order: "asc" },
-                take: 3,
-                select: { service: { select: { name: true } } },
-              },
-            },
-          },
-        },
-      }),
-      prisma.invoice.count({ where }),
-    ]);
-
-    return {
-      items: items.map((invoice) => ({
-        ...invoice,
-        services:
-          invoice.appointment?.appointmentServices.map(
-            (segment) => segment.service.name,
-          ) ?? [],
-      })),
-      total,
-      page: query.page,
-      perPage: query.perPage,
-    };
-  }
-
-  async get(invoiceId: string, businessId: string) {
-    const invoice = await prisma.invoice.findFirst({
-      where: { id: invoiceId, businessId },
-      include: invoiceInclude,
-    });
-    if (!invoice) throw buildError("Invoice not found", 404, "NOT_FOUND");
-    return invoice;
-  }
-
+class InvoicesCommandService {
   async collectPayment(
     businessId: string,
     userId: string,
@@ -181,19 +49,34 @@ class InvoiceWorkspaceService {
             appointmentId: input.appointmentId,
             status: InvoiceStatus.paid,
           },
-          include: invoiceInclude,
+          include: invoiceDetailInclude,
         });
         if (existingPaid) return existingPaid;
 
         const appointment = await tx.appointment.findFirst({
           where: { id: input.appointmentId, businessId },
-          include: {
+          select: {
+            id: true,
+            businessId: true,
+            customerId: true,
+            startsAt: true,
+            status: true,
             business: { select: { timezone: true } },
-            customer: true,
-            customItems: true,
+            customItems: {
+              select: {
+                description: true,
+                quantity: true,
+                priceCents: true,
+              },
+            },
             appointmentServices: {
               orderBy: { order: "asc" },
-              include: { service: true },
+              select: {
+                serviceId: true,
+                staffId: true,
+                priceEgpSnapshot: true,
+                service: { select: { name: true } },
+              },
             },
           },
         });
@@ -226,6 +109,12 @@ class InvoiceWorkspaceService {
               serviceId: segment.serviceId,
               staffId: segment.staffId,
             })),
+          },
+          select: {
+            serviceId: true,
+            staffId: true,
+            commissionType: true,
+            commissionAmount: true,
           },
         });
         const commissionByKey = new Map(
@@ -326,7 +215,7 @@ class InvoiceWorkspaceService {
             paidByUserId: userId,
             lineItems: { create: lineItems },
           },
-          include: invoiceInclude,
+          include: invoiceDetailInclude,
         });
 
         await tx.appointment.update({
@@ -362,13 +251,21 @@ class InvoiceWorkspaceService {
     return prisma.$transaction(async (tx) => {
       const invoice = await tx.invoice.findFirst({
         where: { id: invoiceId, businessId },
-        include: { appointment: true },
+        select: {
+          id: true,
+          status: true,
+          appointmentId: true,
+          customerId: true,
+          appointment: {
+            select: { id: true, status: true },
+          },
+        },
       });
       if (!invoice) throw buildError("Invoice not found", 404, "NOT_FOUND");
       if (invoice.status === InvoiceStatus.voided) {
         return tx.invoice.findFirstOrThrow({
           where: { id: invoice.id, businessId },
-          include: invoiceInclude,
+          include: invoiceDetailInclude,
         });
       }
       if (invoice.status !== InvoiceStatus.paid) {
@@ -398,20 +295,22 @@ class InvoiceWorkspaceService {
         });
 
         if (wasCompleted) {
-          const latestCompleted = await tx.appointment.findFirst({
-            where: {
-              customerId: invoice.customerId,
-              businessId,
-              status: AppointmentStatus.completed,
-              id: { not: invoice.appointmentId },
-            },
-            orderBy: { startsAt: "desc" },
-            select: { startsAt: true },
-          });
-          const customer = await tx.customer.findUnique({
-            where: { id: invoice.customerId },
-            select: { visitCount: true },
-          });
+          const [latestCompleted, customer] = await Promise.all([
+            tx.appointment.findFirst({
+              where: {
+                customerId: invoice.customerId,
+                businessId,
+                status: AppointmentStatus.completed,
+                id: { not: invoice.appointmentId },
+              },
+              orderBy: { startsAt: "desc" },
+              select: { startsAt: true },
+            }),
+            tx.customer.findUnique({
+              where: { id: invoice.customerId },
+              select: { visitCount: true },
+            }),
+          ]);
           await tx.customer.update({
             where: { id: invoice.customerId },
             data: {
@@ -426,10 +325,10 @@ class InvoiceWorkspaceService {
 
       return tx.invoice.findFirstOrThrow({
         where: { id: invoice.id, businessId },
-        include: invoiceInclude,
+        include: invoiceDetailInclude,
       });
     });
   }
 }
 
-export default new InvoiceWorkspaceService();
+export default new InvoicesCommandService();
