@@ -41,7 +41,7 @@ CREATE INDEX IF NOT EXISTS "invoices_business_id_payment_method_issued_at_idx"
   ON "invoices" ("business_id", "payment_method", "issued_at" DESC);
 
 CREATE INDEX IF NOT EXISTS "invoices_business_id_status_issued_at_created_at_idx"
-  ON "invoices" ("business_id", "status", "issued_at" DESC, "createdAt" DESC);
+  ON "invoices" ("business_id", "status", "issued_at" DESC, "created_at" DESC);
 
 -- Substring searches use contains/ILIKE. B-tree indexes cannot accelerate
 -- those expressions, so use trigram indexes and let PostgreSQL combine them
