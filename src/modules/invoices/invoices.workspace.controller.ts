@@ -1,22 +1,23 @@
 import type { NextFunction, Request, Response } from "express";
 import { fail, ok } from "../../shared/utils/response.util";
-import workspaceQuery from "../workspace/workspace.query";
+import invoicesQueryService from "./invoices.query.service";
+import invoicesCommandService from "./invoices.command.service";
 import {
   collectPaymentSchema,
   invoiceIdParamsSchema,
   listInvoicesQuerySchema,
   voidInvoiceSchema,
 } from "./invoices.workspace.schema";
-import invoiceWorkspaceService from "./invoices.workspace.service";
 
 class InvoiceWorkspaceController {
+  // #region Queries
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const businessId = req.user?.businessId;
       if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       const parsed = listInvoicesQuerySchema.safeParse(req.query);
       if (!parsed.success) return next(parsed.error);
-      return ok(res, await workspaceQuery.invoiceList(businessId, parsed.data));
+      return ok(res, await invoicesQueryService.list(businessId, parsed.data));
     } catch (error) {
       return next(error);
     }
@@ -28,12 +29,14 @@ class InvoiceWorkspaceController {
       if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       const parsed = invoiceIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
-      return ok(res, await workspaceQuery.invoiceDetail(parsed.data.id, businessId));
+      return ok(res, await invoicesQueryService.get(parsed.data.id, businessId));
     } catch (error) {
       return next(error);
     }
   }
+  // #endregion
 
+  // #region Commands
   async collect(req: Request, res: Response, next: NextFunction) {
     try {
       const businessId = req.user?.businessId;
@@ -45,7 +48,7 @@ class InvoiceWorkspaceController {
       if (!parsed.success) return next(parsed.error);
       return ok(
         res,
-        await invoiceWorkspaceService.collectPayment(
+        await invoicesCommandService.collectPayment(
           businessId,
           userId,
           parsed.data,
@@ -70,7 +73,7 @@ class InvoiceWorkspaceController {
       if (!body.success) return next(body.error);
       return ok(
         res,
-        await invoiceWorkspaceService.voidInvoice(
+        await invoicesCommandService.voidInvoice(
           params.data.id,
           businessId,
           userId,
@@ -81,6 +84,7 @@ class InvoiceWorkspaceController {
       return next(error);
     }
   }
+  // #endregion
 
   async receipt(req: Request, res: Response, next: NextFunction) {
     try {
@@ -88,7 +92,7 @@ class InvoiceWorkspaceController {
       if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       const params = invoiceIdParamsSchema.safeParse(req.params);
       if (!params.success) return next(params.error);
-      const invoice = await workspaceQuery.invoiceDetail(params.data.id, businessId);
+      const invoice = await invoicesQueryService.get(params.data.id, businessId);
 
       const PDFDocument = require("pdfkit");
       const doc = new PDFDocument({ margin: 48, size: "A4" });
@@ -107,9 +111,7 @@ class InvoiceWorkspaceController {
               fit: [72, 54],
             });
           }
-        } catch {
-          // The receipt remains valid when an external logo cannot be fetched.
-        }
+        } catch {}
       }
 
       doc
@@ -124,21 +126,13 @@ class InvoiceWorkspaceController {
       doc.fillColor("#0f172a").fontSize(10);
       doc.text(`Receipt: ${invoice.invoiceNumber}`);
       doc.text(`Issued: ${invoice.issuedAt.toLocaleDateString("en-GB")}`);
-      if (invoice.paidAt) {
-        doc.text(`Paid: ${invoice.paidAt.toLocaleString("en-GB")}`);
-      }
-      doc.text(
-        `Payment method: ${String(invoice.paymentMethod ?? "").replace(/_/g, " ")}`,
-      );
-      if (invoice.paymentReference) {
-        doc.text(`Reference: ${invoice.paymentReference}`);
-      }
+      if (invoice.paidAt) doc.text(`Paid: ${invoice.paidAt.toLocaleString("en-GB")}`);
+      doc.text(`Payment method: ${String(invoice.paymentMethod ?? "").replace(/_/g, " ")}`);
+      if (invoice.paymentReference) doc.text(`Reference: ${invoice.paymentReference}`);
       doc.moveDown();
       doc.text(`Customer: ${invoice.customer.name}`);
       if (invoice.customer.phone) doc.text(`Phone: ${invoice.customer.phone}`);
-      if (invoice.business.phone) {
-        doc.text(`Business phone: ${invoice.business.phone}`);
-      }
+      if (invoice.business.phone) doc.text(`Business phone: ${invoice.business.phone}`);
       if (invoice.business.address || invoice.business.city) {
         doc.text(
           `Business address: ${[invoice.business.address, invoice.business.city]
@@ -154,9 +148,7 @@ class InvoiceWorkspaceController {
           `${item.description}   ${item.quantity} x EGP ${(item.unitPriceCents / 100).toFixed(2)}`,
           { continued: true },
         );
-        doc.text(`EGP ${(item.totalCents / 100).toFixed(2)}`, {
-          align: "right",
-        });
+        doc.text(`EGP ${(item.totalCents / 100).toFixed(2)}`, { align: "right" });
       }
 
       doc.moveDown().fillColor("#0f172a");
@@ -172,11 +164,7 @@ class InvoiceWorkspaceController {
         align: "right",
       });
       if (invoice.notes) {
-        doc
-          .moveDown()
-          .fontSize(9)
-          .fillColor("#475569")
-          .text(`Notes: ${invoice.notes}`);
+        doc.moveDown().fontSize(9).fillColor("#475569").text(`Notes: ${invoice.notes}`);
       }
       doc.end();
     } catch (error) {

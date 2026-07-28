@@ -41,11 +41,11 @@ class WorkspaceQuery {
   }
 
   invoiceList(businessId: string, query: ListInvoicesQuery) {
-    return invoiceWorkspaceService.list(businessId, query);
+    return invoicesQueryService.list(businessId, query);
   }
 
   invoiceDetail(invoiceId: string, businessId: string) {
-    return invoiceWorkspaceService.get(invoiceId, businessId);
+    return invoicesQueryService.get(invoiceId, businessId);
   }
 }
 
