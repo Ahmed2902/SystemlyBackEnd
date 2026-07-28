@@ -15,8 +15,11 @@ import {
 import { notFoundHandler } from "./src/shared/middleware/notFound.middleware";
 import { errorHandler } from "./src/shared/middleware/errorHandler.middleware";
 import { globalRateLimit } from "./src/shared/middleware/rateLimit.middleware";
+import { requestPerformanceMiddleware } from "./src/shared/middleware/requestPerformance.middleware";
 import * as promClient from "prom-client";
 const app: Application = express();
+
+app.use(requestPerformanceMiddleware);
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const billingController =
