@@ -19,12 +19,15 @@ const serviceDurationSchema = z
     message: "Duration must be in 5-minute increments",
   });
 
+// #region Query schemas
 export const listServicesQuerySchema = z.object({
   search: z.string().trim().optional(),
   category: z.string().trim().optional(),
   status: z.enum(["all", "active", "inactive"]).default("all"),
 });
+// #endregion
 
+// #region Command schemas
 export const createServiceSchema = z
   .object({
     name: z.string().trim().min(1).max(255).openapi({ example: "Teeth Whitening" }),
@@ -68,6 +71,7 @@ export const updateServiceSchema = z
     message: "At least one field is required",
   })
   .openapi({ description: "Update an existing service" });
+// #endregion
 
 export type ListServicesQuery = z.infer<typeof listServicesQuerySchema>;
 export type CreateServiceBody = z.infer<typeof createServiceSchema>;
