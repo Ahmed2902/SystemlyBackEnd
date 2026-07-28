@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
+import { performance } from "node:perf_hooks";
 import type { NextFunction, Request, Response } from "express";
 import {
+  getPrismaQueryWallTimeMs,
   runWithRequestContext,
   type RequestPerformanceContext,
 } from "../observability/request-context";
@@ -20,6 +22,10 @@ function normaliseRequestId(value: string | string[] | undefined) {
   return candidate.trim().slice(0, 128) || crypto.randomUUID();
 }
 
+function requestPath(req: Request) {
+  return req.path || req.originalUrl.split("?", 1)[0] || "/";
+}
+
 export function requestPerformanceMiddleware(
   req: Request,
   res: Response,
@@ -31,6 +37,7 @@ export function requestPerformanceMiddleware(
     startedAtMs: performance.now(),
     queryCount: 0,
     queryDurationMs: 0,
+    queryIntervals: [],
     slowestQueries: [],
   };
 
@@ -39,19 +46,26 @@ export function requestPerformanceMiddleware(
 
   runWithRequestContext(context, () => {
     res.once("finish", () => {
-      const durationMs = Math.round((performance.now() - context.startedAtMs) * 100) / 100;
+      const durationMs =
+        Math.round((performance.now() - context.startedAtMs) * 100) / 100;
       const queryDurationMs = Math.round(context.queryDurationMs * 100) / 100;
+      const queryWallTimeMs =
+        Math.round(getPrismaQueryWallTimeMs(context) * 100) / 100;
       const isSlow = durationMs >= slowRequestThresholdMs();
       const payload = {
         event: isSlow ? "slow_request" : "request_completed",
         requestId,
         method: req.method,
-        path: req.originalUrl,
+        path: requestPath(req),
         statusCode: res.statusCode,
         durationMs,
         prismaQueryCount: context.queryCount,
         prismaQueryDurationMs: queryDurationMs,
-        nonDatabaseDurationMs: Math.max(0, Math.round((durationMs - queryDurationMs) * 100) / 100),
+        prismaQueryWallTimeMs: queryWallTimeMs,
+        nonDatabaseDurationMs: Math.max(
+          0,
+          Math.round((durationMs - queryWallTimeMs) * 100) / 100,
+        ),
         ...(isSlow ? { slowestQueries: context.slowestQueries } : {}),
       };
 
