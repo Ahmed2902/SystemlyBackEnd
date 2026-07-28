@@ -3,6 +3,7 @@ import { Router } from "express";
 import staffController from "./staff.controller";
 import staffWorkspaceController from "./staff.workspace.controller";
 import staffPhotoController from "./staff-photo.controller";
+import staffInviteController from "./staff-invite.controller";
 import {
   requireAuth,
   requireBusinessAccess,
@@ -10,9 +11,7 @@ import {
 } from "../../shared/middleware/auth.middleware";
 import validate from "../../shared/middleware/validate.middleware";
 import {
-  acceptInviteSchema,
   assignServiceSchema,
-  createInviteSchema,
   createStaffBreakSchema,
   createStaffSchema,
   createTimeOffSchema,
@@ -21,6 +20,10 @@ import {
   updateServiceStaffSchema,
   updateStaffSchema,
 } from "./staff.schema";
+import {
+  acceptInviteSchema,
+  createInviteSchema,
+} from "./staff-invite.schema";
 
 const router = Router();
 const OWNER_ROLES = [Roles.BusinessAdmin, Roles.SuperAdmin];
@@ -125,14 +128,14 @@ router.get(
 router.post(
   "/invites",
   requireBusinessAccess,
-  requireRole([Roles.BusinessAdmin]),
+  requireRole(OWNER_ROLES),
   validate.validateBody(createInviteSchema),
-  staffController.createInvite,
+  staffInviteController.create,
 );
 router.post(
   "/invites/accept",
   validate.validateBody(acceptInviteSchema),
-  staffController.acceptInvite,
+  staffInviteController.accept,
 );
 
 router.get(
