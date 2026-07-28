@@ -1,106 +1,106 @@
 import "./shared/config/env";
-import jobs from "./jobs";
-import { prisma } from "./shared/db/prisma";
+import { run } from "graphile-worker";
 import * as Sentry from "@sentry/node";
+import jobs from "./jobs";
+import { closeWorkerUtils } from "./queues/queue";
 import { SENTRY } from "./shared/config/config";
+import { prisma } from "./shared/db/prisma";
+import taskList from "./workers/task-list";
 
-const startWorker = async () => {
-  console.log("[Worker] Starting background worker (Graphile Worker)...");
-  try {
-    if (SENTRY.DSN) {
-      Sentry.init({
-        dsn: SENTRY.DSN,
-        environment: SENTRY.ENV,
-        release: SENTRY.RELEASE,
-      });
-      console.log("[Worker] Sentry initialized");
-    }
+type WorkerRunner = Awaited<ReturnType<typeof run>>;
 
-    // Start Graphile Worker
-    const gw = await import("graphile-worker");
-    const connectionString =
-      process.env.DATABASE_URL || process.env.DATABASE_URL_LOCAL;
+let runner: WorkerRunner | null = null;
+let shuttingDown = false;
 
-    const taskList: any = {};
+function getConnectionString() {
+  const connectionString =
+    process.env.DATABASE_URL || process.env.DATABASE_URL_LOCAL;
+  if (!connectionString) {
+    throw new Error(
+      "Graphile Worker requires DATABASE_URL or DATABASE_URL_LOCAL",
+    );
+  }
+  return connectionString;
+}
 
-    // Single email task handled by dedicated worker implementation
-    const emailTask = await import("./workers/email.worker");
-    taskList["send_email"] =
-      emailTask.default || emailTask.sendEmailTask || emailTask;
+async function startWorker() {
+  console.log("[Worker] Starting Graphile Worker...");
 
-    // ETA receipt task (kept as-is)
-    taskList["eta_receipt"] = async (payload: any, _helpers: any) => {
-      const { prisma } = await import("./shared/db/prisma");
-      // replicate previous ETA submission logic
-      const invoiceId = payload.invoiceId;
-      try {
-        await new Promise((r) => setTimeout(r, 200));
-        const etaUid = `ETA-${Date.now()}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-        await prisma.invoice.update({
-          where: { id: invoiceId },
-          data: { etaReceiptUid: etaUid, etaSubmittedAt: new Date() },
-        });
-        console.log(
-          `[ETA] Receipt submitted for invoice ${invoiceId}: ${etaUid}`,
-        );
-      } catch (err) {
-        console.error(
-          `[ETA] Failed to submit receipt for invoice ${invoiceId}:`,
-          err,
-        );
-        throw err;
-      }
-    };
-
-    // Start worker in background (run returns a promise that resolves when worker shuts down)
-    gw.run({
-      connectionString,
-      concurrency: 5,
-      taskList,
-      noHandleSignals: true,
-    }).catch((err: any) => {
-      console.error("[Worker] Graphile Worker failed:", err);
-      if (SENTRY.DSN) Sentry.captureException(err as any);
-      process.exit(1);
+  if (SENTRY.DSN) {
+    Sentry.init({
+      dsn: SENTRY.DSN,
+      environment: SENTRY.ENV,
+      release: SENTRY.RELEASE,
     });
+    console.log("[Worker] Sentry initialized");
+  }
 
-    // Register cron-like jobs and scheduled registration logic
-    jobs.registerJobs();
-  } catch (err) {
-    console.error("[Worker] Failed to start:", err);
-    if (SENTRY.DSN) Sentry.captureException(err as any);
+  runner = await run({
+    connectionString: getConnectionString(),
+    concurrency: Number(process.env.WORKER_CONCURRENCY || 5),
+    taskList,
+    noHandleSignals: true,
+  });
+
+  jobs.registerJobs();
+  console.log("[Worker] Ready", {
+    concurrency: Number(process.env.WORKER_CONCURRENCY || 5),
+    tasks: Object.keys(taskList),
+  });
+
+  runner.promise.catch((error) => {
+    if (shuttingDown) return;
+    console.error("[Worker] Runner failed", error);
+    if (SENTRY.DSN) Sentry.captureException(error);
+    void shutdown("runner_failure", 1);
+  });
+}
+
+async function shutdown(reason: string, exitCode = 0) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[Worker] ${reason}; shutting down...`);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error("[Worker] Graceful shutdown timed out");
     process.exit(1);
-  }
-};
+  }, 30_000);
+  forceExitTimer.unref();
 
-void startWorker();
-
-const shutdown = async (signal: string) => {
-  console.log(`${signal} received. Shutting down worker...`);
   try {
+    if (runner) {
+      await runner.stop();
+      runner = null;
+    }
+    await closeWorkerUtils();
     await prisma.$disconnect();
-  } catch (err) {
-    // ignore
+    if (SENTRY.DSN) await Sentry.close(2_000);
+  } catch (error) {
+    console.error("[Worker] Shutdown failed", error);
+    exitCode = 1;
+  } finally {
+    clearTimeout(forceExitTimer);
+    process.exit(exitCode);
   }
-  process.exit(0);
-};
+}
 
-process.on("SIGINT", () => {
-  void shutdown("SIGINT");
+process.once("SIGINT", () => void shutdown("SIGINT"));
+process.once("SIGTERM", () => void shutdown("SIGTERM"));
+
+process.once("uncaughtException", (error) => {
+  console.error("[Worker] Uncaught exception", error);
+  if (SENTRY.DSN) Sentry.captureException(error);
+  void shutdown("uncaughtException", 1);
 });
 
-process.on("SIGTERM", () => {
-  void shutdown("SIGTERM");
+process.once("unhandledRejection", (reason) => {
+  console.error("[Worker] Unhandled rejection", reason);
+  if (SENTRY.DSN) Sentry.captureException(reason);
+  void shutdown("unhandledRejection", 1);
 });
 
-process.on("uncaughtException", (err) => {
-  console.error("Uncaught exception in worker:", err);
-  if (SENTRY.DSN) Sentry.captureException(err as any);
+startWorker().catch((error) => {
+  console.error("[Worker] Failed to start", error);
+  if (SENTRY.DSN) Sentry.captureException(error);
+  void shutdown("startup_failure", 1);
 });
-
-process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled rejection in worker:", reason);
-  if (SENTRY.DSN) Sentry.captureException(reason as any);
-});
-
-export default {};
