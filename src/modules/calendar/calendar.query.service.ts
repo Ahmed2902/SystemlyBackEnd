@@ -1,7 +1,7 @@
 import { prisma } from "../../shared/db/prisma";
 import { getBusinessDayRange } from "../../shared/utils/timezone";
 
-class CalendarService {
+class CalendarQueryService {
   async getWorkspace(businessId: string, date: string) {
     const business = await prisma.business.findUnique({
       where: { id: businessId },
@@ -31,12 +31,10 @@ class CalendarService {
         select: {
           id: true,
           startsAt: true,
-          endsAt: true,
           status: true,
           notes: true,
           discountCents: true,
           customerId: true,
-          staffId: true,
           customer: {
             select: {
               id: true,
@@ -56,11 +54,15 @@ class CalendarService {
               endsAt: true,
               priceEgpSnapshot: true,
               service: { select: { name: true } },
-              staff: { select: { id: true, name: true } },
             },
           },
           customItems: {
-            select: { id: true, description: true, priceCents: true },
+            select: {
+              id: true,
+              description: true,
+              quantity: true,
+              priceCents: true,
+            },
           },
           invoices: {
             where: { status: { not: "voided" } },
@@ -84,7 +86,6 @@ class CalendarService {
           id: true,
           name: true,
           role: true,
-          photoUrl: true,
           serviceStaff: { select: { serviceId: true } },
           availability: {
             where: { dayOfWeek: weekday },
@@ -145,4 +146,4 @@ class CalendarService {
   }
 }
 
-export default new CalendarService();
+export default new CalendarQueryService();
