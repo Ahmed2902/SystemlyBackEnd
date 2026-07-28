@@ -1,130 +1,66 @@
 import type { NextFunction, Request, Response } from "express";
-import staffService from "./staff.service";
-import { ok, fail } from "../../shared/utils/response.util";
+import { fail, ok } from "../../shared/utils/response.util";
+import staffCommandService from "./staff.command.service";
+import staffQueryService from "./staff.query.service";
 import {
-  createStaffSchema,
-  updateStaffSchema,
-  assignServiceSchema,
-  updateServiceStaffSchema,
-  replaceAvailabilitySchema,
-  overridesSchema,
-  createInviteSchema,
   acceptInviteSchema,
+  assignServiceSchema,
+  createInviteSchema,
+  createStaffBreakSchema,
+  createStaffSchema,
+  createTimeOffSchema,
+  overridesSchema,
+  replaceAvailabilitySchema,
+  staffDirectoryQuerySchema,
+  updateServiceStaffSchema,
+  updateStaffSchema,
 } from "./staff.schema";
 
+const requireUser = (req: Request) => req.user ?? null;
+const requireBusinessId = (req: Request) => req.user?.businessId ?? null;
+
 class StaffController {
+  // #region Queries
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const businessId = (req as any).user?.businessId;
-      if (!businessId)
-        return fail(res, "Business id missing", 400, "BAD_REQUEST");
-      const data = await staffService.listByBusiness(businessId);
-      return ok(res, data);
-    } catch (err) {
-      return next(err);
-    }
-  }
-
-  async create(req: Request, res: Response, next: NextFunction) {
-    try {
-      const businessId = (req as any).user?.businessId;
-      if (!businessId)
-        return fail(res, "Business id missing", 400, "BAD_REQUEST");
-      const parsed = createStaffSchema.safeParse(req.body);
+      const user = requireUser(req);
+      if (!user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+      const parsed = staffDirectoryQuerySchema.safeParse(req.query);
       if (!parsed.success) return next(parsed.error);
-      const created = await staffService.createStaff(businessId, parsed.data);
-      return ok(res, created);
-    } catch (err) {
-      return next(err);
+      return ok(res, await staffQueryService.listDirectory(user, parsed.data));
+    } catch (error) {
+      return next(error);
     }
   }
 
-  async update(req: Request, res: Response, next: NextFunction) {
+  async workspace(req: Request, res: Response, next: NextFunction) {
     try {
-      const id = String(req.params?.id);
-      const parsed = updateStaffSchema.safeParse(req.body);
-      if (!parsed.success) return next(parsed.error);
-      const updated = await staffService.updateStaff(id, parsed.data);
-      return ok(res, updated);
-    } catch (err) {
-      return next(err);
-    }
-  }
-
-  async remove(req: Request, res: Response, next: NextFunction) {
-    try {
-      const id = String(req.params?.id);
-      const result = await staffService.deleteStaff(id);
-      return ok(res, result);
-    } catch (err) {
-      return next(err);
-    }
-  }
-
-  async assignServices(req: Request, res: Response, next: NextFunction) {
-    try {
-      const staffId = String(req.params?.id);
-      const parsed = assignServiceSchema.safeParse(req.body);
-      if (!parsed.success) return next(parsed.error);
-      const row = await staffService.assignService(staffId, parsed.data);
-      return ok(res, row);
-    } catch (err) {
-      return next(err);
-    }
-  }
-
-  async updateServiceCommission(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ) {
-    try {
-      const staffId = String(req.params?.id);
-      const serviceId = String(req.params?.serviceId);
-      const parsed = updateServiceStaffSchema.safeParse(req.body);
-      if (!parsed.success) return next(parsed.error);
-      const row = await staffService.updateServiceStaff(
-        staffId,
-        serviceId,
-        parsed.data,
-      );
-      return ok(res, row);
-    } catch (err) {
-      return next(err);
+      const user = requireUser(req);
+      if (!user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+      return ok(res, await staffQueryService.getWorkspace(String(req.params.id), user));
+    } catch (error) {
+      return next(error);
     }
   }
 
   async getServiceStaff(req: Request, res: Response, next: NextFunction) {
     try {
-      const staffId = String(req.params?.id);
-      const serviceId = String(req.params?.serviceId);
-      const row = await staffService.getServiceStaff(staffId, serviceId);
-      if (!row)
-        return fail(res, "Service-staff relation not found", 404, "NOT_FOUND");
+      const row = await staffQueryService.getServiceStaff(
+        String(req.params.id),
+        String(req.params.serviceId),
+      );
+      if (!row) return fail(res, "Service-staff relation not found", 404, "NOT_FOUND");
       return ok(res, row);
-    } catch (err) {
-      return next(err);
-    }
-  }
-
-  async unassignService(req: Request, res: Response, next: NextFunction) {
-    try {
-      const staffId = String(req.params?.id);
-      const serviceId = String(req.params?.serviceId);
-      const row = await staffService.unassignService(staffId, serviceId);
-      return ok(res, row);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async getAvailability(req: Request, res: Response, next: NextFunction) {
     try {
-      const id = String(req.params?.id);
-      const data = await staffService.getAvailability(id);
-      return ok(res, data);
-    } catch (err) {
-      return next(err);
+      return ok(res, await staffQueryService.getAvailability(String(req.params.id)));
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -134,139 +70,337 @@ class StaffController {
     next: NextFunction,
   ) {
     try {
-      const id = String(req.params?.id);
-      const date = String(req.query?.date ?? "");
-      const data = await staffService.listAvailabilityOverridesForDate(
-        id,
-        date,
+      return ok(
+        res,
+        await staffQueryService.listAvailabilityOverridesForDate(
+          String(req.params.id),
+          String(req.query.date ?? ""),
+        ),
       );
-      return ok(res, data);
-    } catch (err) {
-      return next(err);
-    }
-  }
-
-  async replaceAvailability(req: Request, res: Response, next: NextFunction) {
-    try {
-      const id = String(req.params?.id);
-      const arrayParsed = replaceAvailabilitySchema.safeParse(req.body);
-      if (!arrayParsed.success) return next(arrayParsed.error);
-      const result = await staffService.replaceAvailability(
-        id,
-        arrayParsed.data,
-      );
-      return ok(res, result);
-    } catch (err) {
-      return next(err);
-    }
-  }
-
-  async addOverride(req: Request, res: Response, next: NextFunction) {
-    try {
-      const id = String(req.params?.id);
-      const parsed = overridesSchema.safeParse(req.body);
-      if (!parsed.success) return next(parsed.error);
-      const created = await staffService.addOverride(id, parsed.data);
-      return ok(res, created);
-    } catch (err) {
-      return next(err);
-    }
-  }
-
-  async deleteOverride(req: Request, res: Response, next: NextFunction) {
-    try {
-      const overrideId = String(req.params?.overrideId);
-      const result = await staffService.deleteOverride(overrideId);
-      return ok(res, result);
-    } catch (err) {
-      return next(err);
-    }
-  }
-
-  async createInvite(req: Request, res: Response, next: NextFunction) {
-    try {
-      const businessId = (req as any).user?.businessId;
-      if (!businessId)
-        return fail(res, "Business id missing", 400, "BAD_REQUEST");
-      const parsed = createInviteSchema.safeParse(req.body);
-      if (!parsed.success) return next(parsed.error);
-      const inviterId = (req as any).user?.id;
-      const result = await staffService.createInvite(
-        businessId,
-        parsed.data.email,
-        parsed.data.role,
-        inviterId,
-        parsed.data.expiresInDays,
-      );
-      return ok(res, result);
-    } catch (err) {
-      return next(err);
-    }
-  }
-
-  async acceptInvite(req: Request, res: Response, next: NextFunction) {
-    try {
-      const parsed = acceptInviteSchema.safeParse(req.body);
-      if (!parsed.success) return next(parsed.error);
-      const userId = (req as any).user?.id;
-      if (!userId) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
-      const result = await staffService.acceptInvite(parsed.data.token, userId);
-      return ok(res, result);
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async getCommission(req: Request, res: Response, next: NextFunction) {
     try {
-      const businessId = (req as any).user?.businessId;
-      if (!businessId)
-        return fail(res, "Business id missing", 400, "BAD_REQUEST");
-
-      const id = String(req.params?.id);
-      const from = req.query.from as string | undefined;
-      const to = req.query.to as string | undefined;
-      const data = await staffService.getCommission(id, businessId, from, to);
-      return ok(res, data);
-    } catch (err) {
-      return next(err);
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 400, "BAD_REQUEST");
+      return ok(
+        res,
+        await staffQueryService.getCommission(
+          String(req.params.id),
+          businessId,
+          req.query.from as string | undefined,
+          req.query.to as string | undefined,
+        ),
+      );
+    } catch (error) {
+      return next(error);
     }
   }
 
-  // #region Staff Breaks
-  async listStaffBreaksForDate(
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ) {
+  async listStaffBreaksForDate(req: Request, res: Response, next: NextFunction) {
     try {
-      const businessId = req.user.businessId!;
-      const date = req.query.date as string;
-      const items = await staffService.listStaffBreaksForDate(businessId, date);
-      res.json({ success: true, data: items });
-    } catch (err) {
-      next(err);
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 400, "BAD_REQUEST");
+      return ok(
+        res,
+        await staffQueryService.listStaffBreaksForDate(
+          businessId,
+          String(req.query.date ?? ""),
+        ),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+  // #endregion
+
+  // #region Commands
+  async create(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = requireUser(req);
+      if (!user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+      const parsed = createStaffSchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      return ok(res, await staffCommandService.createStaff(user, parsed.data), 201);
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async update(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = requireUser(req);
+      if (!user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+      const parsed = updateStaffSchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      return ok(
+        res,
+        await staffCommandService.updateStaff(String(req.params.id), user, parsed.data),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async deactivate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = requireUser(req);
+      if (!user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+      return ok(res, await staffCommandService.deactivateStaff(String(req.params.id), user));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async assignServices(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parsed = assignServiceSchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      return ok(
+        res,
+        await staffCommandService.assignService(String(req.params.id), parsed.data),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async updateServiceCommission(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parsed = updateServiceStaffSchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      return ok(
+        res,
+        await staffCommandService.updateServiceStaff(
+          String(req.params.id),
+          String(req.params.serviceId),
+          parsed.data,
+        ),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async unassignService(req: Request, res: Response, next: NextFunction) {
+    try {
+      return ok(
+        res,
+        await staffCommandService.unassignService(
+          String(req.params.id),
+          String(req.params.serviceId),
+        ),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async replaceAvailability(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = requireUser(req);
+      if (!user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+      const parsed = replaceAvailabilitySchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      return ok(
+        res,
+        await staffCommandService.replaceAvailability(
+          String(req.params.id),
+          user,
+          parsed.data,
+        ),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async addOverride(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parsed = overridesSchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      return ok(
+        res,
+        await staffCommandService.addOverride(String(req.params.id), parsed.data),
+        201,
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async deleteOverride(req: Request, res: Response, next: NextFunction) {
+    try {
+      return ok(
+        res,
+        await staffCommandService.deleteOverride(String(req.params.overrideId)),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async createBreak(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = requireUser(req);
+      if (!user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+      const parsed = createStaffBreakSchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      return ok(
+        res,
+        await staffCommandService.createBreak(String(req.params.id), user, parsed.data),
+        201,
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async deleteBreak(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = requireUser(req);
+      if (!user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+      return ok(
+        res,
+        await staffCommandService.deleteBreak(
+          String(req.params.id),
+          String(req.params.breakId),
+          user,
+        ),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async createTimeOff(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = requireUser(req);
+      if (!user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+      const parsed = createTimeOffSchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      return ok(
+        res,
+        await staffCommandService.createTimeOff(String(req.params.id), user, parsed.data),
+        201,
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async deleteTimeOff(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = requireUser(req);
+      if (!user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+      return ok(
+        res,
+        await staffCommandService.deleteTimeOff(
+          String(req.params.id),
+          String(req.params.timeOffId),
+          user,
+        ),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async createInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business access required", 403, "FORBIDDEN");
+      const parsed = createInviteSchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      return ok(res, await staffCommandService.createInvite(businessId, parsed.data), 201);
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async acceptInvite(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+      const parsed = acceptInviteSchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      return ok(res, await staffCommandService.acceptInvite(parsed.data.token, userId));
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async presignPhoto(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      return ok(
+        res,
+        await staffCommandService.presignPhoto(
+          String(req.params.id),
+          businessId,
+          String(req.body?.contentType ?? ""),
+        ),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async confirmPhoto(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      return ok(
+        res,
+        await staffCommandService.confirmPhoto(
+          String(req.params.id),
+          businessId,
+          String(req.body?.publicId ?? ""),
+          String(req.body?.publicUrl ?? ""),
+        ),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async removePhoto(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      return ok(
+        res,
+        await staffCommandService.removePhoto(String(req.params.id), businessId),
+      );
+    } catch (error) {
+      return next(error);
     }
   }
 
   async createStaffBreak(req: Request, res: Response, next: NextFunction) {
     try {
-      const businessId = req.user.businessId!;
-      const created = await staffService.createStaffBreak(businessId, req.body);
-      res.json({ success: true, data: created });
-    } catch (err) {
-      next(err);
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 400, "BAD_REQUEST");
+      return ok(res, await staffCommandService.createStaffBreak(businessId, req.body), 201);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async removeStaffBreak(req: Request, res: Response, next: NextFunction) {
     try {
-      const businessId = req.user.businessId!;
-      const staffId = String(req.params.staffId!);
-      await staffService.removeStaffBreak(businessId, staffId);
-      res.json({ success: true, data: null });
-    } catch (err) {
-      next(err);
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 400, "BAD_REQUEST");
+      return ok(
+        res,
+        await staffCommandService.removeStaffBreak(businessId, String(req.params.id)),
+      );
+    } catch (error) {
+      return next(error);
     }
   }
   // #endregion
