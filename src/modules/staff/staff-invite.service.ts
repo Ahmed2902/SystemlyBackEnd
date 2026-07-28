@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { Roles } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
-import type { CreateInviteInput } from "./staff-invite.schema";
+import type { CreateInviteInput } from "./staff.schema";
 
 const buildError = (message: string, statusCode: number, code: string) => {
   const error = new Error(message) as Error & {
@@ -27,19 +27,11 @@ class StaffInviteService {
     const expiresInDays = input.expiresInDays ?? 7;
     const token = crypto.randomBytes(32).toString("hex");
     const tokenHash = hashToken(token);
-    const expiresAt = new Date(
-      Date.now() + expiresInDays * 24 * 60 * 60 * 1000,
-    );
+    const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000);
 
     const [business, existingUser] = await Promise.all([
-      prisma.business.findUnique({
-        where: { id: businessId },
-        select: { id: true },
-      }),
-      prisma.businessUser.findUnique({
-        where: { email },
-        select: { businessId: true },
-      }),
+      prisma.business.findUnique({ where: { id: businessId }, select: { id: true } }),
+      prisma.businessUser.findUnique({ where: { email }, select: { businessId: true } }),
     ]);
 
     if (!business) throw buildError("Business not found", 404, "NOT_FOUND");
@@ -60,28 +52,18 @@ class StaffInviteService {
 
     const invite = await prisma.$transaction(async (tx) => {
       await tx.staffInvite.updateMany({
-        where: {
-          businessId,
-          email,
-          acceptedAt: null,
-        },
+        where: { businessId, email, acceptedAt: null },
         data: { expiresAt: new Date(0) },
       });
-
       return tx.staffInvite.create({
-        data: {
-          businessId,
-          email,
-          role: input.role,
-          tokenHash,
-          expiresAt,
-        },
+        data: { businessId, email, role: input.role, tokenHash, expiresAt },
       });
     });
 
-    const frontendUrl = (
-      process.env.FRONTEND_URL || "http://localhost:3000"
-    ).replace(/\/$/, "");
+    const frontendUrl = (process.env.FRONTEND_URL || "http://localhost:3000").replace(
+      /\/$/,
+      "",
+    );
 
     return {
       id: invite.id,
@@ -103,14 +85,11 @@ class StaffInviteService {
     if (invite.expiresAt.getTime() <= Date.now()) {
       throw buildError("Invitation expired", 410, "INVITE_EXPIRED");
     }
-
     if (invite.role !== Roles.Staff && invite.role !== Roles.Receptionist) {
       throw buildError("Invalid invitation role", 400, "INVALID_INVITE_ROLE");
     }
 
-    const user = await prisma.businessUser.findUnique({
-      where: { id: userId },
-    });
+    const user = await prisma.businessUser.findUnique({ where: { id: userId } });
     if (!user) throw buildError("User not found", 404, "NOT_FOUND");
     if (normaliseEmail(user.email) !== normaliseEmail(invite.email)) {
       throw buildError(
@@ -129,14 +108,9 @@ class StaffInviteService {
 
     return prisma.$transaction(async (tx) => {
       const claimed = await tx.staffInvite.updateMany({
-        where: {
-          id: invite.id,
-          acceptedAt: null,
-          expiresAt: { gt: new Date() },
-        },
+        where: { id: invite.id, acceptedAt: null, expiresAt: { gt: new Date() } },
         data: { acceptedAt: new Date() },
       });
-
       if (claimed.count !== 1) {
         throw buildError(
           "Invitation is expired or already used",
@@ -159,18 +133,12 @@ class StaffInviteService {
           role: invite.role,
           isActive: true,
         },
-        update: {
-          role: invite.role,
-          isActive: true,
-        },
+        update: { role: invite.role, isActive: true },
       });
 
       await tx.businessUser.update({
         where: { id: user.id },
-        data: {
-          businessId: invite.businessId,
-          role: invite.role,
-        },
+        data: { businessId: invite.businessId, role: invite.role },
       });
 
       return { staff, userId: user.id };

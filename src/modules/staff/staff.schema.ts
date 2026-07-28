@@ -4,6 +4,7 @@ import { z } from "zod";
 const commissionTypeEnum = z.nativeEnum(CommissionType);
 const roleEnum = z.nativeEnum(Roles);
 const timeOffTypeEnum = z.nativeEnum(StaffTimeOffType);
+const inviteRoleSchema = z.enum([Roles.Staff, Roles.Receptionist]);
 
 const optionalText = (max: number) =>
   z.string().trim().max(max).optional().or(z.literal(""));
@@ -27,21 +28,41 @@ const validateCommission = (data: {
   commissionType: CommissionType;
   commissionAmount: number;
 }) => {
-  if (data.commissionType === CommissionType.NONE) {
-    return data.commissionAmount === 0;
-  }
+  if (data.commissionType === CommissionType.NONE) return data.commissionAmount === 0;
   if (data.commissionType === CommissionType.PERCENT) {
     return data.commissionAmount > 0 && data.commissionAmount <= 100;
   }
   return data.commissionAmount >= 0;
 };
 
+// #region Queries
+export const staffDirectoryQuerySchema = z.object({
+  search: z.string().trim().optional(),
+  status: z.enum(["all", "active", "inactive"]).default("all"),
+  role: roleEnum.optional(),
+  serviceId: z.string().uuid().optional(),
+  availableToday: queryBooleanSchema,
+  page: z.coerce.number().int().positive().default(1),
+  perPage: z.coerce.number().int().min(1).max(100).default(24),
+});
+
+export const staffPaginationSchema = z.object({
+  items: z.array(z.unknown()),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().positive(),
+  perPage: z.number().int().positive(),
+});
+// #endregion
+
+// #region Commands
 export const createStaffSchema = z.object({
   name: z.string().trim().min(1).max(255).openapi({ example: "Dr. Mona Ahmed" }),
   role: roleEnum.optional().default(Roles.Staff).openapi({ example: Roles.Staff }),
   jobTitle: optionalText(120).openapi({ example: "Lead Therapist" }),
   yearsExperience: z.number().int().min(0).max(80).nullable().optional(),
-  bio: optionalText(4000).openapi({ example: "Specializes in rehabilitation and sports recovery." }),
+  bio: optionalText(4000).openapi({
+    example: "Specializes in rehabilitation and sports recovery.",
+  }),
   phone: optionalText(30).openapi({ example: "+201001234567" }),
   email: z.string().trim().email().nullable().optional().or(z.literal("")),
   photoUrl: z.string().url().nullable().optional().or(z.literal("")),
@@ -65,16 +86,6 @@ export const updateStaffSchema = z
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one field is required",
   });
-
-export const staffDirectoryQuerySchema = z.object({
-  search: z.string().trim().optional(),
-  status: z.enum(["all", "active", "inactive"]).default("all"),
-  role: roleEnum.optional(),
-  serviceId: z.string().uuid().optional(),
-  availableToday: queryBooleanSchema,
-  page: z.coerce.number().int().positive().default(1),
-  perPage: z.coerce.number().int().min(1).max(100).default(24),
-});
 
 export const assignServiceSchema = z
   .object({
@@ -157,30 +168,21 @@ export const createTimeOffSchema = z
     message: "Time off end date must be on or after the start date",
   });
 
-export const staffPaginationSchema = z.object({
-  items: z.array(z.unknown()),
-  total: z.number().int().nonnegative(),
-  page: z.number().int().positive(),
-  perPage: z.number().int().positive(),
-});
+export const createInviteSchema = z
+  .object({
+    email: z.string().trim().email(),
+    role: inviteRoleSchema,
+    expiresInDays: z.number().int().min(1).max(30).optional(),
+  })
+  .strict();
 
-export const createInviteSchema = z.object({
-  email: z.string().email(),
-  role: roleEnum,
-  expiresInDays: z.number().int().positive().optional(),
-});
+export const acceptInviteSchema = z.object({ token: z.string().min(1) }).strict();
+// #endregion
 
-export const acceptInviteSchema = z.object({
-  token: z.string().min(1),
-});
-
-type StaffCreatePayload = z.infer<typeof createStaffSchema>;
-type StaffUpdatePayload = z.infer<typeof updateStaffSchema>;
-
-export type StaffWorkspaceCreateInput = StaffCreatePayload;
-export type StaffWorkspaceUpdateInput = StaffUpdatePayload;
-export type StaffCreateInput = StaffCreatePayload;
-export type StaffUpdateInput = StaffUpdatePayload;
+export type StaffCreateInput = z.infer<typeof createStaffSchema>;
+export type StaffUpdateInput = z.infer<typeof updateStaffSchema>;
+export type StaffWorkspaceCreateInput = StaffCreateInput;
+export type StaffWorkspaceUpdateInput = StaffUpdateInput;
 export type StaffDirectoryQuery = z.infer<typeof staffDirectoryQuerySchema>;
 export type AssignServiceInput = z.infer<typeof assignServiceSchema>;
 export type UpdateServiceStaffInput = z.infer<typeof updateServiceStaffSchema>;
@@ -193,9 +195,10 @@ export type CreateInviteInput = z.infer<typeof createInviteSchema>;
 export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
 
 export const staffSchemas = {
+  staffDirectoryQuerySchema,
+  staffPaginationSchema,
   createStaffSchema,
   updateStaffSchema,
-  staffDirectoryQuerySchema,
   assignServiceSchema,
   updateServiceStaffSchema,
   availabilityEntrySchema,
@@ -203,7 +206,6 @@ export const staffSchemas = {
   overridesSchema,
   createStaffBreakSchema,
   createTimeOffSchema,
-  staffPaginationSchema,
   createInviteSchema,
   acceptInviteSchema,
 };

@@ -1,9 +1,6 @@
 import { CommissionType, Roles } from "@prisma/client";
 import { Router } from "express";
 import staffController from "./staff.controller";
-import staffWorkspaceController from "./staff.workspace.controller";
-import staffPhotoController from "./staff-photo.controller";
-import staffInviteController from "./staff-invite.controller";
 import {
   requireAuth,
   requireBusinessAccess,
@@ -11,7 +8,9 @@ import {
 } from "../../shared/middleware/auth.middleware";
 import validate from "../../shared/middleware/validate.middleware";
 import {
+  acceptInviteSchema,
   assignServiceSchema,
+  createInviteSchema,
   createStaffBreakSchema,
   createStaffSchema,
   createTimeOffSchema,
@@ -20,10 +19,6 @@ import {
   updateServiceStaffSchema,
   updateStaffSchema,
 } from "./staff.schema";
-import {
-  acceptInviteSchema,
-  createInviteSchema,
-} from "./staff-invite.schema";
 
 const router = Router();
 const OWNER_ROLES = [Roles.BusinessAdmin, Roles.SuperAdmin];
@@ -41,27 +36,15 @@ const removeCommissionForOperationalUsers = (req: any, _res: any, next: any) => 
 
 router.use(requireAuth);
 
-router.get("/", staffWorkspaceController.list);
-router.post(
-  "/",
-  validate.validateBody(createStaffSchema),
-  staffWorkspaceController.create,
-);
-router.get("/:id/workspace", staffWorkspaceController.workspace);
-router.patch(
-  "/:id",
-  validate.validateBody(updateStaffSchema),
-  staffWorkspaceController.update,
-);
-router.delete(
-  "/:id",
-  requireRole(OWNER_ROLES),
-  staffWorkspaceController.deactivate,
-);
+router.get("/", staffController.list);
+router.post("/", validate.validateBody(createStaffSchema), staffController.create);
+router.get("/:id/workspace", staffController.workspace);
+router.patch("/:id", validate.validateBody(updateStaffSchema), staffController.update);
+router.delete("/:id", requireRole(OWNER_ROLES), staffController.deactivate);
 
-router.post("/:id/photo/presign", staffPhotoController.presign);
-router.post("/:id/photo/confirm", staffPhotoController.confirm);
-router.delete("/:id/photo", staffPhotoController.remove);
+router.post("/:id/photo/presign", staffController.presignPhoto);
+router.post("/:id/photo/confirm", staffController.confirmPhoto);
+router.delete("/:id/photo", staffController.removePhoto);
 
 router.post(
   "/:id/services",
@@ -86,7 +69,7 @@ router.get("/:id/availability", staffController.getAvailability);
 router.put(
   "/:id/availability",
   validate.validateBody(replaceAvailabilitySchema),
-  staffWorkspaceController.replaceAvailability,
+  staffController.replaceAvailability,
 );
 router.get(
   "/:id/availability/overrides",
@@ -105,19 +88,16 @@ router.delete(
 router.post(
   "/:id/breaks",
   validate.validateBody(createStaffBreakSchema),
-  staffWorkspaceController.createBreak,
+  staffController.createBreak,
 );
-router.delete("/:id/breaks/:breakId", staffWorkspaceController.deleteBreak);
+router.delete("/:id/breaks/:breakId", staffController.deleteBreak);
 
 router.post(
   "/:id/time-off",
   validate.validateBody(createTimeOffSchema),
-  staffWorkspaceController.createTimeOff,
+  staffController.createTimeOff,
 );
-router.delete(
-  "/:id/time-off/:timeOffId",
-  staffWorkspaceController.deleteTimeOff,
-);
+router.delete("/:id/time-off/:timeOffId", staffController.deleteTimeOff);
 
 router.get(
   "/:id/commission",
@@ -130,12 +110,12 @@ router.post(
   requireBusinessAccess,
   requireRole(OWNER_ROLES),
   validate.validateBody(createInviteSchema),
-  staffInviteController.create,
+  staffController.createInvite,
 );
 router.post(
   "/invites/accept",
   validate.validateBody(acceptInviteSchema),
-  staffInviteController.accept,
+  staffController.acceptInvite,
 );
 
 router.get(
