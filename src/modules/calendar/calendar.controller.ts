@@ -1,8 +1,9 @@
 import type { NextFunction, Request, Response } from "express";
 import { fail, ok } from "../../shared/utils/response.util";
-import workspaceQuery from "../workspace/workspace.query";
+import calendarQueryService from "./calendar.query.service";
 
 class CalendarController {
+  // #region Queries
   async getWorkspace(req: Request, res: Response, next: NextFunction) {
     try {
       const businessId = req.user?.businessId;
@@ -20,11 +21,12 @@ class CalendarController {
         );
       }
 
-      return ok(res, await workspaceQuery.calendarDay(businessId, date));
+      return ok(res, await calendarQueryService.getWorkspace(businessId, date));
     } catch (error) {
       return next(error);
     }
   }
+  // #endregion
 }
 
 export default new CalendarController();
