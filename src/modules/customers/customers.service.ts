@@ -83,7 +83,7 @@ class CustomersService {
         none: { startsAt: { gte: now }, status: { in: ACTIVE_STATUSES } },
       };
     } else if (query.filter === "no_shows") {
-      where.appointments = { some: { status: AppointmentStatus.no_show } };
+      where.noShowCount = { gt: 0 };
     } else if (query.filter === "recent") {
       const since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
       where.createdAt = { gte: since };
@@ -96,75 +96,43 @@ class CustomersService {
         skip,
         take: query.perPage,
         orderBy: [{ updatedAt: "desc" }, { name: "asc" }],
+        select: {
+          id: true,
+          businessId: true,
+          name: true,
+          phone: true,
+          email: true,
+          notes: true,
+          acquisitionSource: true,
+          visitCount: true,
+          noShowCount: true,
+          lastVisitAt: true,
+          createdAt: true,
+          updatedAt: true,
+          appointments: {
+            where: {
+              startsAt: { gte: now },
+              status: { in: ACTIVE_STATUSES },
+            },
+            orderBy: { startsAt: "asc" },
+            take: 1,
+            select: {
+              id: true,
+              startsAt: true,
+              status: true,
+            },
+          },
+        },
       }),
       prisma.customer.count({ where }),
     ]);
 
-    const customerIds = customers.map((customer) => customer.id);
-    if (customerIds.length === 0) {
-      return { items: [], total, page: query.page, perPage: query.perPage };
-    }
-
-    const [statusCounts, completed, upcoming] = await Promise.all([
-      prisma.appointment.groupBy({
-        by: ["customerId", "status"],
-        where: { businessId, customerId: { in: customerIds } },
-        _count: { _all: true },
-      }),
-      prisma.appointment.findMany({
-        where: {
-          businessId,
-          customerId: { in: customerIds },
-          status: AppointmentStatus.completed,
-        },
-        orderBy: { startsAt: "desc" },
-        select: { customerId: true, startsAt: true },
-      }),
-      prisma.appointment.findMany({
-        where: {
-          businessId,
-          customerId: { in: customerIds },
-          startsAt: { gte: now },
-          status: { in: ACTIVE_STATUSES },
-        },
-        orderBy: { startsAt: "asc" },
-        select: { id: true, customerId: true, startsAt: true, status: true },
-      }),
-    ]);
-
-    const counts = new Map<string, { visits: number; noShows: number }>();
-    for (const row of statusCounts) {
-      const current = counts.get(row.customerId) ?? { visits: 0, noShows: 0 };
-      if (row.status === AppointmentStatus.completed) {
-        current.visits = row._count._all;
-      }
-      if (row.status === AppointmentStatus.no_show) {
-        current.noShows = row._count._all;
-      }
-      counts.set(row.customerId, current);
-    }
-
-    const lastVisitByCustomer = new Map<string, Date>();
-    for (const row of completed) {
-      if (!lastVisitByCustomer.has(row.customerId)) {
-        lastVisitByCustomer.set(row.customerId, row.startsAt);
-      }
-    }
-
-    const nextByCustomer = new Map<string, (typeof upcoming)[number]>();
-    for (const row of upcoming) {
-      if (!nextByCustomer.has(row.customerId)) {
-        nextByCustomer.set(row.customerId, row);
-      }
-    }
-
     return {
-      items: customers.map((customer) => ({
+      items: customers.map(({ appointments, visitCount, noShowCount, ...customer }) => ({
         ...customer,
-        visits: counts.get(customer.id)?.visits ?? 0,
-        noShows: counts.get(customer.id)?.noShows ?? 0,
-        lastVisitAt: lastVisitByCustomer.get(customer.id) ?? null,
-        nextAppointment: nextByCustomer.get(customer.id) ?? null,
+        visits: visitCount,
+        noShows: noShowCount,
+        nextAppointment: appointments[0] ?? null,
       })),
       total,
       page: query.page,
@@ -247,8 +215,9 @@ class CustomersService {
           appointment.startsAt >= now && ACTIVE_STATUSES.includes(appointment.status),
       )
       .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
+    const upcomingIds = new Set(upcoming.map((appointment) => appointment.id));
     const history = normalizedAppointments.filter(
-      (appointment) => !upcoming.some((item) => item.id === appointment.id),
+      (appointment) => !upcomingIds.has(appointment.id),
     );
 
     return {
