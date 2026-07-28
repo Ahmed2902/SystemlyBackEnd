@@ -2,15 +2,15 @@ import { getWorkerUtils } from "./queue";
 
 export const enqueueEtaJob = async (
   invoiceId: string,
-  opts: Record<string, any> = {},
+  opts: { attempts?: number; delay?: number } = {},
 ) => {
+  if (!invoiceId) throw new Error("enqueueEtaJob requires invoiceId");
+
   const utils = await getWorkerUtils();
-
-  const jobOptions: any = {};
-
-  if (opts.attempts) {
-    jobOptions.maxAttempts = opts.attempts;
-  }
+  const jobOptions: Record<string, unknown> = {
+    jobKey: `eta-receipt:${invoiceId}`,
+    maxAttempts: opts.attempts ?? 5,
+  };
 
   if (typeof opts.delay === "number") {
     jobOptions.runAt = new Date(Date.now() + opts.delay);
@@ -20,7 +20,7 @@ export const enqueueEtaJob = async (
 };
 
 export const initEtaQueue = async () => {
-  await getWorkerUtils(); // warm up connection pool
+  await getWorkerUtils();
   return { init: true };
 };
 
