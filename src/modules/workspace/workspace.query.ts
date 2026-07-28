@@ -1,6 +1,6 @@
 import calendarQueryService from "../calendar/calendar.query.service";
-import customersService from "../customers/customers.service";
-import invoiceWorkspaceService from "../invoices/invoices.workspace.service";
+import customersQueryService from "../customers/customers.query.service";
+import invoicesQueryService from "../invoices/invoices.query.service";
 import staffWorkspaceService from "../staff/staff.workspace.service";
 import type { ListCustomersQuery } from "../customers/customers.schema";
 import type { ListInvoicesQuery } from "../invoices/invoices.workspace.schema";
