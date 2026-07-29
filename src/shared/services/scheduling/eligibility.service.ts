@@ -10,47 +10,31 @@ export async function resolveEligibleStaffBySelection(
   selections: ServiceSelection[],
   businessId?: string,
 ): Promise<string[][]> {
-  const eligibleByService: string[][] = [];
+  if (selections.length === 0) return [];
 
-  for (const selection of selections) {
-    if (selection.staffId) {
-      const row = await tx.serviceStaff.findUnique({
-        where: {
-          serviceId_staffId: {
-            serviceId: selection.serviceId,
-            staffId: selection.staffId,
-          },
-          ...(businessId
-            ? {
-                service: { businessId },
-                staff: { businessId },
-              }
-            : {}),
-        },
-        include: { staff: { select: { isActive: true } } },
-      });
-
-      eligibleByService.push(row?.staff?.isActive ? [selection.staffId] : []);
-      continue;
-    }
-
-    const rows = await tx.serviceStaff.findMany({
-      where: {
-        serviceId: selection.serviceId,
-        ...(businessId
-          ? {
-              service: { businessId },
-              staff: { businessId },
-            }
-          : {}),
+  const serviceIds = [...new Set(selections.map((selection) => selection.serviceId))];
+  const rows = await tx.serviceStaff.findMany({
+    where: {
+      serviceId: { in: serviceIds },
+      staff: {
+        isActive: true,
+        ...(businessId ? { businessId } : {}),
       },
-      include: { staff: { select: { isActive: true } } },
-    });
+      ...(businessId ? { service: { businessId } } : {}),
+    },
+    select: { serviceId: true, staffId: true },
+  });
 
-    eligibleByService.push(
-      rows.filter((row) => row.staff?.isActive).map((row) => row.staffId),
-    );
+  const staffByService = new Map<string, string[]>();
+  for (const row of rows) {
+    const staffIds = staffByService.get(row.serviceId) ?? [];
+    staffIds.push(row.staffId);
+    staffByService.set(row.serviceId, staffIds);
   }
 
-  return eligibleByService;
+  return selections.map((selection) => {
+    const eligible = staffByService.get(selection.serviceId) ?? [];
+    if (!selection.staffId) return eligible;
+    return eligible.includes(selection.staffId) ? [selection.staffId] : [];
+  });
 }

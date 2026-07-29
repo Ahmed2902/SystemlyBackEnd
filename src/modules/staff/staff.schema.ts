@@ -42,6 +42,7 @@ export const staffDirectoryQuerySchema = z.object({
   role: roleEnum.optional(),
   serviceId: z.string().uuid().optional(),
   availableToday: queryBooleanSchema,
+  view: z.enum(["directory", "roster"]).default("directory"),
   page: z.coerce.number().int().positive().default(1),
   perPage: z.coerce.number().int().min(1).max(100).default(24),
 });

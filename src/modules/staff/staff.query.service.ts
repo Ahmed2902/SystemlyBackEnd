@@ -37,9 +37,57 @@ function numberFromCount(value: bigint | number | string | undefined) {
   return Number.isSafeInteger(result) && result >= 0 ? result : 0;
 }
 
+function applyDirectoryFilters(
+  where: Prisma.StaffWhereInput,
+  query: StaffDirectoryQuery,
+) {
+  if (query.status === "active") where.isActive = true;
+  if (query.status === "inactive") where.isActive = false;
+  if (query.role) where.role = query.role;
+  if (query.serviceId) where.serviceStaff = { some: { serviceId: query.serviceId } };
+  if (query.search) {
+    where.OR = [
+      { name: { contains: query.search, mode: "insensitive" } },
+      { jobTitle: { contains: query.search, mode: "insensitive" } },
+      { phone: { contains: query.search, mode: "insensitive" } },
+      { email: { contains: query.search, mode: "insensitive" } },
+    ];
+  }
+}
+
 class StaffQueryService {
   async listDirectory(user: AuthUser, query: StaffDirectoryQuery) {
     if (!user.businessId) throw buildError("Business id missing", 400, "BAD_REQUEST");
+
+    const baseWhere: Prisma.StaffWhereInput = { businessId: user.businessId };
+    applyDirectoryFilters(baseWhere, query);
+
+    if (query.view === "roster") {
+      const members = await prisma.staff.findMany({
+        where: baseWhere,
+        take: query.perPage,
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          role: true,
+          photoUrl: true,
+          serviceStaff: {
+            select: { serviceId: true },
+          },
+        },
+      });
+
+      return {
+        items: members.map(({ serviceStaff, ...member }) => ({
+          ...member,
+          serviceIds: serviceStaff.map((relation) => relation.serviceId),
+        })),
+        total: members.length,
+        page: 1,
+        perPage: query.perPage,
+      };
+    }
 
     const business = await prisma.business.findUnique({
       where: { id: user.businessId },
@@ -52,19 +100,7 @@ class StaffQueryService {
     const todayDate = new Date(`${todayLocal.toISODate()}T00:00:00.000Z`);
     const dayOfWeek = todayLocal.weekday % 7;
 
-    const where: Prisma.StaffWhereInput = { businessId: business.id };
-    if (query.status === "active") where.isActive = true;
-    if (query.status === "inactive") where.isActive = false;
-    if (query.role) where.role = query.role;
-    if (query.serviceId) where.serviceStaff = { some: { serviceId: query.serviceId } };
-    if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: "insensitive" } },
-        { jobTitle: { contains: query.search, mode: "insensitive" } },
-        { phone: { contains: query.search, mode: "insensitive" } },
-        { email: { contains: query.search, mode: "insensitive" } },
-      ];
-    }
+    const where: Prisma.StaffWhereInput = { ...baseWhere };
     if (query.availableToday) {
       where.isActive = true;
       where.availability = { some: { dayOfWeek } };

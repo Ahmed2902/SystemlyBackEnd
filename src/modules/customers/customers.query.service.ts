@@ -32,6 +32,18 @@ const appointmentSelect = {
   },
 } satisfies Prisma.AppointmentSelect;
 
+const customerProfileSelect = {
+  id: true,
+  businessId: true,
+  name: true,
+  phone: true,
+  email: true,
+  acquisitionSource: true,
+  notes: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.CustomerSelect;
+
 function withCurrentInvoice<T extends { invoices: Array<{ status: string }> }>({
   invoices,
   ...appointment
@@ -81,6 +93,27 @@ class CustomersQueryService {
     }
 
     const skip = (query.page - 1) * query.perPage;
+
+    if (query.view === "search") {
+      const [items, total] = await Promise.all([
+        prisma.customer.findMany({
+          where,
+          skip,
+          take: query.perPage,
+          orderBy: [{ updatedAt: "desc" }, { name: "asc" }],
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            visitCount: true,
+            lastVisitAt: true,
+          },
+        }),
+        prisma.customer.count({ where }),
+      ]);
+      return { items, total, page: query.page, perPage: query.perPage };
+    }
+
     const [customers, total] = await Promise.all([
       prisma.customer.findMany({
         where,
@@ -88,18 +121,10 @@ class CustomersQueryService {
         take: query.perPage,
         orderBy: [{ updatedAt: "desc" }, { name: "asc" }],
         select: {
-          id: true,
-          businessId: true,
-          name: true,
-          phone: true,
-          email: true,
-          notes: true,
-          acquisitionSource: true,
+          ...customerProfileSelect,
           visitCount: true,
           noShowCount: true,
           lastVisitAt: true,
-          createdAt: true,
-          updatedAt: true,
           appointments: {
             where: { startsAt: { gte: now }, status: { in: ACTIVE_STATUSES } },
             orderBy: { startsAt: "asc" },
@@ -125,19 +150,23 @@ class CustomersQueryService {
   }
 
   getCustomerById(id: string, businessId: string) {
-    return prisma.customer.findFirst({ where: { id, businessId } });
+    return prisma.customer.findFirst({
+      where: { id, businessId },
+      select: customerProfileSelect,
+    });
   }
 
   async getWorkspace(id: string, businessId: string) {
-    const customer = await this.getCustomerById(id, businessId);
-    if (!customer) throw notFoundError();
-
     const now = new Date();
-    const appointments = await prisma.appointment.findMany({
-      where: { customerId: id, businessId },
-      orderBy: { startsAt: "desc" },
-      select: appointmentSelect,
-    });
+    const [customer, appointments] = await Promise.all([
+      this.getCustomerById(id, businessId),
+      prisma.appointment.findMany({
+        where: { customerId: id, businessId },
+        orderBy: { startsAt: "desc" },
+        select: appointmentSelect,
+      }),
+    ]);
+    if (!customer) throw notFoundError();
 
     const normalizedAppointments = appointments.map(withCurrentInvoice);
     const visits = normalizedAppointments.filter(

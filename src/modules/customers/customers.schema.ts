@@ -9,6 +9,7 @@ export const listCustomersQuerySchema = z.object({
   filter: z
     .enum(["all", "upcoming", "no_upcoming", "no_shows", "recent"])
     .default("all"),
+  view: z.enum(["directory", "search"]).default("directory"),
   page: z.coerce.number().int().positive().default(1),
   perPage: z.coerce.number().int().min(1).max(100).default(20),
 });

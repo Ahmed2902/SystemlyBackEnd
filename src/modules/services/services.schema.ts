@@ -24,6 +24,7 @@ export const listServicesQuerySchema = z.object({
   search: z.string().trim().optional(),
   category: z.string().trim().optional(),
   status: z.enum(["all", "active", "inactive"]).default("all"),
+  view: z.enum(["catalog", "booking"]).default("catalog"),
 });
 // #endregion
 

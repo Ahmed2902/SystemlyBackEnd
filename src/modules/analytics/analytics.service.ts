@@ -15,8 +15,11 @@ import * as operationsQueries from "./queries/operations.queries";
 import * as growthQueries from "./queries/growth.queries";
 
 const CACHE_TTL_SECONDS = 120;
-const CACHE_VERSION = "v2";
+const CACHE_VERSION = "v3";
 const DEFAULT_LAPSED_DAYS = 45;
+const BUSINESS_META_TTL_MS = 5 * 60_000;
+const MAX_BUSINESS_META_ENTRIES = 250;
+const MAX_ANALYTICS_IN_FLIGHT = 250;
 
 export class AnalyticsError extends Error {
   constructor(
@@ -34,7 +37,19 @@ interface BusinessMeta {
   createdAt: Date;
 }
 
-async function resolveBusiness(businessId: string): Promise<BusinessMeta> {
+type BusinessMetaEntry = { value: BusinessMeta; expiresAt: number };
+
+const businessMetaCache = new Map<string, BusinessMetaEntry>();
+const businessMetaInFlight = new Map<string, Promise<BusinessMeta>>();
+const analyticsInFlight = new Map<string, Promise<unknown>>();
+
+function evictOldest<T>(cache: Map<string, T>, maximum: number) {
+  if (cache.size < maximum) return;
+  const oldestKey = cache.keys().next().value as string | undefined;
+  if (oldestKey) cache.delete(oldestKey);
+}
+
+async function loadBusiness(businessId: string): Promise<BusinessMeta> {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: { id: true, name: true, createdAt: true },
@@ -43,20 +58,74 @@ async function resolveBusiness(businessId: string): Promise<BusinessMeta> {
   return business;
 }
 
+async function resolveBusiness(businessId: string): Promise<BusinessMeta> {
+  const cached = businessMetaCache.get(businessId);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (cached) businessMetaCache.delete(businessId);
+
+  const existing = businessMetaInFlight.get(businessId);
+  if (existing) return existing;
+
+  const loading = loadBusiness(businessId)
+    .then((value) => {
+      if (!businessMetaCache.has(businessId)) {
+        evictOldest(businessMetaCache, MAX_BUSINESS_META_ENTRIES);
+      }
+      businessMetaCache.set(businessId, {
+        value,
+        expiresAt: Date.now() + BUSINESS_META_TTL_MS,
+      });
+      return value;
+    })
+    .finally(() => businessMetaInFlight.delete(businessId));
+
+  businessMetaInFlight.set(businessId, loading);
+  return loading;
+}
+
 function getCacheKey(businessId: string, domain: string, preset: AnalyticsPreset) {
   return `analytics:${CACHE_VERSION}:${businessId}:${domain}:${preset}`;
 }
 
-async function withCache<T>(key: string, loader: () => Promise<T>): Promise<T> {
+async function readCached<T>(key: string): Promise<T | null> {
   try {
     const cached = await redis.get(key);
-    if (cached) return JSON.parse(cached) as T;
-    const value = await loader();
-    await redis.set(key, JSON.stringify(value), CACHE_TTL_SECONDS);
-    return value;
+    return cached ? (JSON.parse(cached) as T) : null;
   } catch {
-    return loader();
+    return null;
   }
+}
+
+async function writeCached<T>(key: string, value: T) {
+  try {
+    await redis.set(key, JSON.stringify(value), CACHE_TTL_SECONDS);
+  } catch {
+    // Redis is an optimisation only. The computed database result is still valid.
+  }
+}
+
+async function withCache<T>(key: string, loader: () => Promise<T>): Promise<T> {
+  const cached = await readCached<T>(key);
+  if (cached) return cached;
+
+  const existing = analyticsInFlight.get(key) as Promise<T> | undefined;
+  if (existing) return existing;
+
+  if (analyticsInFlight.size >= MAX_ANALYTICS_IN_FLIGHT) {
+    const value = await loader();
+    await writeCached(key, value);
+    return value;
+  }
+
+  const loading = loader()
+    .then(async (value) => {
+      await writeCached(key, value);
+      return value;
+    })
+    .finally(() => analyticsInFlight.delete(key));
+
+  analyticsInFlight.set(key, loading);
+  return loading;
 }
 
 function metadata(
