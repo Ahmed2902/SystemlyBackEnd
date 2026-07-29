@@ -1,18 +1,24 @@
 const { performance } = require("node:perf_hooks");
 
-const baseUrl = (process.env.BENCHMARK_BASE_URL || "http://localhost:3000").replace(/\/$/, "");
+const baseUrl = (
+  process.env.BENCHMARK_BASE_URL || "http://localhost:3003"
+).replace(/\/$/, "");
 const token = process.env.BENCHMARK_TOKEN || "";
 const iterations = Number(process.env.BENCHMARK_ITERATIONS || 5);
-const date = process.env.BENCHMARK_DATE || new Date().toISOString().slice(0, 10);
+const date =
+  process.env.BENCHMARK_DATE || new Date().toISOString().slice(0, 10);
 
-const endpoints = (process.env.BENCHMARK_ENDPOINTS || [
-  "/api/calendar/workspace?date=" + encodeURIComponent(date),
-  "/api/appointments?page=1&perPage=20&date=" + encodeURIComponent(date),
-  "/api/staff?page=1&perPage=24",
-  "/api/services?status=active",
-  "/api/customers?page=1&perPage=20",
-  "/api/invoices?page=1&perPage=30",
-].join(","))
+const endpoints = (
+  process.env.BENCHMARK_ENDPOINTS ||
+  [
+    "/api/calendar/workspace?date=" + encodeURIComponent(date),
+    "/api/appointments?page=1&perPage=20&date=" + encodeURIComponent(date),
+    "/api/staff?page=1&perPage=24",
+    "/api/services?status=active",
+    "/api/customers?page=1&perPage=20",
+    "/api/invoices?page=1&perPage=30",
+  ].join(",")
+)
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
@@ -20,7 +26,9 @@ const endpoints = (process.env.BENCHMARK_ENDPOINTS || [
 function percentile(values, ratio) {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * ratio) - 1)];
+  return sorted[
+    Math.min(sorted.length - 1, Math.ceil(sorted.length * ratio) - 1)
+  ];
 }
 
 async function timeEndpoint(path) {
@@ -35,7 +43,9 @@ async function timeEndpoint(path) {
     samples.push(durationMs);
 
     if (!response.ok) {
-      throw new Error(`${path} returned ${response.status}: ${body.slice(0, 300)}`);
+      throw new Error(
+        `${path} returned ${response.status}: ${body.slice(0, 300)}`,
+      );
     }
   }
 
