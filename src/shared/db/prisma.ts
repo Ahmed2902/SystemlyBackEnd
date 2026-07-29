@@ -2,21 +2,28 @@ import { PrismaClient } from "@prisma/client";
 import { performance } from "node:perf_hooks";
 import { recordPrismaQuery } from "../observability/request-context";
 
-export const prisma = new PrismaClient({
-  log: [{ emit: "event", level: "query" }],
-});
+const basePrisma = new PrismaClient();
 
-prisma.$on("query", (event) => {
-  const endedAtMs = performance.now();
-  const durationMs = Math.max(0, event.duration);
-  const startedAtMs = endedAtMs - durationMs;
-  const operation = event.query.trim().split(/\s+/, 1)[0]?.toUpperCase() || "QUERY";
+export const prisma = basePrisma.$extends({
+  name: "request-performance-instrumentation",
+  query: {
+    $allModels: {
+      async $allOperations({ model, operation, args, query }) {
+        const startedAtMs = performance.now();
 
-  recordPrismaQuery({
-    model: null,
-    operation,
-    durationMs,
-    startedAtMs,
-    endedAtMs,
-  });
+        try {
+          return await query(args);
+        } finally {
+          const endedAtMs = performance.now();
+          recordPrismaQuery({
+            model,
+            operation,
+            durationMs: Math.max(0, endedAtMs - startedAtMs),
+            startedAtMs,
+            endedAtMs,
+          });
+        }
+      },
+    },
+  },
 });
