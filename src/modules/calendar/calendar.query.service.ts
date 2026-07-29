@@ -2,15 +2,20 @@ import { prisma } from "../../shared/db/prisma";
 import { getBusinessDayRange } from "../../shared/utils/timezone";
 
 const METADATA_TTL_MS = 30_000;
+const TIMEZONE_TTL_MS = 5 * 60_000;
 const MAX_METADATA_ENTRIES = 250;
 const MAX_METADATA_IN_FLIGHT = 250;
+const MAX_TIMEZONE_ENTRIES = 250;
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 type CalendarMetadata = Awaited<ReturnType<typeof loadCalendarMetadata>>;
 type MetadataEntry = { expiresAt: number; value: CalendarMetadata };
+type TimezoneEntry = { expiresAt: number; value: string };
 
 const metadataCache = new Map<string, MetadataEntry>();
 const metadataInFlight = new Map<string, Promise<CalendarMetadata>>();
+const timezoneCache = new Map<string, TimezoneEntry>();
+const timezoneInFlight = new Map<string, Promise<string>>();
 
 function calendarError(message: string, statusCode: number, code: string) {
   return Object.assign(new Error(message), { statusCode, code });
@@ -31,31 +36,62 @@ function parseRequestedDate(date: string) {
   return requestedDate;
 }
 
-function cacheKey(businessId: string, date: string) {
+function metadataKey(businessId: string, date: string) {
   return `${businessId}:${date}`;
 }
 
+function evictOldest<T>(cache: Map<string, T>, maximum: number) {
+  if (cache.size < maximum) return;
+  const oldestKey = cache.keys().next().value as string | undefined;
+  if (oldestKey) cache.delete(oldestKey);
+}
+
 function storeMetadata(key: string, value: CalendarMetadata) {
-  if (metadataCache.size >= MAX_METADATA_ENTRIES && !metadataCache.has(key)) {
-    const oldestKey = metadataCache.keys().next().value as string | undefined;
-    if (oldestKey) metadataCache.delete(oldestKey);
-  }
+  if (!metadataCache.has(key)) evictOldest(metadataCache, MAX_METADATA_ENTRIES);
   metadataCache.set(key, { value, expiresAt: Date.now() + METADATA_TTL_MS });
+}
+
+function storeTimezone(businessId: string, value: string) {
+  if (!timezoneCache.has(businessId)) {
+    evictOldest(timezoneCache, MAX_TIMEZONE_ENTRIES);
+  }
+  timezoneCache.set(businessId, {
+    value,
+    expiresAt: Date.now() + TIMEZONE_TTL_MS,
+  });
+}
+
+async function loadBusinessTimezone(businessId: string) {
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { timezone: true },
+  });
+  if (!business) throw calendarError("Business not found", 404, "NOT_FOUND");
+  return business.timezone || "UTC";
+}
+
+async function getBusinessTimezone(businessId: string) {
+  const cached = timezoneCache.get(businessId);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (cached) timezoneCache.delete(businessId);
+
+  const existing = timezoneInFlight.get(businessId);
+  if (existing) return existing;
+
+  const loading = loadBusinessTimezone(businessId)
+    .then((value) => {
+      storeTimezone(businessId, value);
+      return value;
+    })
+    .finally(() => timezoneInFlight.delete(businessId));
+  timezoneInFlight.set(businessId, loading);
+  return loading;
 }
 
 async function loadCalendarMetadata(
   businessId: string,
   requestedDate: Date,
 ) {
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-    select: { timezone: true },
-  });
-
-  if (!business) {
-    throw calendarError("Business not found", 404, "NOT_FOUND");
-  }
-
   const weekday = requestedDate.getUTCDay();
   const [staff, services] = await Promise.all([
     prisma.staff.findMany({
@@ -100,12 +136,7 @@ async function loadCalendarMetadata(
     }),
   ]);
 
-  return {
-    timezone: business.timezone || "UTC",
-    requestedDate,
-    staff,
-    services,
-  };
+  return { requestedDate, staff, services };
 }
 
 async function getCalendarMetadata(
@@ -113,7 +144,7 @@ async function getCalendarMetadata(
   date: string,
   requestedDate: Date,
 ) {
-  const key = cacheKey(businessId, date);
+  const key = metadataKey(businessId, date);
   const cached = metadataCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   if (cached) metadataCache.delete(key);
@@ -121,9 +152,6 @@ async function getCalendarMetadata(
   const existing = metadataInFlight.get(key);
   if (existing) return existing;
 
-  // Never bypass this cap: doing so would turn a date-spray attack into
-  // unbounded concurrent PostgreSQL work. A short-lived 503 is retryable and
-  // protects all tenants sharing this API process.
   if (metadataInFlight.size >= MAX_METADATA_IN_FLIGHT) {
     throw calendarError("Calendar is temporarily busy", 503, "SERVER_BUSY");
   }
@@ -142,14 +170,13 @@ async function getCalendarMetadata(
 class CalendarQueryService {
   async getWorkspace(businessId: string, date: string) {
     const requestedDate = parseRequestedDate(date);
-    const metadata = await getCalendarMetadata(
-      businessId,
-      date,
-      requestedDate,
-    );
-    const { start, end } = getBusinessDayRange(metadata.timezone, date);
+    const timezone = await getBusinessTimezone(businessId);
+    const { start, end } = getBusinessDayRange(timezone, date);
 
-    const [appointments, breaks] = await Promise.all([
+    // Once the stable timezone is known, all date-specific reads are independent.
+    // Running them together removes the previous metadata -> live-data waterfall.
+    const [metadata, appointments, breaks] = await Promise.all([
+      getCalendarMetadata(businessId, date, requestedDate),
       prisma.appointment.findMany({
         where: {
           businessId,
@@ -161,17 +188,10 @@ class CalendarQueryService {
           id: true,
           startsAt: true,
           status: true,
-          notes: true,
           discountCents: true,
           customerId: true,
           customer: {
-            select: {
-              id: true,
-              name: true,
-              phone: true,
-              visitCount: true,
-              noShowCount: true,
-            },
+            select: { id: true, name: true },
           },
           appointmentServices: {
             orderBy: { order: "asc" },
@@ -185,31 +205,16 @@ class CalendarQueryService {
               service: { select: { name: true } },
             },
           },
-          customItems: {
-            select: {
-              id: true,
-              description: true,
-              quantity: true,
-              priceCents: true,
-            },
-          },
           invoices: {
             where: { status: { not: "voided" } },
             orderBy: { issuedAt: "desc" },
             take: 1,
             select: { status: true },
           },
-          clinicVisitRecord: {
-            select: {
-              notes: true,
-              diagnosis: true,
-              prescriptionJson: true,
-            },
-          },
         },
       }),
       prisma.staffBreak.findMany({
-        where: { businessId, breakDate: metadata.requestedDate },
+        where: { businessId, breakDate: requestedDate },
         orderBy: { startTime: "asc" },
         select: {
           id: true,
@@ -223,7 +228,7 @@ class CalendarQueryService {
 
     return {
       date,
-      timezone: metadata.timezone,
+      timezone,
       appointments: appointments.map(({ invoices, ...appointment }) => ({
         ...appointment,
         invoice: invoices[0] ?? null,
