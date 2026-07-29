@@ -9,6 +9,7 @@ import {
 } from "./src/shared/db/prisma";
 
 const PORT = Number(process.env.PORT) || APP_CONFIG.port || 3000;
+const SHUTDOWN_DEADLINE_MS = 10_000;
 let server: Server | undefined;
 let shuttingDown = false;
 
@@ -41,8 +42,19 @@ async function shutdown(signal: string, exitCode = 0) {
   shuttingDown = true;
   console.log(`${signal} received. Shutting down gracefully...`);
 
+  // A stuck handler or upgraded socket must not keep a corrupted process alive
+  // forever after an uncaught exception. This timer is intentionally independent
+  // of HTTP requestTimeout, which does not bound handler execution.
+  const deadline = setTimeout(() => {
+    console.error("Shutdown deadline exceeded; forcing process exit.");
+    server?.closeAllConnections();
+    process.exit(exitCode || 1);
+  }, SHUTDOWN_DEADLINE_MS);
+  deadline.unref();
+
   try {
     if (server) {
+      server.closeIdleConnections();
       await new Promise<void>((resolve, reject) => {
         server!.close((error) => {
           if (error) reject(error);
@@ -54,6 +66,7 @@ async function shutdown(signal: string, exitCode = 0) {
     await disconnectPrisma().catch((error: unknown) => {
       console.error("Prisma disconnect failed:", error);
     });
+    clearTimeout(deadline);
     process.exit(exitCode);
   }
 }
