@@ -2,6 +2,7 @@
 // any schema module is loaded
 import "./src/shared/zod-setup";
 
+import crypto from "node:crypto";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { Application, raw } from "express";
@@ -96,11 +97,31 @@ app.get("/docs", (_req, res) => {
   res.type("html").send(getSwaggerHtml("/openapi.json"));
 });
 
-// Prometheus metrics endpoint
+function validMetricsToken(authorization: string | undefined) {
+  const expected = process.env.METRICS_TOKEN;
+  if (!expected) return process.env.NODE_ENV !== "production";
+
+  const supplied = authorization?.startsWith("Bearer ")
+    ? authorization.slice("Bearer ".length)
+    : "";
+  const expectedBuffer = Buffer.from(expected);
+  const suppliedBuffer = Buffer.from(supplied);
+  return (
+    expectedBuffer.length === suppliedBuffer.length &&
+    crypto.timingSafeEqual(expectedBuffer, suppliedBuffer)
+  );
+}
+
+// Process metrics expose operational details. In production this endpoint is
+// hidden unless a token is configured, then protected with constant-time auth.
 promClient.collectDefaultMetrics();
-app.get("/metrics", async (_req, res) => {
+app.get("/metrics", async (req, res) => {
+  if (!validMetricsToken(req.headers.authorization)) {
+    return res.status(process.env.METRICS_TOKEN ? 401 : 404).end();
+  }
+
   res.set("Content-Type", promClient.register.contentType);
-  res.send(await promClient.register.metrics());
+  return res.send(await promClient.register.metrics());
 });
 
 app.use("/api", routes);
