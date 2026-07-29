@@ -121,10 +121,11 @@ async function getCalendarMetadata(
   const existing = metadataInFlight.get(key);
   if (existing) return existing;
 
+  // Never bypass this cap: doing so would turn a date-spray attack into
+  // unbounded concurrent PostgreSQL work. A short-lived 503 is retryable and
+  // protects all tenants sharing this API process.
   if (metadataInFlight.size >= MAX_METADATA_IN_FLIGHT) {
-    const value = await loadCalendarMetadata(businessId, requestedDate);
-    storeMetadata(key, value);
-    return value;
+    throw calendarError("Calendar is temporarily busy", 503, "SERVER_BUSY");
   }
 
   const loading = loadCalendarMetadata(businessId, requestedDate)
