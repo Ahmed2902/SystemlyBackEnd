@@ -105,16 +105,11 @@ class InvoicesQueryService {
           totalCents: true,
           currency: true,
           customer: { select: { id: true, name: true, phone: true } },
-          appointment: {
-            select: {
-              id: true,
-              startsAt: true,
-              appointmentServices: {
-                orderBy: { order: "asc" },
-                take: 3,
-                select: { service: { select: { name: true } } },
-              },
-            },
+          appointment: { select: { id: true, startsAt: true } },
+          lineItems: {
+            orderBy: { createdAt: "asc" },
+            take: 3,
+            select: { description: true },
           },
         },
       }),
@@ -122,12 +117,9 @@ class InvoicesQueryService {
     ]);
 
     return {
-      items: items.map((invoice) => ({
+      items: items.map(({ lineItems, ...invoice }) => ({
         ...invoice,
-        services:
-          invoice.appointment?.appointmentServices.map(
-            (segment) => segment.service.name,
-          ) ?? [],
+        services: lineItems.map((item) => item.description),
       })),
       total,
       page: query.page,
