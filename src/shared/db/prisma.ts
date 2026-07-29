@@ -4,7 +4,7 @@ import { recordPrismaQuery } from "../observability/request-context";
 
 const basePrisma = new PrismaClient();
 
-export const prisma = basePrisma.$extends({
+const instrumentedPrisma = basePrisma.$extends({
   name: "request-performance-instrumentation",
   query: {
     $allModels: {
@@ -27,3 +27,17 @@ export const prisma = basePrisma.$extends({
     },
   },
 });
+
+// Prisma extensions deliberately expose a narrower generated type. The runtime
+// client remains API-compatible with PrismaClient, and keeping the public type
+// stable avoids forcing unsafe casts throughout transaction-aware services.
+export const prisma = instrumentedPrisma as unknown as PrismaClient;
+
+export async function connectPrisma() {
+  await basePrisma.$connect();
+  await basePrisma.$queryRaw`SELECT 1`;
+}
+
+export function disconnectPrisma() {
+  return basePrisma.$disconnect();
+}
