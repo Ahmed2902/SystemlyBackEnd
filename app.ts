@@ -32,6 +32,8 @@ app.post(
 );
 
 const allowedOrigins = APP_CONFIG.corsOrigins;
+const allowAnyDevelopmentOrigin =
+  process.env.NODE_ENV !== "production" && allowedOrigins.length === 0;
 
 const corsOptions = {
   credentials: true,
@@ -43,7 +45,7 @@ const corsOptions = {
   ) {
     if (
       !origin ||
-      allowedOrigins.length === 0 ||
+      allowAnyDevelopmentOrigin ||
       allowedOrigins.includes(origin)
     ) {
       callback(null, true);
