@@ -1,26 +1,119 @@
 import { prisma } from "../../shared/db/prisma";
 import { getBusinessDayRange } from "../../shared/utils/timezone";
 
+const METADATA_TTL_MS = 30_000;
+const MAX_METADATA_ENTRIES = 250;
+
+type CalendarMetadata = Awaited<ReturnType<typeof loadCalendarMetadata>>;
+type MetadataEntry = { expiresAt: number; value: CalendarMetadata };
+
+const metadataCache = new Map<string, MetadataEntry>();
+const metadataInFlight = new Map<string, Promise<CalendarMetadata>>();
+
+function cacheKey(businessId: string, date: string) {
+  return `${businessId}:${date}`;
+}
+
+function storeMetadata(key: string, value: CalendarMetadata) {
+  if (metadataCache.size >= MAX_METADATA_ENTRIES && !metadataCache.has(key)) {
+    const oldestKey = metadataCache.keys().next().value as string | undefined;
+    if (oldestKey) metadataCache.delete(oldestKey);
+  }
+  metadataCache.set(key, { value, expiresAt: Date.now() + METADATA_TTL_MS });
+}
+
+async function loadCalendarMetadata(businessId: string, date: string) {
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { timezone: true },
+  });
+
+  if (!business) {
+    throw Object.assign(new Error("Business not found"), {
+      statusCode: 404,
+      code: "NOT_FOUND",
+    });
+  }
+
+  const requestedDate = new Date(`${date}T00:00:00.000Z`);
+  const weekday = requestedDate.getUTCDay();
+  const [staff, services] = await Promise.all([
+    prisma.staff.findMany({
+      where: { businessId, isActive: true },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        role: true,
+        serviceStaff: { select: { serviceId: true } },
+        availability: {
+          where: { dayOfWeek: weekday },
+          orderBy: { startTime: "asc" },
+          select: {
+            dayOfWeek: true,
+            startTime: true,
+            endTime: true,
+            breakAfterMin: true,
+          },
+        },
+        availabilityOverrides: {
+          where: { overrideDate: requestedDate },
+          select: {
+            id: true,
+            overrideDate: true,
+            isDayOff: true,
+            startTime: true,
+            endTime: true,
+          },
+        },
+      },
+    }),
+    prisma.service.findMany({
+      where: { businessId, isActive: true },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        durationMin: true,
+        priceEgp: true,
+      },
+    }),
+  ]);
+
+  return {
+    timezone: business.timezone || "UTC",
+    requestedDate,
+    staff,
+    services,
+  };
+}
+
+async function getCalendarMetadata(businessId: string, date: string) {
+  const key = cacheKey(businessId, date);
+  const cached = metadataCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (cached) metadataCache.delete(key);
+
+  const existing = metadataInFlight.get(key);
+  if (existing) return existing;
+
+  const loading = loadCalendarMetadata(businessId, date)
+    .then((value) => {
+      storeMetadata(key, value);
+      return value;
+    })
+    .finally(() => metadataInFlight.delete(key));
+
+  metadataInFlight.set(key, loading);
+  return loading;
+}
+
 class CalendarQueryService {
   async getWorkspace(businessId: string, date: string) {
-    const business = await prisma.business.findUnique({
-      where: { id: businessId },
-      select: { timezone: true },
-    });
+    const metadata = await getCalendarMetadata(businessId, date);
+    const { start, end } = getBusinessDayRange(metadata.timezone, date);
 
-    if (!business) {
-      throw Object.assign(new Error("Business not found"), {
-        statusCode: 404,
-        code: "NOT_FOUND",
-      });
-    }
-
-    const timezone = business.timezone || "UTC";
-    const { start, end } = getBusinessDayRange(timezone, date);
-    const requestedDate = new Date(`${date}T00:00:00.000Z`);
-    const weekday = requestedDate.getUTCDay();
-
-    const [appointments, staff, breaks, services] = await Promise.all([
+    const [appointments, breaks] = await Promise.all([
       prisma.appointment.findMany({
         where: {
           businessId,
@@ -79,38 +172,8 @@ class CalendarQueryService {
           },
         },
       }),
-      prisma.staff.findMany({
-        where: { businessId, isActive: true },
-        orderBy: { name: "asc" },
-        select: {
-          id: true,
-          name: true,
-          role: true,
-          serviceStaff: { select: { serviceId: true } },
-          availability: {
-            where: { dayOfWeek: weekday },
-            orderBy: { startTime: "asc" },
-            select: {
-              dayOfWeek: true,
-              startTime: true,
-              endTime: true,
-              breakAfterMin: true,
-            },
-          },
-          availabilityOverrides: {
-            where: { overrideDate: requestedDate },
-            select: {
-              id: true,
-              overrideDate: true,
-              isDayOff: true,
-              startTime: true,
-              endTime: true,
-            },
-          },
-        },
-      }),
       prisma.staffBreak.findMany({
-        where: { businessId, breakDate: requestedDate },
+        where: { businessId, breakDate: metadata.requestedDate },
         orderBy: { startTime: "asc" },
         select: {
           id: true,
@@ -120,28 +183,18 @@ class CalendarQueryService {
           label: true,
         },
       }),
-      prisma.service.findMany({
-        where: { businessId, isActive: true },
-        orderBy: { name: "asc" },
-        select: {
-          id: true,
-          name: true,
-          durationMin: true,
-          priceEgp: true,
-        },
-      }),
     ]);
 
     return {
       date,
-      timezone,
+      timezone: metadata.timezone,
       appointments: appointments.map(({ invoices, ...appointment }) => ({
         ...appointment,
         invoice: invoices[0] ?? null,
       })),
-      staff,
+      staff: metadata.staff,
       breaks,
-      services,
+      services: metadata.services,
     };
   }
 }
