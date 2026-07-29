@@ -82,6 +82,50 @@ class ServicesQueryService {
       where.category = { equals: query.category, mode: "insensitive" };
     }
 
+    const showMoney = canManageMoney(user.role);
+
+    if (query.view === "booking") {
+      const items = await prisma.service.findMany({
+        where,
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          durationMin: true,
+          priceEgp: true,
+          isActive: true,
+          serviceStaff: {
+            where: { staff: { isActive: true } },
+            orderBy: { staff: { name: "asc" } },
+            select: {
+              staff: {
+                select: {
+                  id: true,
+                  name: true,
+                  role: true,
+                  photoUrl: true,
+                  isActive: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      return {
+        items: items.map(({ serviceStaff, priceEgp, ...service }) => ({
+          ...service,
+          priceEgp: showMoney ? Number(priceEgp) : undefined,
+          eligibleStaff: serviceStaff.map(({ staff }) => staff),
+        })),
+        categories: [],
+        staff: [],
+        canManageMoney: showMoney,
+        total: items.length,
+        activeTotal: items.filter((service) => service.isActive).length,
+      };
+    }
+
     const [items, categoryServices, staff] = await Promise.all([
       prisma.service.findMany({
         where,
@@ -136,7 +180,6 @@ class ServicesQueryService {
       categoryMap.set(key, existing);
     }
 
-    const showMoney = canManageMoney(user.role);
     const mapService = <T extends { priceEgp: Prisma.Decimal }>(service: T) => ({
       ...service,
       priceEgp: showMoney ? Number(service.priceEgp) : undefined,
