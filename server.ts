@@ -3,12 +3,17 @@ import type { Server } from "http";
 import * as Sentry from "@sentry/node";
 import app from "./app";
 import { APP_CONFIG, SENTRY } from "./src/shared/config/config";
-import { prisma } from "./src/shared/db/prisma";
+import {
+  connectPrisma,
+  disconnectPrisma,
+} from "./src/shared/db/prisma";
 
 const PORT = Number(process.env.PORT) || APP_CONFIG.port || 3000;
-let server: Server;
+const SHUTDOWN_DEADLINE_MS = 10_000;
+let server: Server | undefined;
+let shuttingDown = false;
 
-const startServer = () => {
+async function startServer() {
   if (SENTRY.DSN) {
     Sentry.init({
       dsn: SENTRY.DSN,
@@ -19,32 +24,52 @@ const startServer = () => {
     console.log("Sentry initialized");
   }
 
+  await connectPrisma();
+
   server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
   });
-};
+  server.requestTimeout = 30_000;
+  server.headersTimeout = 15_000;
+  server.keepAliveTimeout = 5_000;
+  server.maxRequestsPerSocket = 1_000;
+}
 
 // Background jobs are run in a dedicated worker process (see src/worker.ts)
 
-const shutdown = async (signal: string) => {
+async function shutdown(signal: string, exitCode = 0) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`${signal} received. Shutting down gracefully...`);
 
-  if (server) {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
+  // A stuck handler or upgraded socket must not keep a corrupted process alive
+  // forever after an uncaught exception. This timer is intentionally independent
+  // of HTTP requestTimeout, which does not bound handler execution.
+  const deadline = setTimeout(() => {
+    console.error("Shutdown deadline exceeded; forcing process exit.");
+    server?.closeAllConnections();
+    process.exit(exitCode || 1);
+  }, SHUTDOWN_DEADLINE_MS);
+  deadline.unref();
 
-        resolve();
+  try {
+    if (server) {
+      server.closeIdleConnections();
+      await new Promise<void>((resolve, reject) => {
+        server!.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
       });
+    }
+  } finally {
+    await disconnectPrisma().catch((error: unknown) => {
+      console.error("Prisma disconnect failed:", error);
     });
+    clearTimeout(deadline);
+    process.exit(exitCode);
   }
-
-  await prisma.$disconnect();
-  process.exit(0);
-};
+}
 
 process.on("SIGINT", () => {
   void shutdown("SIGINT");
@@ -56,12 +81,18 @@ process.on("SIGTERM", () => {
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled promise rejection:", reason);
-  if (SENTRY.DSN) Sentry.captureException(reason as any);
+  if (SENTRY.DSN) Sentry.captureException(reason as unknown);
 });
 
 process.on("uncaughtException", (error) => {
   console.error("Uncaught exception:", error);
-  if (SENTRY.DSN) Sentry.captureException(error as any);
+  if (SENTRY.DSN) Sentry.captureException(error);
+  void shutdown("uncaughtException", 1);
 });
 
-startServer();
+void startServer().catch(async (error: unknown) => {
+  console.error("Server startup failed:", error);
+  if (SENTRY.DSN) Sentry.captureException(error);
+  await disconnectPrisma().catch(() => undefined);
+  process.exit(1);
+});
