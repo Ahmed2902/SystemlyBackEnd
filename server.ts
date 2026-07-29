@@ -10,6 +10,7 @@ import {
 
 const PORT = Number(process.env.PORT) || APP_CONFIG.port || 3000;
 let server: Server | undefined;
+let shuttingDown = false;
 
 async function startServer() {
   if (SENTRY.DSN) {
@@ -35,24 +36,26 @@ async function startServer() {
 
 // Background jobs are run in a dedicated worker process (see src/worker.ts)
 
-async function shutdown(signal: string) {
+async function shutdown(signal: string, exitCode = 0) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   console.log(`${signal} received. Shutting down gracefully...`);
 
-  if (server) {
-    await new Promise<void>((resolve, reject) => {
-      server?.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve();
+  try {
+    if (server) {
+      await new Promise<void>((resolve, reject) => {
+        server!.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
       });
+    }
+  } finally {
+    await disconnectPrisma().catch((error: unknown) => {
+      console.error("Prisma disconnect failed:", error);
     });
+    process.exit(exitCode);
   }
-
-  await disconnectPrisma();
-  process.exit(0);
 }
 
 process.on("SIGINT", () => {
@@ -71,9 +74,10 @@ process.on("unhandledRejection", (reason) => {
 process.on("uncaughtException", (error) => {
   console.error("Uncaught exception:", error);
   if (SENTRY.DSN) Sentry.captureException(error);
+  void shutdown("uncaughtException", 1);
 });
 
-void startServer().catch(async (error) => {
+void startServer().catch(async (error: unknown) => {
   console.error("Server startup failed:", error);
   if (SENTRY.DSN) Sentry.captureException(error);
   await disconnectPrisma().catch(() => undefined);
