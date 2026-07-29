@@ -3,12 +3,33 @@ import { getBusinessDayRange } from "../../shared/utils/timezone";
 
 const METADATA_TTL_MS = 30_000;
 const MAX_METADATA_ENTRIES = 250;
+const MAX_METADATA_IN_FLIGHT = 250;
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 type CalendarMetadata = Awaited<ReturnType<typeof loadCalendarMetadata>>;
 type MetadataEntry = { expiresAt: number; value: CalendarMetadata };
 
 const metadataCache = new Map<string, MetadataEntry>();
 const metadataInFlight = new Map<string, Promise<CalendarMetadata>>();
+
+function calendarError(message: string, statusCode: number, code: string) {
+  return Object.assign(new Error(message), { statusCode, code });
+}
+
+function parseRequestedDate(date: string) {
+  if (!DATE_ONLY_PATTERN.test(date)) {
+    throw calendarError("Invalid calendar date", 400, "BAD_REQUEST");
+  }
+
+  const requestedDate = new Date(`${date}T00:00:00.000Z`);
+  if (
+    Number.isNaN(requestedDate.getTime()) ||
+    requestedDate.toISOString().slice(0, 10) !== date
+  ) {
+    throw calendarError("Invalid calendar date", 400, "BAD_REQUEST");
+  }
+  return requestedDate;
+}
 
 function cacheKey(businessId: string, date: string) {
   return `${businessId}:${date}`;
@@ -22,20 +43,19 @@ function storeMetadata(key: string, value: CalendarMetadata) {
   metadataCache.set(key, { value, expiresAt: Date.now() + METADATA_TTL_MS });
 }
 
-async function loadCalendarMetadata(businessId: string, date: string) {
+async function loadCalendarMetadata(
+  businessId: string,
+  requestedDate: Date,
+) {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
     select: { timezone: true },
   });
 
   if (!business) {
-    throw Object.assign(new Error("Business not found"), {
-      statusCode: 404,
-      code: "NOT_FOUND",
-    });
+    throw calendarError("Business not found", 404, "NOT_FOUND");
   }
 
-  const requestedDate = new Date(`${date}T00:00:00.000Z`);
   const weekday = requestedDate.getUTCDay();
   const [staff, services] = await Promise.all([
     prisma.staff.findMany({
@@ -88,7 +108,11 @@ async function loadCalendarMetadata(businessId: string, date: string) {
   };
 }
 
-async function getCalendarMetadata(businessId: string, date: string) {
+async function getCalendarMetadata(
+  businessId: string,
+  date: string,
+  requestedDate: Date,
+) {
   const key = cacheKey(businessId, date);
   const cached = metadataCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
@@ -97,7 +121,13 @@ async function getCalendarMetadata(businessId: string, date: string) {
   const existing = metadataInFlight.get(key);
   if (existing) return existing;
 
-  const loading = loadCalendarMetadata(businessId, date)
+  if (metadataInFlight.size >= MAX_METADATA_IN_FLIGHT) {
+    const value = await loadCalendarMetadata(businessId, requestedDate);
+    storeMetadata(key, value);
+    return value;
+  }
+
+  const loading = loadCalendarMetadata(businessId, requestedDate)
     .then((value) => {
       storeMetadata(key, value);
       return value;
@@ -110,7 +140,12 @@ async function getCalendarMetadata(businessId: string, date: string) {
 
 class CalendarQueryService {
   async getWorkspace(businessId: string, date: string) {
-    const metadata = await getCalendarMetadata(businessId, date);
+    const requestedDate = parseRequestedDate(date);
+    const metadata = await getCalendarMetadata(
+      businessId,
+      date,
+      requestedDate,
+    );
     const { start, end } = getBusinessDayRange(metadata.timezone, date);
 
     const [appointments, breaks] = await Promise.all([
