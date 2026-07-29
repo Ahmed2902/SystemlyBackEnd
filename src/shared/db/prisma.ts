@@ -27,3 +27,12 @@ export const prisma = basePrisma.$extends({
     },
   },
 });
+
+export async function connectPrisma() {
+  await basePrisma.$connect();
+  await basePrisma.$queryRaw`SELECT 1`;
+}
+
+export function disconnectPrisma() {
+  return basePrisma.$disconnect();
+}
