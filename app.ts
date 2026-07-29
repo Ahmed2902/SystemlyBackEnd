@@ -35,6 +35,7 @@ const allowedOrigins = APP_CONFIG.corsOrigins;
 
 const corsOptions = {
   credentials: true,
+  maxAge: 600,
   origin(
     origin: string | undefined,
     callback: (err: Error | null, allow?: boolean) => void,
