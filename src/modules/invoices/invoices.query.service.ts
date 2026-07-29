@@ -105,8 +105,14 @@ class InvoicesQueryService {
           totalCents: true,
           currency: true,
           customer: { select: { id: true, name: true, phone: true } },
-          appointment: { select: { id: true, startsAt: true } },
+          appointment: {
+            select: {
+              id: true,
+              startsAt: true,
+            },
+          },
           lineItems: {
+            where: { serviceId: { not: null } },
             orderBy: { createdAt: "asc" },
             take: 3,
             select: { description: true },
