@@ -46,7 +46,19 @@ export const invoiceDetailInclude = {
   voidedBy: { select: { id: true, name: true } },
   lineItems: {
     orderBy: { createdAt: "asc" as const },
-    include: {
+    select: {
+      id: true,
+      description: true,
+      quantity: true,
+      unitPriceCents: true,
+      taxCents: true,
+      totalCents: true,
+      serviceId: true,
+      staffId: true,
+      commissionType: true,
+      commissionAmount: true,
+      commissionEarnedCents: true,
+      createdAt: true,
       service: { select: { id: true, name: true } },
       staff: { select: { id: true, name: true } },
     },
@@ -105,16 +117,11 @@ class InvoicesQueryService {
           totalCents: true,
           currency: true,
           customer: { select: { id: true, name: true, phone: true } },
-          appointment: {
-            select: {
-              id: true,
-              startsAt: true,
-              appointmentServices: {
-                orderBy: { order: "asc" },
-                take: 3,
-                select: { service: { select: { name: true } } },
-              },
-            },
+          appointment: { select: { id: true, startsAt: true } },
+          lineItems: {
+            orderBy: { createdAt: "asc" },
+            take: 3,
+            select: { description: true },
           },
         },
       }),
@@ -122,12 +129,9 @@ class InvoicesQueryService {
     ]);
 
     return {
-      items: items.map((invoice) => ({
+      items: items.map(({ lineItems, ...invoice }) => ({
         ...invoice,
-        services:
-          invoice.appointment?.appointmentServices.map(
-            (segment) => segment.service.name,
-          ) ?? [],
+        services: lineItems.map((item) => item.description),
       })),
       total,
       page: query.page,
