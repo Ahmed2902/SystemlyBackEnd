@@ -32,52 +32,9 @@ const canManageMoney = (role?: string) =>
 
 const dateOnly = (value: Date) => value.toISOString().slice(0, 10);
 
-async function getStaffMetrics(
-  businessId: string,
-  dayOfWeek: number,
-  todayDate: Date,
-) {
-  const [row] = await prisma.$queryRaw<StaffMetricsRow[]>(Prisma.sql`
-    SELECT
-      COUNT(*)::bigint AS "total",
-      COUNT(*) FILTER (WHERE s."is_active")::bigint AS "active",
-      COUNT(*) FILTER (
-        WHERE s."is_active"
-          AND EXISTS (
-            SELECT 1
-            FROM "availability" a
-            WHERE a."staff_id" = s."id"
-              AND a."day_of_week" = ${dayOfWeek}
-          )
-          AND NOT EXISTS (
-            SELECT 1
-            FROM "staff_time_off" t
-            WHERE t."staff_id" = s."id"
-              AND t."business_id" = ${businessId}::uuid
-              AND t."starts_on" <= ${todayDate}::date
-              AND t."ends_on" >= ${todayDate}::date
-          )
-      )::bigint AS "availableToday",
-      COUNT(*) FILTER (
-        WHERE EXISTS (
-          SELECT 1
-          FROM "staff_time_off" t
-          WHERE t."staff_id" = s."id"
-            AND t."business_id" = ${businessId}::uuid
-            AND t."starts_on" <= ${todayDate}::date
-            AND t."ends_on" >= ${todayDate}::date
-        )
-      )::bigint AS "onTimeOff"
-    FROM "staff" s
-    WHERE s."business_id" = ${businessId}::uuid
-  `);
-
-  return {
-    total: Number(row?.total ?? 0n),
-    active: Number(row?.active ?? 0n),
-    availableToday: Number(row?.availableToday ?? 0n),
-    onTimeOff: Number(row?.onTimeOff ?? 0n),
-  };
+function numberFromCount(value: bigint | number | string | undefined) {
+  const result = Number(value ?? 0);
+  return Number.isSafeInteger(result) && result >= 0 ? result : 0;
 }
 
 class StaffQueryService {
@@ -117,7 +74,7 @@ class StaffQueryService {
     }
 
     const skip = (query.page - 1) * query.perPage;
-    const [members, total, serviceOptions, metrics] = await Promise.all([
+    const [members, total, serviceOptions, metricRows] = await Promise.all([
       prisma.staff.findMany({
         where,
         skip,
@@ -161,9 +118,41 @@ class StaffQueryService {
         select: { id: true, name: true, category: true, isActive: true },
         orderBy: [{ isActive: "desc" }, { name: "asc" }],
       }),
-      getStaffMetrics(business.id, dayOfWeek, todayDate),
+      prisma.$queryRaw<StaffMetricsRow[]>(Prisma.sql`
+        SELECT
+          COUNT(*)::bigint AS "total",
+          COUNT(*) FILTER (WHERE s."is_active")::bigint AS "active",
+          COUNT(*) FILTER (
+            WHERE s."is_active"
+              AND EXISTS (
+                SELECT 1
+                FROM "availability" a
+                WHERE a."staff_id" = s."id"
+                  AND a."day_of_week" = ${dayOfWeek}
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM "staff_time_off" t
+                WHERE t."staff_id" = s."id"
+                  AND t."starts_on" <= CAST(${todayDate} AS date)
+                  AND t."ends_on" >= CAST(${todayDate} AS date)
+              )
+          )::bigint AS "availableToday",
+          COUNT(*) FILTER (
+            WHERE EXISTS (
+              SELECT 1
+              FROM "staff_time_off" t
+              WHERE t."staff_id" = s."id"
+                AND t."starts_on" <= CAST(${todayDate} AS date)
+                AND t."ends_on" >= CAST(${todayDate} AS date)
+            )
+          )::bigint AS "onTimeOff"
+        FROM "staff" s
+        WHERE s."business_id" = CAST(${business.id} AS uuid)
+      `),
     ]);
 
+    const metrics = metricRows[0];
     const items = members.map((member) => {
       const currentTimeOff = member.timeOff[0] ?? null;
       const worksToday = member.availability.some((entry) => entry.dayOfWeek === dayOfWeek);
@@ -205,7 +194,12 @@ class StaffQueryService {
       total,
       page: query.page,
       perPage: query.perPage,
-      metrics,
+      metrics: {
+        total: numberFromCount(metrics?.total),
+        active: numberFromCount(metrics?.active),
+        availableToday: numberFromCount(metrics?.availableToday),
+        onTimeOff: numberFromCount(metrics?.onTimeOff),
+      },
       serviceOptions,
       canManageMoney: ownerView,
       canManageProtectedFields: ownerView,
