@@ -27,6 +27,10 @@ async function startServer() {
   server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
   });
+  server.requestTimeout = 30_000;
+  server.headersTimeout = 15_000;
+  server.keepAliveTimeout = 5_000;
+  server.maxRequestsPerSocket = 1_000;
 }
 
 // Background jobs are run in a dedicated worker process (see src/worker.ts)
