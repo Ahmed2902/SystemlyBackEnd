@@ -4,26 +4,46 @@ import { recordPrismaQuery } from "../observability/request-context";
 
 const basePrisma = new PrismaClient();
 
+async function measurePrismaOperation<T>(
+  model: string | null,
+  operation: string,
+  execute: () => Promise<T>,
+): Promise<T> {
+  const startedAtMs = performance.now();
+
+  try {
+    return await execute();
+  } finally {
+    const endedAtMs = performance.now();
+    recordPrismaQuery({
+      model,
+      operation,
+      durationMs: Math.max(0, endedAtMs - startedAtMs),
+      startedAtMs,
+      endedAtMs,
+    });
+  }
+}
+
 const instrumentedPrisma = basePrisma.$extends({
   name: "request-performance-instrumentation",
   query: {
     $allModels: {
-      async $allOperations({ model, operation, args, query }) {
-        const startedAtMs = performance.now();
-
-        try {
-          return await query(args);
-        } finally {
-          const endedAtMs = performance.now();
-          recordPrismaQuery({
-            model,
-            operation,
-            durationMs: Math.max(0, endedAtMs - startedAtMs),
-            startedAtMs,
-            endedAtMs,
-          });
-        }
+      $allOperations({ model, operation, args, query }) {
+        return measurePrismaOperation(model, operation, () => query(args));
       },
+    },
+    $queryRaw({ args, query }) {
+      return measurePrismaOperation(null, "$queryRaw", () => query(args));
+    },
+    $executeRaw({ args, query }) {
+      return measurePrismaOperation(null, "$executeRaw", () => query(args));
+    },
+    $queryRawUnsafe({ args, query }) {
+      return measurePrismaOperation(null, "$queryRawUnsafe", () => query(args));
+    },
+    $executeRawUnsafe({ args, query }) {
+      return measurePrismaOperation(null, "$executeRawUnsafe", () => query(args));
     },
   },
 });
