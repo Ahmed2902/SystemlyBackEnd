@@ -14,11 +14,14 @@ const makeTx = (conflict = false) => ({
     ],
   },
   serviceStaff: {
-    findMany: async () => [
-      { staffId: "st1", staff: { isActive: true, businessId: "b1" } },
-    ],
-    findUnique: async () => null,
-  },
+  findMany: async () => [
+    {
+      serviceId: "svc1",
+      staffId: "st1",
+    },
+  ],
+  findUnique: async () => null,
+},
   availabilityOverride: { findMany: async () => [] },
   availability: {
     findMany: async () => [

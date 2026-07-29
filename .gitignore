@@ -5,6 +5,7 @@
 /dist
 
 /node_modules
-
+perf-results-pr34.txt
+perf-server.log
 node_modules/
 **/node_modules/
