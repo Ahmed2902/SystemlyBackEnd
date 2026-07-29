@@ -71,7 +71,6 @@ class StaffQueryService {
     const skip = (query.page - 1) * query.perPage;
     const [members, total, serviceOptions, metricRows] = await Promise.all([
       prisma.staff.findMany({
-        relationLoadStrategy: "join",
         where,
         skip,
         take: query.perPage,
