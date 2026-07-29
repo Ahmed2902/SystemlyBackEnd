@@ -14,10 +14,13 @@ class BookingsService {
   async getAvailability(opts: AvailabilityQuery) {
     const { businessId, services: selections, date, timezone } = opts;
 
-    const business = await prisma.business.findUnique({
-      where: { id: businessId },
-    });
-    const tz = timezone || (business?.timezone as string) || "UTC";
+    const business = timezone
+      ? null
+      : await prisma.business.findUnique({
+          where: { id: businessId },
+          select: { timezone: true },
+        });
+    const tz = timezone || business?.timezone || "UTC";
 
     return buildAvailabilitySlots({
       businessId,
