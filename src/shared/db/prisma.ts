@@ -4,7 +4,7 @@ import { recordPrismaQuery } from "../observability/request-context";
 
 const basePrisma = new PrismaClient();
 
-export const prisma = basePrisma.$extends({
+const instrumentedPrisma = basePrisma.$extends({
   name: "request-performance-instrumentation",
   query: {
     $allModels: {
@@ -27,6 +27,12 @@ export const prisma = basePrisma.$extends({
     },
   },
 });
+
+// Query extensions retain the complete PrismaClient runtime API, but Prisma's
+// generated extension type is not structurally assignable to helpers that
+// accept Prisma.TransactionClient. Keep the public type stable at this single
+// boundary instead of spreading casts throughout application services.
+export const prisma = instrumentedPrisma as unknown as PrismaClient;
 
 export async function connectPrisma() {
   await basePrisma.$connect();
