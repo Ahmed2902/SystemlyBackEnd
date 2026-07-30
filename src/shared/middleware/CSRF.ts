@@ -2,8 +2,10 @@ import csrf from "csurf";
 
 export const csrfProtection = csrf({
   cookie: {
+    key: "_csrf",
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: true,
+    sameSite: "none",
+    path: "/",
   },
 });

@@ -57,7 +57,7 @@ const getGoogleRedirectUri = () => {
 const REFRESH_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: true,
-  sameSite: "lax" as const,
+  sameSite: "none" as const,
   maxAge: 30 * 24 * 60 * 60 * 1000,
   path: "/",
 };
@@ -188,7 +188,7 @@ export const googleCallback = async (
     res.cookie("accessToken", result.accessToken, {
       httpOnly: true,
       secure: true,
-      sameSite: "lax",
+      sameSite: "none",
       maxAge: 15 * 60 * 1000, // match your actual access token expiry
       path: "/",
     });

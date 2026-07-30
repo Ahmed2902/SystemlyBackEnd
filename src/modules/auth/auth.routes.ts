@@ -188,7 +188,14 @@ router.get(
 );
 
 router.get("/csrf-token", csrfProtection, (req, res) => {
-  res.json({ success: true, data: { csrfToken: req.csrfToken() } });
+  res.setHeader("Cache-Control", "no-store");
+
+  res.json({
+    success: true,
+    data: {
+      csrfToken: req.csrfToken(),
+    },
+  });
 });
 
 export default router;

@@ -14,10 +14,21 @@ const parseBool = (value: string | undefined, fallback = false) => {
 
 const parseOrigins = (value: string | undefined) => {
   if (!value) return [];
-  return value
-    .split(",")
-    .map((o) => o.trim())
-    .filter(Boolean);
+  return Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((o) => o.trim())
+        .map((origin) => {
+          try {
+            return new URL(origin).origin;
+          } catch {
+            return origin.replace(/\/+$/, "");
+          }
+        })
+        .filter(Boolean),
+    ),
+  );
 };
 
 const resolveDatabaseUrl = () => {
@@ -33,7 +44,7 @@ const resolveDatabaseUrl = () => {
 
   if (!url) {
     throw new Error(
-      "Missing database connection string. Set DATABASE_URL in .env."
+      "Missing database connection string. Set DATABASE_URL in .env.",
     );
   }
 
@@ -49,7 +60,9 @@ export const APP_CONFIG = {
   isTest: process.env.NODE_ENV === "test",
   port: parseNumber(process.env.PORT, 3000),
   corsOrigins: parseOrigins(
-    process.env.CORS_ORIGINS || process.env.FRONTEND_URL
+    [process.env.FRONTEND_URL, process.env.CORS_ORIGINS]
+      .filter(Boolean)
+      .join(","),
   ),
   formBodyLimit: process.env.FORM_BODY_LIMIT || "1mb",
   jsonBodyLimit: process.env.JSON_BODY_LIMIT || "1mb",
@@ -57,20 +70,20 @@ export const APP_CONFIG = {
     authMax: parseNumber(process.env.AUTH_RATE_LIMIT_MAX, 10),
     authWindowMs: parseNumber(
       process.env.AUTH_RATE_LIMIT_WINDOW_MS,
-      15 * 60 * 1000
+      15 * 60 * 1000,
     ),
     globalMax: parseNumber(process.env.RATE_LIMIT_MAX, 300),
     globalWindowMs: parseNumber(
       process.env.RATE_LIMIT_WINDOW_MS,
-      15 * 60 * 1000
+      15 * 60 * 1000,
     ),
     publicBookingMax: parseNumber(
       process.env.PUBLIC_BOOKING_RATE_LIMIT_MAX,
-      30
+      30,
     ),
     publicBookingWindowMs: parseNumber(
       process.env.PUBLIC_BOOKING_RATE_LIMIT_WINDOW_MS,
-      10 * 60 * 1000
+      10 * 60 * 1000,
     ),
   },
 } as const;
@@ -114,12 +127,12 @@ export const EMAIL = {
 export const AUTH_CONSTANTS = {
   EMAIL_TOKEN_TTL_SECONDS: parseNumber(
     process.env.EMAIL_TOKEN_TTL_SECONDS,
-    86400
+    86400,
   ),
   PWD_RESET_TTL_SECONDS: parseNumber(process.env.PWD_RESET_TTL_SECONDS, 3600),
   REFRESH_TOKEN_TTL_SECONDS: parseNumber(
     process.env.REFRESH_TOKEN_TTL_SECONDS,
-    30 * 24 * 60 * 60
+    30 * 24 * 60 * 60,
   ),
   TRIAL_DAYS_DEFAULT: parseNumber(process.env.TRIAL_DAYS_DEFAULT, 14),
 } as const;
