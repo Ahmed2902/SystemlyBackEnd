@@ -50,6 +50,8 @@ export interface CancellationRateRow {
   customerCancelled: number;
   businessCancelled: number;
   totalCancelled: number;
+  completedCount: number;
+  noShowCount: number;
   rate: number;
 }
 
@@ -207,49 +209,63 @@ export async function getLapsedCustomers(
 export async function computeRetentionCohorts(
   businessId: string,
 ): Promise<RetentionCohortRow[]> {
-  const customers = await prisma.customer.findMany({
-    where: { businessId },
-    select: {
-      id: true,
-      createdAt: true,
-      appointments: { select: { startsAt: true } },
-    },
-  });
+  const rows = await prisma.$queryRaw<
+    {
+      cohort_start: Date;
+      total_customers: bigint;
+      retained_30: bigint;
+      retained_60: bigint;
+      retained_90: bigint;
+    }[]
+  >(Prisma.sql`
+    SELECT
+      (
+        DATE_TRUNC(
+          'month',
+          c.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE}
+        ) AT TIME ZONE ${BUSINESS_TIMEZONE}
+      ) AS cohort_start,
+      COUNT(*) AS total_customers,
+      COUNT(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1
+          FROM appointments a
+          WHERE a.customer_id = c.id
+            AND a.starts_at > c.created_at
+            AND a.starts_at <= c.created_at + INTERVAL '30 days'
+        )
+      ) AS retained_30,
+      COUNT(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1
+          FROM appointments a
+          WHERE a.customer_id = c.id
+            AND a.starts_at > c.created_at
+            AND a.starts_at <= c.created_at + INTERVAL '60 days'
+        )
+      ) AS retained_60,
+      COUNT(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1
+          FROM appointments a
+          WHERE a.customer_id = c.id
+            AND a.starts_at > c.created_at
+            AND a.starts_at <= c.created_at + INTERVAL '90 days'
+        )
+      ) AS retained_90
+    FROM customers c
+    WHERE c.business_id = ${businessId}::uuid
+    GROUP BY cohort_start
+    ORDER BY cohort_start
+  `);
 
-  const cohorts = new Map<string, RetentionCohortRow>();
-
-  for (const customer of customers) {
-    const createdLocal = DateTime.fromJSDate(customer.createdAt).setZone(
-      BUSINESS_TIMEZONE,
-    );
-    const cohortKey = createdLocal.toFormat("yyyy-LL");
-
-    const row = cohorts.get(cohortKey) ?? {
-      cohortStart: createdLocal.startOf("month").toUTC().toJSDate(),
-      totalCustomers: 0,
-      retained30: 0,
-      retained60: 0,
-      retained90: 0,
-    };
-    row.totalCustomers += 1;
-
-    const laterAppointments = customer.appointments
-      .map((a) => DateTime.fromJSDate(a.startsAt).setZone(BUSINESS_TIMEZONE))
-      .filter((d) => d > createdLocal);
-
-    if (laterAppointments.some((d) => d <= createdLocal.plus({ days: 30 })))
-      row.retained30 += 1;
-    if (laterAppointments.some((d) => d <= createdLocal.plus({ days: 60 })))
-      row.retained60 += 1;
-    if (laterAppointments.some((d) => d <= createdLocal.plus({ days: 90 })))
-      row.retained90 += 1;
-
-    cohorts.set(cohortKey, row);
-  }
-
-  return Array.from(cohorts.values()).sort(
-    (a, b) => a.cohortStart.getTime() - b.cohortStart.getTime(),
-  );
+  return rows.map((row) => ({
+    cohortStart: row.cohort_start,
+    totalCustomers: Number(row.total_customers),
+    retained30: Number(row.retained_30),
+    retained60: Number(row.retained_60),
+    retained90: Number(row.retained_90),
+  }));
 }
 
 export async function getNoShowRateOverTime(
@@ -392,6 +408,8 @@ export async function getCancellationRateOverTime(
       customerCancelled,
       businessCancelled,
       totalCancelled,
+      completedCount,
+      noShowCount,
       rate: denominator === 0 ? 0 : (totalCancelled / denominator) * 100,
     };
   });

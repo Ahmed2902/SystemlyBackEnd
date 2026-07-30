@@ -1,11 +1,17 @@
 import { prisma } from "../../shared/db/prisma";
 import crypto from "crypto";
-import { Roles, AppointmentStatus, InvoiceStatus } from "@prisma/client";
+import {
+  Roles,
+  AppointmentStatus,
+  InvoiceStatus,
+  Prisma,
+} from "@prisma/client";
 import type {
   CreateManualAppointmentBody,
   ListAppointmentsQuery,
   CancelAppointmentBody,
   FinishAppointmentInput,
+  UpdateAppointmentInput,
 } from "./appointments.schema";
 import { getBusinessDayRange } from "../../shared/utils/timezone";
 import { isModuleEnabled } from "../../shared/config/verticals.config";
@@ -48,6 +54,164 @@ function withCurrentInvoice<T extends { invoices: unknown[] }>({
   ...appointment
 }: T) {
   return { ...appointment, invoice: invoices[0] ?? null };
+}
+
+export async function updateAppointmentInTransaction(
+  tx: Prisma.TransactionClient,
+  id: string,
+  businessId: string,
+  payload: UpdateAppointmentInput,
+) {
+  const appt = await getOwnedAppointmentOrThrow(tx, id, businessId, {
+    appointmentServices: true,
+    invoices: {
+      where: { status: { not: InvoiceStatus.voided } },
+      orderBy: { issuedAt: "desc" },
+      take: 1,
+    },
+    business: true,
+  });
+
+  assertEditable(appt);
+
+  assertSegmentsDoNotOverlap(
+    payload.segments.map((segment) => ({
+      startsAt: new Date(segment.startsAt),
+      endsAt: new Date(segment.endsAt),
+    })),
+  );
+
+  const existingSegmentById = new Map(
+    appt.appointmentServices.map((segment) => [segment.id, segment]),
+  );
+  await assertSegmentsAssignable(tx, {
+    businessId,
+    businessTimezone: appt.business.timezone,
+    excludeAppointmentId: id,
+    segments: payload.segments.map((segment) => {
+      const existingSegment = segment.id
+        ? existingSegmentById.get(segment.id)
+        : undefined;
+      return {
+        serviceId: segment.serviceId,
+        staffId: segment.staffId,
+        startsAt: new Date(segment.startsAt),
+        endsAt: new Date(segment.endsAt),
+        checkEligibility:
+          !existingSegment ||
+          existingSegment.serviceId !== segment.serviceId ||
+          existingSegment.staffId !== segment.staffId,
+      };
+    }),
+  });
+
+  const incomingIds = payload.segments
+    .filter((segment) => segment.id)
+    .map((segment) => segment.id!);
+  const existingIds = appt.appointmentServices.map((segment) => segment.id);
+  const toDelete = existingIds.filter(
+    (existingId) => !incomingIds.includes(existingId),
+  );
+
+  if (toDelete.length > 0) {
+    await tx.appointmentService.deleteMany({
+      where: { id: { in: toDelete } },
+    });
+  }
+
+  const services = await tx.service.findMany({
+    where: { id: { in: payload.segments.map((segment) => segment.serviceId) } },
+  });
+  const serviceById = new Map(services.map((service) => [service.id, service]));
+
+  for (let index = 0; index < payload.segments.length; index++) {
+    const segment = payload.segments[index];
+    const service = serviceById.get(segment.serviceId);
+    const durationMin = service
+      ? Math.round(
+          (new Date(segment.endsAt).getTime() -
+            new Date(segment.startsAt).getTime()) /
+            60000,
+        )
+      : 0;
+
+    if (segment.id) {
+      await tx.appointmentService.update({
+        where: { id: segment.id },
+        data: {
+          serviceId: segment.serviceId,
+          staffId: segment.staffId,
+          startsAt: new Date(segment.startsAt),
+          endsAt: new Date(segment.endsAt),
+          order: index,
+          durationMinSnapshot: durationMin,
+        },
+      });
+    } else {
+      await tx.appointmentService.create({
+        data: {
+          appointmentId: id,
+          serviceId: segment.serviceId,
+          staffId: segment.staffId,
+          startsAt: new Date(segment.startsAt),
+          endsAt: new Date(segment.endsAt),
+          order: index,
+          durationMinSnapshot: durationMin,
+          priceEgpSnapshot: service?.priceEgp ?? 0,
+        },
+      });
+    }
+  }
+
+  await tx.appointmentCustomItem.deleteMany({
+    where: { appointmentId: id },
+  });
+  if (payload.customItems.length > 0) {
+    await tx.appointmentCustomItem.createMany({
+      data: payload.customItems.map((item) => ({
+        appointmentId: id,
+        description: item.description,
+        quantity: item.quantity,
+        priceCents: item.priceCents,
+      })),
+    });
+  }
+
+  if (payload.clinical) {
+    await tx.clinicVisitRecord.upsert({
+      where: { appointmentId: id },
+      create: {
+        appointmentId: id,
+        notes: payload.clinical.notes,
+        diagnosis: payload.clinical.diagnosis,
+        prescriptionJson: payload.clinical.prescriptionJson as any,
+      },
+      update: {
+        notes: payload.clinical.notes,
+        diagnosis: payload.clinical.diagnosis,
+        prescriptionJson: payload.clinical.prescriptionJson as any,
+      },
+    });
+  }
+
+  const sortedSegments = payload.segments
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+    );
+
+  const updated = await tx.appointment.update({
+    where: { id },
+    data: {
+      discountCents: payload.discountCents,
+      notes: payload.notes,
+      startsAt: new Date(sortedSegments[0].startsAt),
+      endsAt: new Date(sortedSegments[sortedSegments.length - 1].endsAt),
+    },
+    include: APPOINTMENT_DETAIL_INCLUDE,
+  });
+  return withCurrentInvoice(updated);
 }
 
 class AppointmentsCommandService {
@@ -283,179 +447,11 @@ class AppointmentsCommandService {
   async updateAppointment(
     id: string,
     businessId: string,
-    payload: {
-      segments: Array<{
-        id?: string;
-        serviceId: string;
-        staffId: string;
-        startsAt: string;
-        endsAt: string;
-      }>;
-      customItems: Array<{
-        id?: string;
-        description: string;
-        quantity: number;
-        priceCents: number;
-      }>;
-      discountCents?: number;
-      notes?: string;
-      clinical?: {
-        notes?: string;
-        diagnosis?: string;
-        prescriptionJson?: Record<string, unknown>;
-      };
-    },
+    payload: UpdateAppointmentInput,
   ) {
-    return prisma.$transaction(async (tx) => {
-      const appt = await getOwnedAppointmentOrThrow(tx, id, businessId, {
-        appointmentServices: true,
-        invoices: {
-          where: { status: { not: InvoiceStatus.voided } },
-          orderBy: { issuedAt: "desc" },
-          take: 1,
-        },
-        business: true,
-      });
-
-      assertEditable(appt);
-
-      assertSegmentsDoNotOverlap(
-        payload.segments.map((segment) => ({
-          startsAt: new Date(segment.startsAt),
-          endsAt: new Date(segment.endsAt),
-        })),
-      );
-
-      const existingSegmentById = new Map(
-        appt.appointmentServices.map((segment) => [segment.id, segment]),
-      );
-      await assertSegmentsAssignable(tx, {
-        businessId,
-        businessTimezone: appt.business.timezone,
-        excludeAppointmentId: id,
-        segments: payload.segments.map((segment) => {
-          const existingSegment = segment.id
-            ? existingSegmentById.get(segment.id)
-            : undefined;
-          return {
-            serviceId: segment.serviceId,
-            staffId: segment.staffId,
-            startsAt: new Date(segment.startsAt),
-            endsAt: new Date(segment.endsAt),
-            checkEligibility:
-              !existingSegment ||
-              existingSegment.serviceId !== segment.serviceId ||
-              existingSegment.staffId !== segment.staffId,
-          };
-        }),
-      });
-
-      const incomingIds = payload.segments
-        .filter((s) => s.id)
-        .map((s) => s.id!);
-      const existingIds = appt.appointmentServices.map((s) => s.id);
-      const toDelete = existingIds.filter((eid) => !incomingIds.includes(eid));
-
-      if (toDelete.length > 0) {
-        await tx.appointmentService.deleteMany({
-          where: { id: { in: toDelete } },
-        });
-      }
-
-      const services = await tx.service.findMany({
-        where: { id: { in: payload.segments.map((s) => s.serviceId) } },
-      });
-      const serviceById = new Map(services.map((s) => [s.id, s]));
-
-      for (let i = 0; i < payload.segments.length; i++) {
-        const seg = payload.segments[i];
-        const svc = serviceById.get(seg.serviceId);
-        const durationMin = svc
-          ? Math.round(
-              (new Date(seg.endsAt).getTime() -
-                new Date(seg.startsAt).getTime()) /
-                60000,
-            )
-          : 0;
-
-        if (seg.id) {
-          await tx.appointmentService.update({
-            where: { id: seg.id },
-            data: {
-              serviceId: seg.serviceId,
-              staffId: seg.staffId,
-              startsAt: new Date(seg.startsAt),
-              endsAt: new Date(seg.endsAt),
-              order: i,
-              durationMinSnapshot: durationMin,
-            },
-          });
-        } else {
-          await tx.appointmentService.create({
-            data: {
-              appointmentId: id,
-              serviceId: seg.serviceId,
-              staffId: seg.staffId,
-              startsAt: new Date(seg.startsAt),
-              endsAt: new Date(seg.endsAt),
-              order: i,
-              durationMinSnapshot: durationMin,
-              priceEgpSnapshot: svc?.priceEgp ?? 0,
-            },
-          });
-        }
-      }
-
-      await tx.appointmentCustomItem.deleteMany({
-        where: { appointmentId: id },
-      });
-      if (payload.customItems.length > 0) {
-        await tx.appointmentCustomItem.createMany({
-          data: payload.customItems.map((c) => ({
-            appointmentId: id,
-            description: c.description,
-            quantity: c.quantity,
-            priceCents: c.priceCents,
-          })),
-        });
-      }
-
-      if (payload.clinical) {
-        await tx.clinicVisitRecord.upsert({
-          where: { appointmentId: id },
-          create: {
-            appointmentId: id,
-            notes: payload.clinical.notes,
-            diagnosis: payload.clinical.diagnosis,
-            prescriptionJson: payload.clinical.prescriptionJson as any,
-          },
-          update: {
-            notes: payload.clinical.notes,
-            diagnosis: payload.clinical.diagnosis,
-            prescriptionJson: payload.clinical.prescriptionJson as any,
-          },
-        });
-      }
-
-      const sortedSegments = payload.segments
-        .slice()
-        .sort(
-          (a, b) =>
-            new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
-        );
-
-      const updated = await tx.appointment.update({
-        where: { id },
-        data: {
-          discountCents: payload.discountCents ?? 0,
-          notes: payload.notes,
-          startsAt: new Date(sortedSegments[0].startsAt),
-          endsAt: new Date(sortedSegments[sortedSegments.length - 1].endsAt),
-        },
-        include: APPOINTMENT_DETAIL_INCLUDE,
-      });
-      return withCurrentInvoice(updated);
-    });
+    return prisma.$transaction((tx) =>
+      updateAppointmentInTransaction(tx, id, businessId, payload),
+    );
   }
 
   async updateStatus(

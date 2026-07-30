@@ -45,6 +45,8 @@ export const updateAppointmentSchema = z.object({
     .optional(),
 });
 
+export type UpdateAppointmentInput = z.infer<typeof updateAppointmentSchema>;
+
 export const listAppointmentsQuerySchema = z
   .object({
     date: z.string().optional().openapi({

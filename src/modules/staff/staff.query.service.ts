@@ -4,6 +4,7 @@ import { prisma } from "../../shared/db/prisma";
 import type { StaffDirectoryQuery } from "./staff.schema";
 import staffService from "./staff.service";
 import staffWorkspaceService from "./staff.workspace.service";
+import { getCachedBusinessTimezone } from "../calendar/calendar.query.service";
 
 type AuthUser = NonNullable<Express.Request["user"]>;
 
@@ -89,11 +90,10 @@ class StaffQueryService {
       };
     }
 
-    const business = await prisma.business.findUnique({
-      where: { id: user.businessId },
-      select: { id: true, timezone: true },
-    });
-    if (!business) throw buildError("Business not found", 404, "NOT_FOUND");
+    const business = {
+      id: user.businessId,
+      timezone: await getCachedBusinessTimezone(user.businessId),
+    };
 
     const ownerView = canManageMoney(user.role);
     const todayLocal = DateTime.now().setZone(business.timezone);

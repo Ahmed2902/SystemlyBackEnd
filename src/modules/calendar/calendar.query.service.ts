@@ -70,7 +70,7 @@ async function loadBusinessTimezone(businessId: string) {
   return business.timezone || "UTC";
 }
 
-async function getBusinessTimezone(businessId: string) {
+export async function getCachedBusinessTimezone(businessId: string) {
   const cached = timezoneCache.get(businessId);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   if (cached) timezoneCache.delete(businessId);
@@ -95,6 +95,7 @@ async function loadCalendarMetadata(
   const weekday = requestedDate.getUTCDay();
   const [staff, services] = await Promise.all([
     prisma.staff.findMany({
+      relationLoadStrategy: "join",
       where: { businessId, isActive: true },
       orderBy: { name: "asc" },
       select: {
@@ -170,7 +171,7 @@ async function getCalendarMetadata(
 class CalendarQueryService {
   async getWorkspace(businessId: string, date: string) {
     const requestedDate = parseRequestedDate(date);
-    const timezone = await getBusinessTimezone(businessId);
+    const timezone = await getCachedBusinessTimezone(businessId);
     const { start, end } = getBusinessDayRange(timezone, date);
 
     // Once the stable timezone is known, all date-specific reads are independent.
@@ -178,6 +179,7 @@ class CalendarQueryService {
     const [metadata, appointments, breaks] = await Promise.all([
       getCalendarMetadata(businessId, date, requestedDate),
       prisma.appointment.findMany({
+        relationLoadStrategy: "join",
         where: {
           businessId,
           startsAt: { lt: end },

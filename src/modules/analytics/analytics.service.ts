@@ -1,4 +1,3 @@
-import { AppointmentStatus } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "../../shared/db/prisma";
 import redis from "../../shared/config/redis";
@@ -15,7 +14,7 @@ import * as operationsQueries from "./queries/operations.queries";
 import * as growthQueries from "./queries/growth.queries";
 
 const CACHE_TTL_SECONDS = 120;
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 const DEFAULT_LAPSED_DAYS = 45;
 const BUSINESS_META_TTL_MS = 5 * 60_000;
 const MAX_BUSINESS_META_ENTRIES = 250;
@@ -42,6 +41,7 @@ type BusinessMetaEntry = { value: BusinessMeta; expiresAt: number };
 const businessMetaCache = new Map<string, BusinessMetaEntry>();
 const businessMetaInFlight = new Map<string, Promise<BusinessMeta>>();
 const analyticsInFlight = new Map<string, Promise<unknown>>();
+const analyticsQueryInFlight = new Map<string, Promise<unknown>>();
 
 function evictOldest<T>(cache: Map<string, T>, maximum: number) {
   if (cache.size < maximum) return;
@@ -128,6 +128,39 @@ async function withCache<T>(key: string, loader: () => Promise<T>): Promise<T> {
   return loading;
 }
 
+function coalesceAnalyticsQuery<T>(key: string, loader: () => Promise<T>) {
+  const existing = analyticsQueryInFlight.get(key) as Promise<T> | undefined;
+  if (existing) return existing;
+
+  const loading = loader().finally(() => analyticsQueryInFlight.delete(key));
+  analyticsQueryInFlight.set(key, loading);
+  return loading;
+}
+
+function getAcquisitionSources(businessId: string) {
+  return coalesceAnalyticsQuery(`acquisition:${businessId}`, () =>
+    customerQueries.getAcquisitionSources(businessId),
+  );
+}
+
+function getRetentionCohorts(businessId: string) {
+  return coalesceAnalyticsQuery(`retention:${businessId}`, () =>
+    customerQueries.computeRetentionCohorts(businessId),
+  );
+}
+
+function getRevenueTrend(
+  businessId: string,
+  from: Date,
+  to: Date,
+  granularity: Parameters<typeof revenueQueries.getRevenueTrend>[3],
+) {
+  const key = `revenue-trend:${businessId}:${from.toISOString()}:${to.toISOString()}:${granularity}`;
+  return coalesceAnalyticsQuery(key, () =>
+    revenueQueries.getRevenueTrend(businessId, from, to, granularity),
+  );
+}
+
 function metadata(
   preset: AnalyticsPreset,
   from: Date,
@@ -167,26 +200,29 @@ class AnalyticsService {
     return withCache(getCacheKey(businessId, "revenue", preset), async () => {
       const business = await resolveBusiness(businessId);
       const { from, to, granularity } = resolveRange(preset, business.createdAt);
-      const [
-        trend,
-        byCategory,
-        byWeekday,
-        averageInvoiceValue,
-        averageInvoiceValueTrend,
-        customItems,
-      ] = await Promise.all([
-        revenueQueries.getRevenueTrend(businessId, from, to, granularity),
+      const [trend, byCategory, byWeekday, customItems] = await Promise.all([
+        getRevenueTrend(businessId, from, to, granularity),
         revenueQueries.getRevenueByCategory(businessId, from, to),
         revenueQueries.getRevenueByWeekday(businessId, from, to),
-        revenueQueries.getAverageInvoiceValue(businessId, from, to),
-        revenueQueries.getAverageInvoiceValueTrend(
-          businessId,
-          from,
-          to,
-          granularity,
-        ),
         summaryQueries.getCustomItemRevenue(businessId, from, to),
       ]);
+      const revenueCents = sum(trend, (row) => row.totalCents);
+      const paidInvoiceCount = sum(trend, (row) => row.invoiceCount);
+      const averageInvoiceValue = {
+        averageCents:
+          paidInvoiceCount > 0
+            ? Math.round(revenueCents / paidInvoiceCount)
+            : 0,
+        invoiceCount: paidInvoiceCount,
+      };
+      const averageInvoiceValueTrend = trend.map((row) => ({
+        bucket: row.bucket,
+        averageCents:
+          row.invoiceCount > 0
+            ? Math.round(row.totalCents / row.invoiceCount)
+            : null,
+        invoiceCount: row.invoiceCount,
+      }));
 
       const topCategory = byCategory[0]
         ? {
@@ -207,8 +243,8 @@ class AnalyticsService {
       return {
         ...metadata(preset, from, to, granularity),
         summary: {
-          revenueCents: sum(trend, (row) => row.totalCents),
-          paidInvoiceCount: sum(trend, (row) => row.invoiceCount),
+          revenueCents,
+          paidInvoiceCount,
           averageInvoiceCents: averageInvoiceValue.averageCents,
           customItemRevenueCents: sum(customItems, (row) => row.totalCents),
           customItemQuantity: sum(customItems, (row) => row.quantity),
@@ -244,9 +280,7 @@ class AnalyticsService {
         lapsedItems,
         lapsedTotal,
         retentionCohorts,
-        noShowRate,
         cancellationRate,
-        outcomeCounts,
       ] = await Promise.all([
         summaryQueries.getCustomerRangeSummary(businessId, from, to),
         customerQueries.getNewVsReturningCustomers(
@@ -257,52 +291,39 @@ class AnalyticsService {
         ),
         customerQueries.getCustomerLifetimeValue(businessId, from, to),
         customerQueries.getCustomerLifetimeValue(businessId),
-        customerQueries.getAcquisitionSources(businessId),
+        getAcquisitionSources(businessId),
         customerQueries.getLapsedCustomers(businessId, lapsedThreshold),
         prisma.customer.count({
           where: { businessId, lastVisitAt: { lte: lapsedThreshold } },
         }),
-        customerQueries.computeRetentionCohorts(businessId),
-        customerQueries.getNoShowRateOverTime(
-          businessId,
-          from,
-          to,
-          granularity,
-        ),
+        getRetentionCohorts(businessId),
         customerQueries.getCancellationRateOverTime(
           businessId,
           from,
           to,
           granularity,
         ),
-        prisma.appointment.groupBy({
-          by: ["status"],
-          where: {
-            businessId,
-            startsAt: { gte: from, lte: to },
-            status: {
-              in: [
-                AppointmentStatus.completed,
-                AppointmentStatus.no_show,
-                AppointmentStatus.cancelled_by_customer,
-                AppointmentStatus.cancelled_by_business,
-              ],
-            },
-          },
-          _count: true,
-        }),
       ]);
 
-      const outcomeCountByStatus = new Map(
-        outcomeCounts.map((row) => [row.status, row._count]),
+      const noShowRate = cancellationRate.map((row) => {
+        const denominator = row.completedCount + row.noShowCount;
+        return {
+          bucket: row.bucket,
+          noShowCount: row.noShowCount,
+          completedCount: row.completedCount,
+          rate:
+            denominator === 0 ? 0 : (row.noShowCount / denominator) * 100,
+        };
+      });
+      const completedCount = sum(
+        cancellationRate,
+        (row) => row.completedCount,
       );
-      const completedCount =
-        outcomeCountByStatus.get(AppointmentStatus.completed) ?? 0;
-      const noShowCount =
-        outcomeCountByStatus.get(AppointmentStatus.no_show) ?? 0;
-      const cancellationCount =
-        (outcomeCountByStatus.get(AppointmentStatus.cancelled_by_customer) ?? 0) +
-        (outcomeCountByStatus.get(AppointmentStatus.cancelled_by_business) ?? 0);
+      const noShowCount = sum(cancellationRate, (row) => row.noShowCount);
+      const cancellationCount = sum(
+        cancellationRate,
+        (row) => row.totalCancelled,
+      );
       const appointmentOutcomeCount =
         completedCount + noShowCount + cancellationCount;
       const noShowDenominator = completedCount + noShowCount;
@@ -442,9 +463,9 @@ class AnalyticsService {
       const { from, to } = resolveRange(preset, business.createdAt);
       const [monthlyRevenue, acquisitionSources, retentionCohorts] =
         await Promise.all([
-          revenueQueries.getRevenueTrend(businessId, from, to, "month"),
-          customerQueries.getAcquisitionSources(businessId),
-          customerQueries.computeRetentionCohorts(businessId),
+          getRevenueTrend(businessId, from, to, "month"),
+          getAcquisitionSources(businessId),
+          getRetentionCohorts(businessId),
         ]);
       const monthlyGrowth =
         growthQueries.computeMonthOverMonthGrowth(monthlyRevenue);

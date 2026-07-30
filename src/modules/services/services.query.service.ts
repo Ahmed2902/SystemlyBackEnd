@@ -86,6 +86,7 @@ class ServicesQueryService {
 
     if (query.view === "booking") {
       const items = await prisma.service.findMany({
+        relationLoadStrategy: "join",
         where,
         orderBy: { name: "asc" },
         select: {
@@ -126,23 +127,12 @@ class ServicesQueryService {
       };
     }
 
-    const [items, categoryServices, staff] = await Promise.all([
+    const [items, staff] = await Promise.all([
       prisma.service.findMany({
-        where,
+        relationLoadStrategy: "join",
+        where: baseWhere,
         select: serviceSelect,
         orderBy: [{ isActive: "desc" }, { category: "asc" }, { name: "asc" }],
-      }),
-      prisma.service.findMany({
-        where: baseWhere,
-        select: {
-          id: true,
-          name: true,
-          category: true,
-          durationMin: true,
-          priceEgp: true,
-          isActive: true,
-        },
-        orderBy: [{ category: "asc" }, { name: "asc" }],
       }),
       prisma.staff.findMany({
         where: { businessId, isActive: true },
@@ -150,6 +140,22 @@ class ServicesQueryService {
         orderBy: { name: "asc" },
       }),
     ]);
+    const categoryServices = items.map((service) => ({
+      id: service.id,
+      name: service.name,
+      category: service.category,
+      durationMin: service.durationMin,
+      priceEgp: service.priceEgp,
+      isActive: service.isActive,
+    }));
+    const visibleItems = items.filter((service) => {
+      const category = normalizeCategory(service.category);
+      if (query.category === UNCATEGORIZED_FILTER) return category === null;
+      if (query.category) {
+        return category?.toLocaleLowerCase() === query.category.toLocaleLowerCase();
+      }
+      return true;
+    });
 
     const categoryMap = new Map<
       string,
@@ -186,7 +192,7 @@ class ServicesQueryService {
     });
 
     return {
-      items: items.map((service) => ({
+      items: visibleItems.map((service) => ({
         ...mapService(service),
         category: normalizeCategory(service.category),
         eligibleStaff: service.serviceStaff.map(({ staff: member }) => member),
@@ -198,8 +204,8 @@ class ServicesQueryService {
       })),
       staff,
       canManageMoney: showMoney,
-      total: items.length,
-      activeTotal: items.filter((service) => service.isActive).length,
+      total: visibleItems.length,
+      activeTotal: visibleItems.filter((service) => service.isActive).length,
     };
   }
 }

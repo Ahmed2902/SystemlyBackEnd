@@ -1,5 +1,6 @@
 import { InvoiceStatus, PaymentMethod } from "@prisma/client";
 import { z } from "zod";
+import { updateAppointmentSchema } from "../appointments/appointments.schema";
 
 export const invoiceStatusFilterSchema = z.enum([
   InvoiceStatus.paid,
@@ -22,6 +23,7 @@ export const collectPaymentSchema = z.object({
   paymentMethod: z.nativeEnum(PaymentMethod),
   paymentReference: z.string().trim().max(255).optional().or(z.literal("")),
   notes: z.string().trim().max(2000).optional().or(z.literal("")),
+  appointmentUpdate: updateAppointmentSchema.optional(),
 });
 
 export const voidInvoiceSchema = z.object({

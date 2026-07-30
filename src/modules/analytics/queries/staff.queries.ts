@@ -81,6 +81,12 @@ export async function computeStaffUtilization(
   from: Date,
   to: Date,
 ): Promise<StaffUtilizationRow[]> {
+  const rangeStartDate = new Date(
+    `${DateTime.fromJSDate(from).setZone(BUSINESS_TIMEZONE).toISODate()}T00:00:00.000Z`,
+  );
+  const rangeEndDate = new Date(
+    `${DateTime.fromJSDate(to).setZone(BUSINESS_TIMEZONE).toISODate()}T00:00:00.000Z`,
+  );
   const [staff, availability, overrides, segmentsInRange] = await Promise.all([
     prisma.staff.findMany({
       where: { businessId },
@@ -97,7 +103,10 @@ export async function computeStaffUtilization(
       },
     }),
     prisma.availabilityOverride.findMany({
-      where: { staff: { businessId } },
+      where: {
+        staff: { businessId },
+        overrideDate: { gte: rangeStartDate, lte: rangeEndDate },
+      },
       select: {
         staffId: true,
         overrideDate: true,
@@ -143,11 +152,12 @@ export async function computeStaffUtilization(
     availabilityByStaff.set(row.staffId, list);
   }
 
-  const overridesByStaff = new Map<string, typeof overrides>();
+  const overridesByStaffAndDate = new Map<string, (typeof overrides)[number]>();
   for (const row of overrides) {
-    const list = overridesByStaff.get(row.staffId) ?? [];
-    list.push(row);
-    overridesByStaff.set(row.staffId, list);
+    const date = DateTime.fromJSDate(row.overrideDate)
+      .setZone(BUSINESS_TIMEZONE)
+      .toISODate();
+    overridesByStaffAndDate.set(`${row.staffId}:${date}`, row);
   }
 
   const days: DateTime[] = [];
@@ -169,17 +179,11 @@ export async function computeStaffUtilization(
     }
 
     const staffAvailability = availabilityByStaff.get(member.id) ?? [];
-    const staffOverrides = overridesByStaff.get(member.id) ?? [];
 
     let total = 0;
     for (const day of days) {
       const isoDay = day.toISODate();
-      const override = staffOverrides.find(
-        (entry) =>
-          DateTime.fromJSDate(entry.overrideDate)
-            .setZone(BUSINESS_TIMEZONE)
-            .toISODate() === isoDay,
-      );
+      const override = overridesByStaffAndDate.get(`${member.id}:${isoDay}`);
       if (override?.isDayOff) continue;
 
       if (override?.startTime && override?.endTime) {

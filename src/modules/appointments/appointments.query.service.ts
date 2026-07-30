@@ -3,6 +3,7 @@ import { prisma } from "../../shared/db/prisma";
 import { getBusinessDayRange } from "../../shared/utils/timezone";
 import type { ListAppointmentsQuery } from "./appointments.schema";
 import { getOwnedAppointmentOrThrow } from "./appointments.helper";
+import { getCachedBusinessTimezone } from "../calendar/calendar.query.service";
 
 type ListAppointmentsInput = ListAppointmentsQuery & {
   user: NonNullable<Express.Request["user"]>;
@@ -86,11 +87,7 @@ class AppointmentsQueryService {
       where.businessId = user.businessId;
 
       if (date) {
-        const business = await prisma.business.findUnique({
-          where: { id: user.businessId },
-          select: { timezone: true },
-        });
-        businessTimezone = business?.timezone ?? "UTC";
+        businessTimezone = await getCachedBusinessTimezone(user.businessId);
       }
     }
 
@@ -111,6 +108,7 @@ class AppointmentsQueryService {
     const skip = (page - 1) * perPage;
     const [items, total] = await Promise.all([
       prisma.appointment.findMany({
+        relationLoadStrategy: "join",
         where,
         skip,
         take: perPage,
@@ -133,6 +131,7 @@ class AppointmentsQueryService {
 
   async getAppointmentById(id: string) {
     const appointment = await prisma.appointment.findUnique({
+      relationLoadStrategy: "join",
       where: { id },
       include: APPOINTMENT_DETAIL_INCLUDE,
     });

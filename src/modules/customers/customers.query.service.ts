@@ -7,6 +7,7 @@ const ACTIVE_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.confirmed,
   AppointmentStatus.in_progress,
 ];
+const CUSTOMER_HISTORY_LIMIT = 100;
 
 const appointmentSelect = {
   id: true,
@@ -158,44 +159,67 @@ class CustomersQueryService {
 
   async getWorkspace(id: string, businessId: string) {
     const now = new Date();
-    const [customer, appointments] = await Promise.all([
-      this.getCustomerById(id, businessId),
+    const [customer, upcoming, historyRows] = await Promise.all([
+      prisma.customer.findFirst({
+        where: { id, businessId },
+        select: {
+          ...customerProfileSelect,
+          visitCount: true,
+          noShowCount: true,
+          lastVisitAt: true,
+        },
+      }),
       prisma.appointment.findMany({
-        where: { customerId: id, businessId },
+        relationLoadStrategy: "join",
+        where: {
+          customerId: id,
+          businessId,
+          startsAt: { gte: now },
+          status: { in: ACTIVE_STATUSES },
+        },
+        orderBy: { startsAt: "asc" },
+        select: appointmentSelect,
+      }),
+      prisma.appointment.findMany({
+        relationLoadStrategy: "join",
+        where: {
+          customerId: id,
+          businessId,
+          NOT: {
+            startsAt: { gte: now },
+            status: { in: ACTIVE_STATUSES },
+          },
+        },
         orderBy: { startsAt: "desc" },
+        take: CUSTOMER_HISTORY_LIMIT + 1,
         select: appointmentSelect,
       }),
     ]);
     if (!customer) throw notFoundError();
 
-    const normalizedAppointments = appointments.map(withCurrentInvoice);
-    const visits = normalizedAppointments.filter(
-      (appointment) => appointment.status === AppointmentStatus.completed,
-    );
-    const noShows = normalizedAppointments.filter(
-      (appointment) => appointment.status === AppointmentStatus.no_show,
-    );
-    const upcoming = normalizedAppointments
-      .filter(
-        (appointment) =>
-          appointment.startsAt >= now && ACTIVE_STATUSES.includes(appointment.status),
-      )
-      .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
-    const upcomingIds = new Set(upcoming.map((appointment) => appointment.id));
-    const history = normalizedAppointments.filter(
-      (appointment) => !upcomingIds.has(appointment.id),
-    );
+    const {
+      visitCount,
+      noShowCount,
+      lastVisitAt,
+      ...customerProfile
+    } = customer;
+    const normalizedUpcoming = upcoming.map(withCurrentInvoice);
+    const historyHasMore = historyRows.length > CUSTOMER_HISTORY_LIMIT;
+    const history = historyRows
+      .slice(0, CUSTOMER_HISTORY_LIMIT)
+      .map(withCurrentInvoice);
 
     return {
-      customer,
+      customer: customerProfile,
       stats: {
-        visits: visits.length,
-        noShows: noShows.length,
-        lastVisitAt: visits[0]?.startsAt ?? null,
-        nextAppointmentAt: upcoming[0]?.startsAt ?? null,
+        visits: visitCount,
+        noShows: noShowCount,
+        lastVisitAt,
+        nextAppointmentAt: normalizedUpcoming[0]?.startsAt ?? null,
       },
-      upcoming,
+      upcoming: normalizedUpcoming,
       history,
+      historyHasMore,
     };
   }
 

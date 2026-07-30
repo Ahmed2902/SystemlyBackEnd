@@ -11,6 +11,8 @@ import type {
   VoidInvoiceInput,
 } from "./invoices.workspace.schema";
 import { invoiceDetailInclude } from "./invoices.query.service";
+import { updateAppointmentInTransaction } from "../appointments/appointments.command.service";
+import appointmentsQueryService from "../appointments/appointments.query.service";
 
 const buildError = (message: string, statusCode: number, code: string) => {
   const error = new Error(message) as Error & {
@@ -41,7 +43,7 @@ class InvoicesCommandService {
     userId: string,
     input: CollectPaymentInput,
   ) {
-    return prisma.$transaction(
+    const invoice = await prisma.$transaction(
       async (tx) => {
         const existingPaid = await tx.invoice.findFirst({
           where: {
@@ -52,6 +54,15 @@ class InvoicesCommandService {
           include: invoiceDetailInclude,
         });
         if (existingPaid) return existingPaid;
+
+        if (input.appointmentUpdate) {
+          await updateAppointmentInTransaction(
+            tx,
+            input.appointmentId,
+            businessId,
+            input.appointmentUpdate,
+          );
+        }
 
         const appointment = await tx.appointment.findFirst({
           where: { id: input.appointmentId, businessId },
@@ -170,7 +181,8 @@ class InvoicesCommandService {
           (sum, line) => sum + line.totalCents,
           0,
         );
-        const discountCents = input.discountCents;
+        const discountCents =
+          input.appointmentUpdate?.discountCents ?? input.discountCents;
         if (discountCents > subtotalCents) {
           throw buildError(
             "Discount cannot exceed the invoice subtotal",
@@ -240,6 +252,14 @@ class InvoicesCommandService {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+
+    const updatedAppointment =
+      await appointmentsQueryService.getAppointmentById(input.appointmentId);
+    if (!updatedAppointment) {
+      throw buildError("Appointment not found", 404, "NOT_FOUND");
+    }
+
+    return { ...invoice, updatedAppointment };
   }
 
   async voidInvoice(
