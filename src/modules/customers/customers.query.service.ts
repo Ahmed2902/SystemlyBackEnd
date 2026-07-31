@@ -33,6 +33,17 @@ const appointmentSelect = {
   },
 } satisfies Prisma.AppointmentSelect;
 
+const historyAppointmentSelect = {
+  ...appointmentSelect,
+  clinicVisitRecord: {
+    select: {
+      diagnosis: true,
+      notes: true,
+      prescriptionJson: true,
+    },
+  },
+} satisfies Prisma.AppointmentSelect;
+
 const customerProfileSelect = {
   id: true,
   businessId: true,
@@ -50,6 +61,18 @@ function withCurrentInvoice<T extends { invoices: Array<{ status: string }> }>({
   ...appointment
 }: T) {
   return { ...appointment, invoice: invoices[0] ?? null };
+}
+
+function hasClinicalContent(record: {
+  diagnosis: string | null;
+  notes: string | null;
+  prescriptionJson: string | null;
+}) {
+  return Boolean(
+    record.diagnosis?.trim() ||
+      record.notes?.trim() ||
+      record.prescriptionJson?.trim(),
+  );
 }
 
 function notFoundError() {
@@ -192,7 +215,7 @@ class CustomersQueryService {
         },
         orderBy: { startsAt: "desc" },
         take: CUSTOMER_HISTORY_LIMIT + 1,
-        select: appointmentSelect,
+        select: historyAppointmentSelect,
       }),
     ]);
     if (!customer) throw notFoundError();
@@ -205,9 +228,48 @@ class CustomersQueryService {
     } = customer;
     const normalizedUpcoming = upcoming.map(withCurrentInvoice);
     const historyHasMore = historyRows.length > CUSTOMER_HISTORY_LIMIT;
-    const history = historyRows
-      .slice(0, CUSTOMER_HISTORY_LIMIT)
-      .map(withCurrentInvoice);
+    const limitedHistoryRows = historyRows.slice(0, CUSTOMER_HISTORY_LIMIT);
+
+    const history = limitedHistoryRows.map(
+      ({ clinicVisitRecord: _clinicVisitRecord, ...appointment }) =>
+        withCurrentInvoice(appointment),
+    );
+
+    const clinicalHistory = limitedHistoryRows.flatMap((appointment) => {
+      const record = appointment.clinicVisitRecord;
+      if (
+        appointment.status !== AppointmentStatus.completed ||
+        !record ||
+        !hasClinicalContent(record)
+      ) {
+        return [];
+      }
+
+      const staff = Array.from(
+        new Map(
+          appointment.appointmentServices.map((segment) => [
+            segment.staff.id,
+            segment.staff,
+          ]),
+        ).values(),
+      );
+
+      return [
+        {
+          appointmentId: appointment.id,
+          startsAt: appointment.startsAt,
+          endsAt: appointment.endsAt,
+          status: appointment.status,
+          services: appointment.appointmentServices.map((segment) =>
+            segment.service,
+          ),
+          staff,
+          diagnosisAssessment: record.diagnosis,
+          clinicalSessionNotes: record.notes,
+          planAndPrescription: record.prescriptionJson,
+        },
+      ];
+    });
 
     return {
       customer: customerProfile,
@@ -220,6 +282,7 @@ class CustomersQueryService {
       upcoming: normalizedUpcoming,
       history,
       historyHasMore,
+      clinicalHistory,
     };
   }
 
