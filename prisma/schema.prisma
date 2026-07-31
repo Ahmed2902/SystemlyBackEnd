@@ -647,9 +647,9 @@ model AppointmentPhoto {
 model ClinicVisitRecord {
   id               String   @id @default(uuid()) @db.Uuid
   appointmentId    String   @unique @map("appointment_id") @db.Uuid
-  notes            String?  @db.Text
-  diagnosis        String?  @db.Text
-  prescriptionJson Json?    @map("prescription_json")
+  notes            String?  @map("clinical_session_notes") @db.Text
+  diagnosis        String?  @map("diagnosis_assessment") @db.Text
+  prescriptionJson String?  @map("plan_and_prescription") @db.Text
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
