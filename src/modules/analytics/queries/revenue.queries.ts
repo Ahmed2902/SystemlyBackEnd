@@ -57,8 +57,8 @@ export async function getRevenueTrend(
       COALESCE(COUNT(i.id), 0) AS invoice_count
     FROM buckets
     LEFT JOIN invoices i
-      ON (i.paid_at AT TIME ZONE ${BUSINESS_TIMEZONE}) >= buckets.bucket
-      AND (i.paid_at AT TIME ZONE ${BUSINESS_TIMEZONE}) < buckets.bucket + ${`1 ${safeGranularity}`}::interval
+      ON (i.paid_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE}) >= buckets.bucket
+      AND (i.paid_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE}) < buckets.bucket + ${`1 ${safeGranularity}`}::interval
       AND i.business_id = ${businessId}::uuid
       AND i.status = 'paid'
       AND i.paid_at BETWEEN ${from} AND ${to}
@@ -117,7 +117,9 @@ export async function getRevenueByWeekday(
     { weekday: number; total_cents: bigint; invoice_count: bigint }[]
   >(Prisma.sql`
     SELECT
-      EXTRACT(DOW FROM (i.paid_at AT TIME ZONE ${BUSINESS_TIMEZONE}))::int AS weekday,
+      EXTRACT(
+        DOW FROM (i.paid_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE})
+      )::int AS weekday,
       SUM(i.total_cents) AS total_cents,
       COUNT(*) AS invoice_count
     FROM invoices i
@@ -180,8 +182,8 @@ export async function getAverageInvoiceValueTrend(
       COUNT(i.id) AS invoice_count
     FROM buckets
     LEFT JOIN invoices i
-      ON (i.paid_at AT TIME ZONE ${BUSINESS_TIMEZONE}) >= buckets.bucket
-      AND (i.paid_at AT TIME ZONE ${BUSINESS_TIMEZONE}) < buckets.bucket + ${`1 ${safeGranularity}`}::interval
+      ON (i.paid_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE}) >= buckets.bucket
+      AND (i.paid_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE}) < buckets.bucket + ${`1 ${safeGranularity}`}::interval
       AND i.business_id = ${businessId}::uuid
       AND i.status = 'paid'
       AND i.paid_at BETWEEN ${from} AND ${to}

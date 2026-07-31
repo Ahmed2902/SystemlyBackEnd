@@ -14,7 +14,7 @@ import * as operationsQueries from "./queries/operations.queries";
 import * as growthQueries from "./queries/growth.queries";
 
 const CACHE_TTL_SECONDS = 120;
-const CACHE_VERSION = "v4";
+const CACHE_VERSION = "v5";
 const DEFAULT_LAPSED_DAYS = 45;
 const BUSINESS_META_TTL_MS = 5 * 60_000;
 const MAX_BUSINESS_META_ENTRIES = 250;
