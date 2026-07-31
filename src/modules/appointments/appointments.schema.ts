@@ -5,6 +5,36 @@ const manualServiceSelectionSchema = z.object({
   staffId: z.string().min(1).optional(),
 });
 
+const legacyPrescriptionSchema = z.union([
+  z.string(),
+  z.record(z.string(), z.any()),
+]);
+
+const clinicVisitInputSchema = z
+  .object({
+    diagnosisAssessment: z.string().max(2000).optional(),
+    clinicalSessionNotes: z.string().max(5000).optional(),
+    planAndPrescription: z.string().max(5000).optional(),
+    // Temporary aliases keep the backend-first rollout compatible with the
+    // currently deployed frontend. They are normalized to text before the
+    // command service reaches Prisma.
+    diagnosis: z.string().max(2000).optional(),
+    notes: z.string().max(5000).optional(),
+    prescriptionJson: legacyPrescriptionSchema.optional(),
+  })
+  .transform((clinical) => ({
+    diagnosis:
+      clinical.diagnosisAssessment ?? clinical.diagnosis ?? undefined,
+    notes: clinical.clinicalSessionNotes ?? clinical.notes ?? undefined,
+    prescriptionJson:
+      clinical.planAndPrescription ??
+      (typeof clinical.prescriptionJson === "string"
+        ? clinical.prescriptionJson
+        : clinical.prescriptionJson
+          ? JSON.stringify(clinical.prescriptionJson, null, 2)
+          : undefined),
+  }));
+
 export const revertAppointmentSchema = z.object({
   businessId: z.string().min(1).openapi({ example: "biz-456" }),
 });
@@ -36,13 +66,7 @@ export const updateAppointmentSchema = z.object({
     .default([]),
   discountCents: z.number().int().min(0).default(0),
   notes: z.string().max(2000).optional(),
-  clinical: z
-    .object({
-      notes: z.string().max(5000).optional(),
-      diagnosis: z.string().max(2000).optional(),
-      prescriptionJson: z.record(z.string(), z.any()).optional(),
-    })
-    .optional(),
+  clinical: clinicVisitInputSchema.optional(),
 });
 
 export type UpdateAppointmentInput = z.infer<typeof updateAppointmentSchema>;
@@ -103,17 +127,11 @@ const finishPhotoSchema = z.object({
   type: z.enum(["before", "after", "progress"]).openapi({ example: "progress" }),
 });
 
-const finishClinicalSchema = z.object({
-  notes: z.string().max(5000).optional().openapi({ example: "Procedure completed successfully" }),
-  diagnosis: z.string().max(2000).optional().openapi({ example: "Caries removal" }),
-  prescriptionJson: z.record(z.string(), z.any()).optional(),
-});
-
 export const finishAppointmentSchema = z
   .object({
     notes: z.string().max(2000).optional().openapi({ example: "Patient satisfied" }),
     photos: z.array(finishPhotoSchema).max(20).optional(),
-    clinical: finishClinicalSchema.optional(),
+    clinical: clinicVisitInputSchema.optional(),
   })
   .openapi({
     description: "Finish an appointment with notes, photos, and clinical data",
