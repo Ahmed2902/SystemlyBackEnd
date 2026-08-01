@@ -1,0 +1,46 @@
+name: Apply platform language core
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize]
+    paths:
+      - scripts/apply-platform-language-core.mjs
+      - .github/workflows/apply-platform-language-core.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: platform-language-core
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Apply language preference changes
+        run: node scripts/apply-platform-language-core.mjs
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+      - name: Commit generated backend changes
+        run: |
+          if git diff --quiet; then
+            echo "No backend changes were required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add prisma/schema.prisma src/modules/auth
+          git commit -m "feat: persist platform language preference"
+          git push origin HEAD:${{ github.head_ref }}
