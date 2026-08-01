@@ -1,10 +1,11 @@
 import { Router } from "express";
-import servicesController from "./services.controller";
 import {
   requireAuth,
   requireBusinessAccess,
 } from "../../shared/middleware/auth.middleware";
+import { requireSubscriptionAccess } from "../../shared/middleware/subscription-access.middleware";
 import validate from "../../shared/middleware/validate.middleware";
+import servicesController from "./services.controller";
 import {
   createServiceSchema,
   listServicesQuerySchema,
@@ -13,7 +14,7 @@ import {
 
 const router = Router();
 
-router.use(requireAuth, requireBusinessAccess);
+router.use(requireAuth, requireBusinessAccess, requireSubscriptionAccess);
 
 router.get(
   "/",
