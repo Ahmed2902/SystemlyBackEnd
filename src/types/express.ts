@@ -1,3 +1,5 @@
+import type { SubscriptionAccessSnapshot } from "../modules/subscriptions/subscription-access.service";
+
 declare global {
   namespace Express {
     interface Request {
@@ -8,6 +10,7 @@ declare global {
         role?: string;
         email?: string;
       };
+      subscriptionAccess?: SubscriptionAccessSnapshot;
     }
   }
 }
