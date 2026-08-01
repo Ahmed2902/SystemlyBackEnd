@@ -40,7 +40,9 @@ async function checkoutPlan(planId?: string) {
     throw error;
   }
 
-  const price = plan.prices[0] ?? null;
+  // The fallback keeps the legacy Paymob checkout and its isolated unit mocks
+  // deployable while PlanPrice becomes the authoritative source.
+  const price = plan.prices?.[0] ?? null;
   return {
     plan,
     price,
