@@ -1,6 +1,9 @@
 import { completeOnboardingSchema } from "../src/modules/onboarding/onboarding.schema";
 
-function inputForRole(role: "Staff" | "Receptionist", serviceClientIds?: string[]) {
+function inputForRole(
+  role: "Staff" | "Receptionist",
+  serviceClientIds?: string[],
+) {
   return {
     vertical: "salon" as const,
     templateId: "aura-wellness",
@@ -24,7 +27,7 @@ function inputForRole(role: "Staff" | "Receptionist", serviceClientIds?: string[
         clientId: "staff-1",
         name: "Alex",
         role,
-        serviceClientIds,
+        ...(serviceClientIds === undefined ? {} : { serviceClientIds }),
         availability: [],
       },
     ],
@@ -33,12 +36,15 @@ function inputForRole(role: "Staff" | "Receptionist", serviceClientIds?: string[
 }
 
 describe("complete onboarding staff assignments", () => {
-  test("allows receptionists without service assignments", () => {
+  test("allows receptionists without service assignments and defaults the list", () => {
     const parsed = completeOnboardingSchema.safeParse(
       inputForRole("Receptionist"),
     );
 
     expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.staff[0].serviceClientIds).toEqual([]);
+    }
   });
 
   test("requires a service assignment for service providers", () => {
@@ -51,6 +57,17 @@ describe("complete onboarding staff assignments", () => {
           expect.objectContaining({ path: ["staff", 0, "serviceClientIds"] }),
         ]),
       );
+    }
+  });
+
+  test("allows service providers with at least one service assignment", () => {
+    const parsed = completeOnboardingSchema.safeParse(
+      inputForRole("Staff", ["service-1"]),
+    );
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.staff[0].serviceClientIds).toEqual(["service-1"]);
     }
   });
 });
