@@ -84,7 +84,6 @@ export async function startLifetimeTrial(
       id: businessId,
       deletedAt: null,
       trialUsedAt: null,
-      subscription: null,
     },
     data: { trialUsedAt: now },
   });
