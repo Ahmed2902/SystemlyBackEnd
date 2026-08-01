@@ -1,0 +1,82 @@
+name: Finalize production localization
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize]
+    paths:
+      - .github/workflows/finalize-production-localization.yml
+      - src/**
+      - prisma/**
+      - tests/localization.contract.test.ts
+      - package.json
+      - package-lock.json
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: finalize-backend-production-localization
+  cancel-in-progress: false
+
+jobs:
+  verify-and-finalize:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hgezli_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d hgezli_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hgezli_ci?schema=public
+      NODE_ENV: test
+      JWT_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      CSRF_SECRET: ci-csrf-secret
+      FRONTEND_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm run prisma:migrate:deploy
+      - name: TypeScript build
+        run: npm run build
+      - name: Complete test suite
+        run: npm test -- --runInBand
+      - name: OpenAPI validation
+        run: npm run validate:openapi
+      - name: Remove temporary migration and diagnostic files
+        run: |
+          rm -f .github/workflows/finalize-production-localization.yml
+          rm -f .github/workflows/report-localization-errors.yml
+          rm -f .github/workflows/finalize-localized-email-routing.yml
+          rm -f .github/workflows/cleanup-localized-email-routing.yml
+          rm -f scripts/finalize-localized-email-routing.mjs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: finalize backend localization" || true
+          git push origin HEAD:${{ github.head_ref }}
+      - name: Mark pull request ready
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr ready "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}"
