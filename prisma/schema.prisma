@@ -68,6 +68,19 @@ enum StaffTimeOffType {
   OTHER
 }
 
+enum BillingInterval {
+  MONTHLY
+}
+
+enum RenewalMode {
+  MANUAL
+  AUTOMATIC
+}
+
+enum BillingProvider {
+  EASYKASH
+}
+
 model Business {
   id                 String          @id @default(uuid()) @db.Uuid
   name               String          @db.VarChar(255)
@@ -83,6 +96,8 @@ model Business {
   timezone           String          @default("Africa/Cairo") @db.VarChar(80)
   language           String          @default("ar") @db.VarChar(10)
   isActive           Boolean         @default(false) @map("is_active")
+  trialUsedAt        DateTime?       @map("trial_used_at")
+  deletedAt          DateTime?       @map("deleted_at")
   createdAt          DateTime        @default(now()) @map("created_at")
   updatedAt          DateTime        @updatedAt @map("updated_at")
   staffInvite        StaffInvite[]
@@ -102,6 +117,7 @@ model Business {
   staffTimeOff       StaffTimeOff[]
 
   @@index([city])
+  @@index([deletedAt])
   @@map("businesses")
 }
 
@@ -450,37 +466,92 @@ model Faq {
 }
 
 model Plan {
-  id                  String         @id @default(uuid()) @db.Uuid
-  name                String         @unique @db.VarChar(80)
-  priceEgp            Decimal        @map("price_egp") @db.Decimal(10, 2)
-  maxStaff            Int?           @map("max_staff")
-  maxBookingsPerMonth Int?           @map("max_bookings_per_month")
-  smsReminders        Boolean        @default(false) @map("sms_reminders")
-  customDomain        Boolean        @default(false) @map("custom_domain")
-  createdAt           DateTime       @default(now()) @map("created_at")
-  updatedAt           DateTime       @updatedAt @map("updated_at")
+  id                  String            @id @default(uuid()) @db.Uuid
+  code                String            @unique @db.VarChar(50)
+  name                String            @unique @db.VarChar(80)
+  description         String?           @db.Text
+  priceEgp            Decimal           @map("price_egp") @db.Decimal(10, 2)
+  maxStaff            Int?              @map("max_staff")
+  maxBookingsPerMonth Int?              @map("max_bookings_per_month")
+  smsReminders        Boolean           @default(false) @map("sms_reminders")
+  customDomain        Boolean           @default(false) @map("custom_domain")
+  isActive            Boolean           @default(true) @map("is_active")
+  isPublic            Boolean           @default(true) @map("is_public")
+  sortOrder           Int               @default(0) @map("sort_order")
+  createdAt           DateTime          @default(now()) @map("created_at")
+  updatedAt           DateTime          @updatedAt @map("updated_at")
+  prices              PlanPrice[]
+  entitlements        PlanEntitlement[]
   subscriptions       Subscription[]
 
+  @@index([isActive, isPublic, sortOrder])
   @@map("plans")
 }
 
+model PlanPrice {
+  id            String          @id @default(uuid()) @db.Uuid
+  planId        String          @map("plan_id") @db.Uuid
+  amountCents   Int             @map("amount_cents")
+  currency      String          @default("EGP") @db.VarChar(10)
+  interval      BillingInterval @default(MONTHLY)
+  isActive      Boolean         @default(true) @map("is_active")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+  plan          Plan            @relation(fields: [planId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@unique([planId, amountCents, currency, interval])
+  @@index([planId, isActive])
+  @@map("plan_prices")
+}
+
+model PlanEntitlement {
+  id        String   @id @default(uuid()) @db.Uuid
+  planId    String   @map("plan_id") @db.Uuid
+  key       String   @db.VarChar(80)
+  enabled   Boolean  @default(true)
+  limit     Int?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, key])
+  @@index([planId, enabled])
+  @@map("plan_entitlements")
+}
+
 model Subscription {
-  id                   String    @id @default(uuid()) @db.Uuid
-  businessId           String?   @unique @map("business_id") @db.Uuid
-  planId               String    @map("plan_id") @db.Uuid
-  status               String    @db.VarChar(50)
-  currentPeriodStart   DateTime  @map("current_period_start")
-  currentPeriodEnd     DateTime  @map("current_period_end")
-  paymobSubscriptionId String?   @map("paymob_subscription_id") @db.VarChar(255)
-  trialNotified3Days   Boolean   @default(false) @map("trial_notified_3days")
-  trialNotified1Day    Boolean   @default(false) @map("trial_notified_1day")
-  expiredHandled       Boolean   @default(false) @map("expired_handled")
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
-  business             Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  plan                 Plan      @relation(fields: [planId], references: [id], onDelete: Restrict)
+  id                      String           @id @default(uuid()) @db.Uuid
+  businessId              String?          @unique @map("business_id") @db.Uuid
+  planId                  String           @map("plan_id") @db.Uuid
+  priceId                 String?          @map("price_id") @db.Uuid
+  status                  String           @db.VarChar(50)
+  renewalMode             RenewalMode      @default(MANUAL) @map("renewal_mode")
+  trialStartedAt          DateTime?        @map("trial_started_at")
+  trialEndsAt             DateTime?        @map("trial_ends_at")
+  currentPeriodStart      DateTime         @map("current_period_start")
+  currentPeriodEnd        DateTime         @map("current_period_end")
+  graceEndsAt             DateTime?        @map("grace_ends_at")
+  cancelAtPeriodEnd       Boolean          @default(false) @map("cancel_at_period_end")
+  canceledAt              DateTime?        @map("canceled_at")
+  endedAt                 DateTime?        @map("ended_at")
+  provider                BillingProvider?
+  providerCustomerId      String?          @map("provider_customer_id") @db.VarChar(255)
+  providerSubscriptionId  String?          @map("provider_subscription_id") @db.VarChar(255)
+  providerPaymentMethodId String?          @map("provider_payment_method_id") @db.VarChar(255)
+  paymobSubscriptionId    String?          @map("paymob_subscription_id") @db.VarChar(255)
+  trialNotified3Days      Boolean          @default(false) @map("trial_notified_3days")
+  trialNotified1Day       Boolean          @default(false) @map("trial_notified_1day")
+  expiredHandled          Boolean          @default(false) @map("expired_handled")
+  createdAt               DateTime         @default(now()) @map("created_at")
+  updatedAt               DateTime         @updatedAt @map("updated_at")
+  business                Business?        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  plan                    Plan             @relation(fields: [planId], references: [id], onDelete: Restrict)
+  price                   PlanPrice?       @relation(fields: [priceId], references: [id], onDelete: SetNull)
 
   @@index([planId])
+  @@index([priceId])
+  @@index([status, currentPeriodEnd])
   @@map("subscriptions")
 }
 
@@ -617,7 +688,7 @@ model Photo {
   url               String             @db.Text
   publicId          String?            @map("public_id") @db.VarChar(255)
   kind              String             @db.VarChar(30)
-  type              String?            @db.VarChar(64) //its a econdary idintefier for the photo, like a staff id or logo
+  type              String?            @db.VarChar(64)
   position          Int                @default(0)
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt
