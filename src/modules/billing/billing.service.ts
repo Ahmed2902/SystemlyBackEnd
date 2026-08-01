@@ -1,89 +1,90 @@
+import {
+  BillingInterval,
+  SubscriptionStatus,
+} from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
 import {
-  enqueueTrialStartedEmail,
   enqueueSubscriptionActivatedEmail,
   enqueueSubscriptionPaymentFailedEmail,
 } from "../../shared/services/email.service";
+import { PLAN_CODES } from "../subscriptions/subscription.catalog";
+import {
+  addCalendarMonth,
+  addExactDays,
+  getBusinessSubscription,
+  GRACE_PERIOD_DAYS,
+} from "../subscriptions/subscription.service";
 import paymob from "./paymob";
 
-const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
-
-class BillingService {
-  async startTrial(businessId: string, planId?: string) {
-    let plan = null as any;
-    if (planId) plan = await prisma.plan.findUnique({ where: { id: planId } });
-    if (!plan)
-      plan = await prisma.plan.findFirst({ where: { name: "Starter" } });
-    if (!plan) throw new Error("Plan not found");
-
-    const now = new Date();
-    const periodEnd = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
-
-    const sub = await prisma.subscription.create({
-      data: {
-        businessId,
-        planId: plan.id,
-        status: "trialing",
-        currentPeriodStart: now,
-        currentPeriodEnd: periodEnd,
+async function checkoutPlan(planId?: string) {
+  const plan = await prisma.plan.findFirst({
+    where: planId
+      ? { id: planId, isActive: true, isPublic: true }
+      : { code: PLAN_CODES.CORE, isActive: true, isPublic: true },
+    include: {
+      prices: {
+        where: { isActive: true, interval: BillingInterval.MONTHLY },
+        orderBy: { createdAt: "desc" },
+        take: 1,
       },
-    });
+    },
+  });
 
-    const user = await prisma.businessUser.findFirst({ where: { businessId } });
-    if (user && user.email) {
-      void enqueueTrialStartedEmail(
-        { name: user.name, email: user.email },
-        {
-          businessName:
-            (await prisma.business.findUnique({ where: { id: businessId } }))
-              ?.name || "",
-          planName: plan.name,
-          trialEnd: periodEnd.toISOString(),
-        },
-      );
-    }
-
-    return sub;
+  if (!plan) {
+    const error = new Error("Subscription plan not found") as Error & {
+      statusCode?: number;
+      code?: string;
+    };
+    error.statusCode = 404;
+    error.code = "PLAN_NOT_FOUND";
+    throw error;
   }
 
-  async findSubscription(businessId: string) {
-    return prisma.subscription.findUnique({ where: { businessId } });
+  const price = plan.prices[0] ?? null;
+  return {
+    plan,
+    price,
+    amountCents: price?.amountCents ?? Math.round(Number(plan.priceEgp) * 100),
+    currency: price?.currency ?? "EGP",
+  };
+}
+
+class BillingService {
+  findSubscription(businessId: string) {
+    return getBusinessSubscription(businessId);
   }
 
   async createCheckout(businessId: string, planId?: string) {
-    let plan = null as any;
-    if (planId) plan = await prisma.plan.findUnique({ where: { id: planId } });
-    if (!plan)
-      plan = await prisma.plan.findFirst({ where: { name: "Starter" } });
-    if (!plan) throw new Error("Plan not found");
-
-    const amountCents = Math.round(Number(plan.priceEgp) * 100);
-
-    const now = new Date();
-    const sub = await prisma.subscription.upsert({
+    const selected = await checkoutPlan(planId);
+    const existing = await prisma.subscription.findUnique({
       where: { businessId },
-      create: {
-        businessId,
-        planId: plan.id,
-        status: "pending",
-        currentPeriodStart: now,
-        currentPeriodEnd: now,
-      },
-      update: {
-        planId: plan.id,
-        status: "pending",
-        updatedAt: now,
-      },
     });
 
+    const subscription = existing
+      ? await prisma.subscription.update({
+          where: { id: existing.id },
+          data: {
+            planId: selected.plan.id,
+            priceId: selected.price?.id ?? null,
+          },
+        })
+      : await prisma.subscription.create({
+          data: {
+            businessId,
+            planId: selected.plan.id,
+            priceId: selected.price?.id ?? null,
+            status: SubscriptionStatus.INCOMPLETE,
+          },
+        });
+
     const order = await paymob.createPaymobOrder(
-      amountCents,
-      "EGP",
-      `Subscription ${plan.name} for ${businessId}`,
+      selected.amountCents,
+      selected.currency,
+      `Subscription ${selected.plan.name} for ${businessId}`,
     );
 
     await prisma.subscription.update({
-      where: { id: sub.id },
+      where: { id: subscription.id },
       data: { paymobSubscriptionId: order.orderId },
     });
 
@@ -107,15 +108,17 @@ class BillingService {
 
       const paymentKey = await paymob.createPaymentKey(
         order.orderId,
-        amountCents,
+        selected.amountCents,
         billingData as any,
       );
 
-      return { subscription: sub, payment: { ...order, paymentKey } };
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn("[Billing] Failed to create Paymob payment key", err);
-      return { subscription: sub, payment: order };
+      return {
+        subscription,
+        payment: { ...order, paymentKey },
+      };
+    } catch (error) {
+      console.warn("[Billing] Failed to create Paymob payment key", error);
+      return { subscription, payment: order };
     }
   }
 
@@ -128,12 +131,13 @@ class BillingService {
       payload.order_id;
     if (!id) return { handled: false };
 
-    const sub = await prisma.subscription.findFirst({
+    const subscription = await prisma.subscription.findFirst({
       where: { paymobSubscriptionId: id },
+      include: { business: true, plan: true },
     });
-    if (!sub) return { handled: false };
+    if (!subscription) return { handled: false };
 
-    const status = (
+    const providerStatus = (
       payload.status ||
       payload.event ||
       payload.data?.status ||
@@ -141,62 +145,73 @@ class BillingService {
     ).toLowerCase();
     const now = new Date();
 
-    if (status.includes("paid") || status.includes("successful")) {
-      const periodEnd = new Date(now.getTime() + MONTH_MS);
+    if (
+      providerStatus.includes("paid") ||
+      providerStatus.includes("successful")
+    ) {
+      const periodEnd = addCalendarMonth(now);
       await prisma.subscription.update({
-        where: { id: sub.id },
+        where: { id: subscription.id },
         data: {
-          status: "active",
+          status: SubscriptionStatus.ACTIVE,
           currentPeriodStart: now,
           currentPeriodEnd: periodEnd,
+          graceEndsAt: null,
+          endedAt: null,
+          expiredHandled: false,
         },
       });
 
       const user = await prisma.businessUser.findFirst({
-        where: { businessId: sub.businessId },
+        where: { businessId: subscription.businessId },
       });
-      if (user && user.email) {
-        const business = sub.businessId
-          ? await prisma.business.findUnique({ where: { id: sub.businessId } })
-          : null;
-        const planObj = sub.planId
-          ? await prisma.plan.findUnique({ where: { id: sub.planId } })
-          : null;
+      if (user?.email) {
         void enqueueSubscriptionActivatedEmail(
           { name: user.name, email: user.email },
           {
-            businessName: business?.name || "",
-            planName: planObj?.name || "",
+            businessName: subscription.business?.name || "",
+            planName: subscription.plan.name,
             periodEnd: periodEnd.toISOString(),
           },
-        );
+        ).catch((error) => {
+          console.error("[Billing] Failed to queue activation email", error);
+        });
       }
       return { handled: true };
     }
 
     if (
-      status.includes("failed") ||
-      status.includes("declined") ||
-      status.includes("past_due")
+      providerStatus.includes("failed") ||
+      providerStatus.includes("declined") ||
+      providerStatus.includes("past_due")
     ) {
-      await prisma.subscription.update({
-        where: { id: sub.id },
-        data: { status: "past_due" },
-      });
+      const trialStillActive =
+        subscription.status === SubscriptionStatus.TRIALING &&
+        Boolean(subscription.trialEndsAt && subscription.trialEndsAt > now);
+
+      if (!trialStillActive) {
+        await prisma.subscription.update({
+          where: { id: subscription.id },
+          data: {
+            status: SubscriptionStatus.PAST_DUE,
+            graceEndsAt: addExactDays(now, GRACE_PERIOD_DAYS),
+          },
+        });
+      }
+
       const user = await prisma.businessUser.findFirst({
-        where: { businessId: sub.businessId },
+        where: { businessId: subscription.businessId },
       });
-      if (user && user.email) {
-        const business = sub.businessId
-          ? await prisma.business.findUnique({ where: { id: sub.businessId } })
-          : null;
-        const planObj = sub.planId
-          ? await prisma.plan.findUnique({ where: { id: sub.planId } })
-          : null;
+      if (user?.email) {
         void enqueueSubscriptionPaymentFailedEmail(
           { name: user.name, email: user.email },
-          { businessName: business?.name || "", planName: planObj?.name || "" },
-        );
+          {
+            businessName: subscription.business?.name || "",
+            planName: subscription.plan.name,
+          },
+        ).catch((error) => {
+          console.error("[Billing] Failed to queue payment failure email", error);
+        });
       }
       return { handled: true };
     }
@@ -208,7 +223,6 @@ class BillingService {
 const billingService = new BillingService();
 export default billingService;
 
-export const startTrial = billingService.startTrial.bind(billingService);
 export const findSubscription =
   billingService.findSubscription.bind(billingService);
 export const createCheckout =
