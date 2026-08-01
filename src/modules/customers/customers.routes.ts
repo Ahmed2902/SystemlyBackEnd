@@ -1,7 +1,11 @@
 import { Router } from "express";
-import customersController from "./customers.controller";
-import { requireAuth } from "../../shared/middleware/auth.middleware";
+import {
+  requireAuth,
+  requireBusinessAccess,
+} from "../../shared/middleware/auth.middleware";
+import { requireSubscriptionAccess } from "../../shared/middleware/subscription-access.middleware";
 import validate from "../../shared/middleware/validate.middleware";
+import customersController from "./customers.controller";
 import {
   createCustomerSchema,
   customerIdParamsSchema,
@@ -12,7 +16,7 @@ import {
 
 const router = Router();
 
-router.use(requireAuth);
+router.use(requireAuth, requireBusinessAccess, requireSubscriptionAccess);
 
 router.get(
   "/",
