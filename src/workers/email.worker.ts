@@ -182,15 +182,17 @@ export const sendEmailTask = async (payload: any, _helpers: any) => {
           }
         }
 
-        const name = data.name || appt?.customer?.name || "there";
-        const businessName = data.businessName || appt?.business?.name || "";
-        const serviceName =
-          data.serviceName ||
-          appt?.appointmentServices?.[0]?.service?.name ||
-          "";
+        const name = String(data.name ?? appt?.customer?.name ?? "there");
+        const businessName = String(data.businessName ?? appt?.business?.name ?? "");
+        const serviceName = String(
+          data.serviceName ??
+            appt?.appointmentServices?.[0]?.service?.name ??
+            "",
+        );
         const staffName = data.staffName || appt?.staff?.name || null;
-        const startsAt =
-          data.startsAt || (appt?.startsAt ? appt.startsAt.toISOString() : "");
+        const startsAt = String(
+          data.startsAt ?? (appt?.startsAt ? appt.startsAt.toISOString() : ""),
+        );
 
         const appointmentLocale = normalizeEmailLocale(
           data.locale ?? appt?.business?.language,

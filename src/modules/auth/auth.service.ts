@@ -49,7 +49,7 @@ class AuthService {
         email,
         passwordHash,
         phone,
-        preferredLanguage,
+        preferredLanguage: preferredLanguage ?? "en",
         role: Roles.User,
       },
     });

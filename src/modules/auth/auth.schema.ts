@@ -25,7 +25,7 @@ export const registerBodySchema = z
     }),
     phone: z
       .string()
-      .regex(egyPhone, "Invalid Egyptian phone number")
+      .regex(egyptPhone, "Invalid Egyptian phone number")
       .openapi({
         example: "01012345678",
         description: "Egyptian mobile number",
