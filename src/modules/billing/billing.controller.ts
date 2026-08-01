@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { resolveSubscriptionAccess } from "../subscriptions/subscription-access.service";
 import { fail, ok } from "../../shared/utils/response.util";
 import { subscriptionActionBodySchema } from "./billing.schema";
 import billingService from "./billing.service";
@@ -19,8 +20,11 @@ class BillingController {
       const businessId = authenticatedBusinessId(req, res);
       if (!businessId) return;
 
-      const subscription = await billingService.findSubscription(businessId);
-      return ok(res, { subscription });
+      const [subscription, access] = await Promise.all([
+        billingService.findSubscription(businessId),
+        resolveSubscriptionAccess(businessId, req.user?.role ?? null),
+      ]);
+      return ok(res, { subscription, access });
     } catch (error) {
       return next(error);
     }
