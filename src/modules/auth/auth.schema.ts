@@ -25,12 +25,12 @@ export const registerBodySchema = z
     }),
     phone: z
       .string()
-      .regex(egyptPhone, "Invalid Egyptian phone number")
+      .regex(egyPhone, "Invalid Egyptian phone number")
       .openapi({
         example: "01012345678",
         description: "Egyptian mobile number",
       }),
-    preferredLanguage: platformLanguageSchema.optional().default("en").openapi({
+    preferredLanguage: platformLanguageSchema.optional().openapi({
       example: "ar",
       description: "Preferred language for the authenticated Systemly platform",
     }),
