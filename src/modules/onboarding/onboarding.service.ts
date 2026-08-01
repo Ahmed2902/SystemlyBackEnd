@@ -1,20 +1,26 @@
+import { CommissionType, Roles } from "@prisma/client";
+import { startLifetimeTrial } from "../subscriptions/subscription.service";
+import { enqueueTrialStartedEmail } from "../../shared/services/email.service";
 import { prisma } from "../../shared/db/prisma";
 import { CompleteOnboardingInput } from "./onboarding.schema";
-import { Roles, CommissionType } from "@prisma/client";
 
 const buildErr = (
   message: string,
   statusCode: number,
   code = "BAD_REQUEST",
 ) => {
-  const err: any = new Error(message);
-  err.statusCode = statusCode;
-  err.code = code;
-  return err;
+  const error = new Error(message) as Error & {
+    statusCode?: number;
+    code?: string;
+  };
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
 };
 
 const EPOCH_DATE = "1970-01-01";
-const toTimeDate = (hhmm: string) => new Date(`${EPOCH_DATE}T${hhmm}:00.000Z`);
+const toTimeDate = (hhmm: string) =>
+  new Date(`${EPOCH_DATE}T${hhmm}:00.000Z`);
 
 class OnboardingService {
   async completeOnboarding(userId: string, input: CompleteOnboardingInput) {
@@ -24,10 +30,12 @@ class OnboardingService {
       throw buildErr("Business already exists for this user", 409, "CONFLICT");
     }
 
-    const slugTaken = await prisma.business.findUnique({ where: { slug: input.slug } });
+    const slugTaken = await prisma.business.findUnique({
+      where: { slug: input.slug },
+    });
     if (slugTaken) throw buildErr("Slug already taken", 409, "SLUG_TAKEN");
 
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const business = await tx.business.create({
         data: {
           name: input.name,
@@ -79,7 +87,10 @@ class OnboardingService {
         ),
       );
       const serviceIdByClientId = new Map(
-        input.services.map((service, index) => [service.clientId, createdServices[index].id]),
+        input.services.map((service, index) => [
+          service.clientId,
+          createdServices[index].id,
+        ]),
       );
 
       const createdStaff = await Promise.all(
@@ -146,8 +157,22 @@ class OnboardingService {
         await tx.photo.createMany({ data: galleryPhotos });
       }
 
-      return business;
+      const trial = await startLifetimeTrial(tx, business.id);
+      return { business, trial };
     });
+
+    void enqueueTrialStartedEmail(
+      { name: user.name, email: user.email },
+      {
+        businessName: result.business.name,
+        planName: result.trial.plan.name,
+        trialEnd: result.trial.trialEndsAt?.toISOString() ?? "",
+      },
+    ).catch((error) => {
+      console.error("[Onboarding] Failed to queue trial email", error);
+    });
+
+    return result.business;
   }
 }
 
