@@ -611,7 +611,8 @@ model Invoice {
 
 model InvoiceCounter {
   businessId String   @map("business_id") @db.Uuid
-  year       Int      @default(0) @map("last_number")
+  year       Int
+  lastNumber Int      @default(0) @map("last_number")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
