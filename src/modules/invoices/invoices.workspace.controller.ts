@@ -3,8 +3,6 @@ import { fail, ok } from "../../shared/utils/response.util";
 import { prisma } from "../../shared/db/prisma";
 import invoicesQueryService from "./invoices.query.service";
 import invoicesCommandService from "./invoices.command.service";
-import { prisma } from "../../shared/db/prisma";
-import { createReceiptDocument } from "./receipt-pdf";
 import { createReceiptDocument } from "./receipt-pdf";
 import {
   collectPaymentSchema,
