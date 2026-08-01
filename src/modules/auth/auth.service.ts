@@ -31,7 +31,7 @@ const buildErr = (message: string, statusCode: number, code: string) => {
 
 class AuthService {
   async register(payload: RegisterBody) {
-    const { name, email, password, phone } = payload;
+    const { name, email, password, phone, preferredLanguage } = payload;
     const existing = await prisma.businessUser.findUnique({ where: { email } });
     if (existing) {
       throw buildErr(
@@ -49,6 +49,7 @@ class AuthService {
         email,
         passwordHash,
         phone,
+        preferredLanguage,
         role: Roles.User,
       },
     });
@@ -365,12 +366,25 @@ class AuthService {
     };
   }
 
+  async updatePreferredLanguage(
+    userId: string,
+    preferredLanguage: "en" | "ar",
+  ) {
+    const user = await prisma.businessUser.update({
+      where: { id: userId },
+      data: { preferredLanguage },
+      select: { preferredLanguage: true },
+    });
+    return user;
+  }
+
   async oauthSignIn({
     provider,
     providerId,
     email,
     name,
     emailVerified,
+    preferredLanguage,
   }: OauthSignInInput) {
     if (!email) {
       throw buildErr("OAuth provider did not return an email", 400, "NO_EMAIL");
@@ -397,6 +411,7 @@ class AuthService {
           providerId,
           passwordHash: "",
           emailVerified: !!emailVerified,
+          preferredLanguage: preferredLanguage ?? "en",
           role: Roles.User,
         },
       });
@@ -412,6 +427,10 @@ class AuthService {
 
       if (name && name !== user.name) {
         updateData.name = name;
+      }
+
+      if (preferredLanguage && preferredLanguage !== user.preferredLanguage) {
+        updateData.preferredLanguage = preferredLanguage;
       }
 
       if (user.provider !== provider) {
