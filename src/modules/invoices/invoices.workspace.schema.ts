@@ -17,6 +17,12 @@ export const listInvoicesQuerySchema = z.object({
   perPage: z.coerce.number().int().min(1).max(100).default(30),
 });
 
+export const receiptLocaleQuerySchema = z
+  .object({
+    locale: z.enum(["en", "ar"]).optional(),
+  })
+  .strict();
+
 export const collectPaymentSchema = z.object({
   appointmentId: z.string().uuid(),
   discountCents: z.number().int().nonnegative().default(0),
@@ -35,5 +41,6 @@ export const invoiceIdParamsSchema = z.object({
 });
 
 export type ListInvoicesQuery = z.infer<typeof listInvoicesQuerySchema>;
+export type ReceiptLocaleQuery = z.infer<typeof receiptLocaleQuerySchema>;
 export type CollectPaymentInput = z.infer<typeof collectPaymentSchema>;
 export type VoidInvoiceInput = z.infer<typeof voidInvoiceSchema>;
