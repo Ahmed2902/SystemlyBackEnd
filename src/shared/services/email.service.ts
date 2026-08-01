@@ -76,17 +76,22 @@ export const makeAppointmentPayload = (
   to: string,
   payload: Record<string, any>,
   subtype: "confirmation" | "reminder",
-) => ({
-  type: "appointment",
-  to,
-  data: {
-    ...payload,
-    subtype,
-    locale: normalizeEmailLocale(payload.locale ?? payload.businessLanguage),
-  },
-  tenantId: payload.businessId || payload.tenantId,
-  idempotencyKey: payload.idempotencyKey,
-});
+) => {
+  const requestedLocale = payload.locale ?? payload.businessLanguage;
+  return {
+    type: "appointment",
+    to,
+    data: {
+      ...payload,
+      subtype,
+      ...(requestedLocale
+        ? { locale: normalizeEmailLocale(requestedLocale) }
+        : {}),
+    },
+    tenantId: payload.businessId || payload.tenantId,
+    idempotencyKey: payload.idempotencyKey,
+  };
+};
 
 export const makeStaffInvitePayload = (
   to: string,
@@ -169,7 +174,28 @@ export const enqueueStaffInviteEmail = async (
   to: string,
   payload: Record<string, any>,
   opts: any = {},
-) => enqueueSendEmail(makeStaffInvitePayload(to, payload), opts);
+) => {
+  let preferredLanguage =
+    payload.locale ?? payload.preferredLanguage ?? payload.businessLanguage;
+  const businessId = payload.businessId ?? payload.tenantId;
+
+  if (!preferredLanguage && businessId) {
+    const owner = await prisma.businessUser.findFirst({
+      where: {
+        businessId,
+        role: { in: ["BusinessAdmin", "SuperAdmin"] },
+      },
+      orderBy: { createdAt: "asc" },
+      select: { preferredLanguage: true },
+    });
+    preferredLanguage = owner?.preferredLanguage;
+  }
+
+  return enqueueSendEmail(
+    makeStaffInvitePayload(to, { ...payload, preferredLanguage }),
+    opts,
+  );
+};
 
 export const enqueueTrialStartedEmail = async (
   user: LocalizedUser,
