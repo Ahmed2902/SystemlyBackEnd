@@ -16,27 +16,30 @@ const availabilitySchema = z.object({
   endTime: z.string().regex(/^\d{2}:\d{2}$/),
 });
 
-const staffSchema = z
-  .object({
-    clientId: z.string(),
-    name: z.string().min(1).max(255),
-    role: z.enum(["Staff", "Receptionist"]),
-    jobTitle: z.string().max(120).optional(),
-    bio: z.string().max(3000).optional(),
-    yearsExperience: z.number().int().min(0).max(80).optional(),
-    photoUrl: z.string().url().optional(),
+const sharedStaffFields = {
+  clientId: z.string(),
+  name: z.string().min(1).max(255),
+  jobTitle: z.string().max(120).optional(),
+  bio: z.string().max(3000).optional(),
+  yearsExperience: z.number().int().min(0).max(80).optional(),
+  photoUrl: z.string().url().optional(),
+  availability: z.array(availabilitySchema),
+};
+
+const staffSchema = z.discriminatedUnion("role", [
+  z.object({
+    ...sharedStaffFields,
+    role: z.literal("Staff"),
+    serviceClientIds: z
+      .array(z.string())
+      .min(1, "Service providers must be assigned at least one service"),
+  }),
+  z.object({
+    ...sharedStaffFields,
+    role: z.literal("Receptionist"),
     serviceClientIds: z.array(z.string()).default([]),
-    availability: z.array(availabilitySchema),
-  })
-  .superRefine((staff, context) => {
-    if (staff.role !== "Receptionist" && staff.serviceClientIds.length === 0) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["serviceClientIds"],
-        message: "Service providers must be assigned at least one service",
-      });
-    }
-  });
+  }),
+]);
 
 const faqSchema = z.object({
   question: z.string().min(1),
