@@ -1,15 +1,16 @@
 import type { CookieOptions, NextFunction, Request, Response } from "express";
-import authService from "./auth.service";
-import { ok, fail } from "../../shared/utils/response.util";
 import { AUTH_CONSTANTS } from "../../shared/config/config";
+import { fail, ok } from "../../shared/utils/response.util";
+import { resolveSubscriptionAccess } from "../subscriptions/subscription-access.service";
 import {
   emailBodySchema,
+  getMeInputSchema,
   loginBodySchema,
   registerBodySchema,
   resetPasswordBodySchema,
   verifyEmailQuerySchema,
-  getMeInputSchema,
 } from "./auth.schema";
+import authService from "./auth.service";
 
 const REFRESH_COOKIE_NAME = "refreshToken";
 const REFRESH_COOKIE_OPTIONS: CookieOptions = {
@@ -31,6 +32,23 @@ function clearRefreshCookie(res: Response) {
 function errorCode(error: unknown) {
   if (!error || typeof error !== "object" || !("code" in error)) return null;
   return typeof error.code === "string" ? error.code : null;
+}
+
+async function withSubscriptionAccess<T extends {
+  businessId?: string | null;
+  role?: string | null;
+}>(user: T) {
+  if (!user.businessId) {
+    return { ...user, subscriptionAccess: null };
+  }
+
+  return {
+    ...user,
+    subscriptionAccess: await resolveSubscriptionAccess(
+      user.businessId,
+      user.role ?? null,
+    ),
+  };
 }
 
 class AuthController {
@@ -58,7 +76,9 @@ class AuthController {
       if (!parsed.success) return next(parsed.error);
       const result = await authService.verifyEmail(parsed.data);
       setRefreshCookie(res, result.refreshToken);
-      const user = await authService.getMe({ userId: result.user.id });
+      const user = await withSubscriptionAccess(
+        await authService.getMe({ userId: result.user.id }),
+      );
       return ok(res, { accessToken: result.accessToken, user });
     } catch (error) {
       return next(error);
@@ -71,7 +91,9 @@ class AuthController {
       if (!parsed.success) return next(parsed.error);
       const result = await authService.login(parsed.data);
       setRefreshCookie(res, result.refreshToken);
-      const user = await authService.getMe({ userId: result.user.id });
+      const user = await withSubscriptionAccess(
+        await authService.getMe({ userId: result.user.id }),
+      );
       return ok(res, { accessToken: result.accessToken, user });
     } catch (error) {
       return next(error);
@@ -158,7 +180,9 @@ class AuthController {
       if (!parsed.success) {
         return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
       }
-      const user = await authService.getMe(parsed.data);
+      const user = await withSubscriptionAccess(
+        await authService.getMe(parsed.data),
+      );
       res.set("Cache-Control", "no-store");
       return ok(res, user);
     } catch (error) {
