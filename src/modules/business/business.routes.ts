@@ -1,21 +1,23 @@
 import { Router } from "express";
-import businessService from "./business.service";
-import businessController from "./business.controller";
 import {
   requireAuth,
   requireBusinessAccess,
 } from "../../shared/middleware/auth.middleware";
+import { requireSubscriptionAccess } from "../../shared/middleware/subscription-access.middleware";
 import validate from "../../shared/middleware/validate.middleware";
+import businessController from "./business.controller";
 import {
   createBusinessSchema,
   publishBusinessSchema,
   slugParamsSchema,
   updateBusinessSchema,
 } from "./business.schema";
+import businessService from "./business.service";
 
 const router = Router();
 
-// Auth: create business (first-time setup)
+// Business creation remains outside subscription enforcement because it is the
+// action that creates the business and its lifetime trial in one transaction.
 router.post(
   "/",
   requireAuth,
@@ -33,39 +35,31 @@ router.get(
         : req.params.slug;
       const taken = await businessService.isSlugTaken(slug);
       return res.json({ available: !taken, slug });
-    } catch (err) {
-      return next(err);
+    } catch (error) {
+      return next(error);
     }
   },
 );
 
-// Public: full website data by slug
+// Public subscription gating is added separately in the public-access PR.
 router.get("/public/:slug", businessController.getPublicBySlug);
 
-// Auth: update business data (owner or admin)
 router.patch(
   "/:id",
   requireAuth,
   requireBusinessAccess,
+  requireSubscriptionAccess,
   validate.validateBody(updateBusinessSchema),
   businessController.update,
 );
 
-// Auth: publish/unpublish business
 router.patch(
   "/:id/publish",
   requireAuth,
   requireBusinessAccess,
+  requireSubscriptionAccess,
   validate.validateBody(publishBusinessSchema),
   businessController.publish,
 );
-
-// Auth: business stats
-// router.get(
-//   "/:id/stats",
-//   requireAuth,
-//   requireBusinessAccess,
-//   businessController.stats
-// );
 
 export default router;
