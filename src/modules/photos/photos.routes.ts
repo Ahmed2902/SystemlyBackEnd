@@ -1,43 +1,24 @@
 import { Router } from "express";
-import photosController from "./photos.controller";
 import {
   requireAuth,
   requireBusinessAccess,
 } from "../../shared/middleware/auth.middleware";
+import { requireSubscriptionAccess } from "../../shared/middleware/subscription-access.middleware";
 import { uploadSingle } from "../../shared/middleware/upload.middleware";
 import validate from "../../shared/middleware/validate.middleware";
-import { photoIdParamsSchema } from "./photos.schema";
 import Supabase from "../../shared/services/Supabase.Service";
+import photosController from "./photos.controller";
+import { photoIdParamsSchema } from "./photos.schema";
 
 const router = Router();
 
-router.post(
-  "/logo",
-  requireAuth,
-  requireBusinessAccess,
-  uploadSingle,
-  photosController.uploadLogo,
-);
-router.post(
-  "/cover",
-  requireAuth,
-  requireBusinessAccess,
-  uploadSingle,
-  photosController.uploadCover,
-);
+router.use(requireAuth, requireBusinessAccess, requireSubscriptionAccess);
 
-// Gallery endpoints - TODO: requires Photo model
-router.post(
-  "/gallery",
-  requireAuth,
-  requireBusinessAccess,
-  uploadSingle,
-  photosController.uploadGallery,
-);
+router.post("/logo", uploadSingle, photosController.uploadLogo);
+router.post("/cover", uploadSingle, photosController.uploadCover);
+router.post("/gallery", uploadSingle, photosController.uploadGallery);
 router.delete(
   "/gallery/:id",
-  requireAuth,
-  requireBusinessAccess,
   validate.validateParams(photoIdParamsSchema),
   photosController.deleteGallery,
 );
@@ -45,16 +26,14 @@ router.delete(
 router.post("/gallery/presign", async (req, res, next) => {
   try {
     const { filePath, contentType } = req.body;
-
-    // Calls the Supabase Storage client initialization function
     const uploadTicket = await Supabase.getUploadUrl(filePath, contentType);
 
     res.json({
       success: true,
-      data: uploadTicket, // contains { uploadUrl, publicUrl }
+      data: uploadTicket,
     });
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    next(error);
   }
 });
 
