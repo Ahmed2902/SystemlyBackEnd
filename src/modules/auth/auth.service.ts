@@ -65,7 +65,11 @@ class AuthService {
 
     setImmediate(() => {
       void emailService.enqueueVerificationEmail(
-        { name: user.name, email: user.email },
+        {
+          name: user.name,
+          email: user.email,
+          preferredLanguage: user.preferredLanguage,
+        },
         token,
       );
     });
@@ -118,6 +122,8 @@ class AuthService {
         name: user.name,
         email: user.email,
         businessId: user.businessId,
+        role: user.role,
+        preferredLanguage: user.preferredLanguage,
         vertical: user.business?.vertical ?? null,
         timezone: user.business?.timezone ?? null,
       },
@@ -170,6 +176,8 @@ class AuthService {
         name: user.name,
         email: user.email,
         businessId: user.businessId,
+        role: user.role,
+        preferredLanguage: user.preferredLanguage,
         vertical: user.business?.vertical ?? null,
         timezone: user.business?.timezone ?? null,
       },
@@ -299,7 +307,11 @@ class AuthService {
       );
       setImmediate(() => {
         void emailService.enqueueVerificationEmail(
-          { name: user.name, email: user.email },
+          {
+          name: user.name,
+          email: user.email,
+          preferredLanguage: user.preferredLanguage,
+        },
           token,
         );
       });
@@ -319,7 +331,11 @@ class AuthService {
       );
       setImmediate(() => {
         void emailService.enqueuePasswordResetEmail(
-          { name: user.name, email: user.email },
+          {
+          name: user.name,
+          email: user.email,
+          preferredLanguage: user.preferredLanguage,
+        },
           token,
         );
       });
@@ -475,6 +491,8 @@ class AuthService {
         name: user.name,
         email: user.email,
         businessId: user.businessId,
+        role: user.role,
+        preferredLanguage: user.preferredLanguage,
       },
     };
   }
