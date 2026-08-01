@@ -1,30 +1,32 @@
 import { Router } from "express";
-import appointmentsController from "./appointments.controller";
-import appointmentCustomItemsController from "./appointment-custom-items.controller";
 import {
-  requireAuth,
-  requireRole,
-  requireBusinessId,
   requireAppointmentOwnerOrAdmin,
+  requireAuth,
+  requireBusinessAccess,
+  requireBusinessId,
+  requireRole,
 } from "../../shared/middleware/auth.middleware";
+import { requireSubscriptionAccess } from "../../shared/middleware/subscription-access.middleware";
 import validate from "../../shared/middleware/validate.middleware";
+import appointmentCustomItemsController from "./appointment-custom-items.controller";
+import appointmentsController from "./appointments.controller";
 import {
   appointmentIdParamsSchema,
-  createManualAppointmentSchema,
-  listAppointmentsQuerySchema,
-  updateAppointmentNotesSchema,
-  updateAppointmentStatusSchema,
-  rescheduleAppointmentSchema,
-  finishAppointmentSchema,
   cancelAppointmentSchema,
-  revertAppointmentSchema,
+  createManualAppointmentSchema,
+  finishAppointmentSchema,
+  listAppointmentsQuerySchema,
+  rescheduleAppointmentSchema,
   revertAppointmentParamsSchema,
+  revertAppointmentSchema,
+  updateAppointmentNotesSchema,
   updateAppointmentSchema,
+  updateAppointmentStatusSchema,
 } from "./appointments.schema";
 
 const router = Router();
 
-router.use(requireAuth);
+router.use(requireAuth, requireBusinessAccess, requireSubscriptionAccess);
 
 router.get(
   "/",
