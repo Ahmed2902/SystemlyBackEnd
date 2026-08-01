@@ -1,10 +1,10 @@
 import { SubscriptionStatus } from "@prisma/client";
-import { prisma } from "../src/shared/db/prisma";
 import { ensureCorePlan } from "../src/modules/subscriptions/subscription.seed";
 import {
   startLifetimeTrial,
   TRIAL_DURATION_DAYS,
 } from "../src/modules/subscriptions/subscription.service";
+import { prisma } from "../src/shared/db/prisma";
 
 const createdBusinessIds: string[] = [];
 
@@ -51,7 +51,8 @@ describe("lifetime onboarding trial", () => {
     expect(trial.status).toBe(SubscriptionStatus.TRIALING);
     expect(trial.plan.code).toBe("CORE");
     expect(trial.trialStartedAt?.toISOString()).toBe(now.toISOString());
-    expect(trial.trialEndsAt?.getTime() - now.getTime()).toBe(
+    expect(trial.trialEndsAt).not.toBeNull();
+    expect(trial.trialEndsAt!.getTime() - now.getTime()).toBe(
       TRIAL_DURATION_DAYS * 24 * 60 * 60 * 1000,
     );
     expect(trial.priceId).toBeNull();
@@ -114,8 +115,12 @@ describe("lifetime onboarding trial", () => {
       prisma.$transaction((tx) => startLifetimeTrial(tx, business.id, now)),
     ]);
 
-    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
-    expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
+    expect(
+      attempts.filter((attempt) => attempt.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      attempts.filter((attempt) => attempt.status === "rejected"),
+    ).toHaveLength(1);
     expect(
       await prisma.subscription.count({ where: { businessId: business.id } }),
     ).toBe(1);
