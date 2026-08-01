@@ -1,13 +1,14 @@
-import { Router } from "express";
 import { Roles } from "@prisma/client";
-import analyticsController from "./analytics.controller";
-import validate from "../../shared/middleware/validate.middleware";
-import { AnalyticsStatsQuerySchema } from "./analytics.schema";
+import { Router } from "express";
 import {
   requireAuth,
   requireBusinessAccess,
   requireRole,
 } from "../../shared/middleware/auth.middleware";
+import { requireSubscriptionAccess } from "../../shared/middleware/subscription-access.middleware";
+import validate from "../../shared/middleware/validate.middleware";
+import analyticsController from "./analytics.controller";
+import { AnalyticsStatsQuerySchema } from "./analytics.schema";
 
 const router = Router();
 const ownerOnly = requireRole(Roles.BusinessAdmin);
@@ -15,6 +16,7 @@ const middleware = [
   requireAuth,
   requireBusinessAccess,
   ownerOnly,
+  requireSubscriptionAccess,
   validate.validateQuery(AnalyticsStatsQuerySchema),
 ] as const;
 
