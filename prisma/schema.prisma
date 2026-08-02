@@ -91,6 +91,16 @@ enum SubscriptionStatus {
   INCOMPLETE
 }
 
+enum SubscriptionPaymentStatus {
+  PENDING
+  REQUIRES_ACTION
+  SUCCEEDED
+  FAILED
+  EXPIRED
+  CANCELED
+  REFUNDED
+}
+
 model Business {
   id                 String          @id @default(uuid()) @db.Uuid
   name               String          @db.VarChar(255)
@@ -494,6 +504,7 @@ model Plan {
   prices              PlanPrice[]
   entitlements        PlanEntitlement[]
   subscriptions       Subscription[]
+  payments            SubscriptionPayment[]
 
   @@index([isActive, isPublic, sortOrder])
   @@map("plans")
@@ -510,6 +521,7 @@ model PlanPrice {
   updatedAt     DateTime        @updatedAt @map("updated_at")
   plan          Plan            @relation(fields: [planId], references: [id], onDelete: Cascade)
   subscriptions Subscription[]
+  payments      SubscriptionPayment[]
 
   @@unique([planId, amountCents, currency, interval])
   @@index([planId, isActive])
@@ -558,11 +570,56 @@ model Subscription {
   business                Business?          @relation(fields: [businessId], references: [id], onDelete: Cascade)
   plan                    Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
   price                   PlanPrice?         @relation(fields: [priceId], references: [id], onDelete: SetNull)
+  payments                SubscriptionPayment[]
 
   @@index([planId])
   @@index([priceId])
   @@index([status, currentPeriodEnd])
   @@map("subscriptions")
+}
+
+model SubscriptionPayment {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  subscriptionId     String                    @map("subscription_id") @db.Uuid
+  planId             String                    @map("plan_id") @db.Uuid
+  priceId            String                    @map("price_id") @db.Uuid
+  provider           BillingProvider
+  status             SubscriptionPaymentStatus @default(PENDING)
+  amountCents        Int                       @map("amount_cents")
+  currency           String                    @db.VarChar(10)
+  providerCheckoutId String?                   @map("provider_checkout_id") @db.VarChar(255)
+  providerPaymentId  String?                   @map("provider_payment_id") @db.VarChar(255)
+  checkoutUrl        String?                   @map("checkout_url") @db.Text
+  failureCode        String?                   @map("failure_code") @db.VarChar(120)
+  failureReason      String?                   @map("failure_reason") @db.Text
+  paidAt             DateTime?                 @map("paid_at")
+  failedAt           DateTime?                 @map("failed_at")
+  expiresAt          DateTime?                 @map("expires_at")
+  createdAt          DateTime                  @default(now()) @map("created_at")
+  updatedAt          DateTime                  @updatedAt @map("updated_at")
+  subscription       Subscription              @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  plan               Plan                      @relation(fields: [planId], references: [id], onDelete: Restrict)
+  price              PlanPrice                 @relation(fields: [priceId], references: [id], onDelete: Restrict)
+
+  @@index([subscriptionId, createdAt])
+  @@index([status, expiresAt])
+  @@unique([provider, providerPaymentId])
+  @@map("subscription_payments")
+}
+
+model BillingWebhookEvent {
+  id              String          @id @default(uuid()) @db.Uuid
+  provider        BillingProvider
+  providerEventId String          @map("provider_event_id") @db.VarChar(255)
+  eventType       String?         @map("event_type") @db.VarChar(120)
+  payload         Json
+  processedAt     DateTime?       @map("processed_at")
+  processingError String?         @map("processing_error") @db.Text
+  createdAt       DateTime        @default(now()) @map("created_at")
+
+  @@unique([provider, providerEventId])
+  @@index([processedAt])
+  @@map("billing_webhook_events")
 }
 
 model Invoice {
