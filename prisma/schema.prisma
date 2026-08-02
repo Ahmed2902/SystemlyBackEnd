@@ -81,6 +81,16 @@ enum BillingProvider {
   EASYKASH
 }
 
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  EXPIRED
+  CANCELED
+  SUSPENDED
+  INCOMPLETE
+}
+
 model Business {
   id                 String          @id @default(uuid()) @db.Uuid
   name               String          @db.VarChar(255)
@@ -522,32 +532,33 @@ model PlanEntitlement {
 }
 
 model Subscription {
-  id                      String           @id @default(uuid()) @db.Uuid
-  businessId              String?          @unique @map("business_id") @db.Uuid
-  planId                  String           @map("plan_id") @db.Uuid
-  priceId                 String?          @map("price_id") @db.Uuid
-  status                  String           @db.VarChar(50)
-  renewalMode             RenewalMode      @default(MANUAL) @map("renewal_mode")
-  trialStartedAt          DateTime?        @map("trial_started_at")
-  trialEndsAt             DateTime?        @map("trial_ends_at")
-  currentPeriodStart      DateTime         @map("current_period_start")
-  currentPeriodEnd        DateTime         @map("current_period_end")
-  graceEndsAt             DateTime?        @map("grace_ends_at")
-  cancelAtPeriodEnd       Boolean          @default(false) @map("cancel_at_period_end")
-  canceledAt              DateTime?        @map("canceled_at")
-  endedAt                 DateTime?        @map("ended_at")
+  id                      String             @id @default(uuid()) @db.Uuid
+  businessId              String?            @unique @map("business_id") @db.Uuid
+  planId                  String             @map("plan_id") @db.Uuid
+  priceId                 String?            @map("price_id") @db.Uuid
+  status                  SubscriptionStatus
+  renewalMode             RenewalMode        @default(MANUAL) @map("renewal_mode")
+  trialStartedAt          DateTime?          @map("trial_started_at")
+  trialEndsAt             DateTime?          @map("trial_ends_at")
+  currentPeriodStart      DateTime?          @map("current_period_start")
+  currentPeriodEnd        DateTime?          @map("current_period_end")
+  graceEndsAt             DateTime?          @map("grace_ends_at")
+  cancelAtPeriodEnd       Boolean            @default(false) @map("cancel_at_period_end")
+  canceledAt              DateTime?          @map("canceled_at")
+  endedAt                 DateTime?          @map("ended_at")
   provider                BillingProvider?
-  providerCustomerId      String?          @map("provider_customer_id") @db.VarChar(255)
-  providerSubscriptionId  String?          @map("provider_subscription_id") @db.VarChar(255)
-  providerPaymentMethodId String?          @map("provider_payment_method_id") @db.VarChar(255)
-  trialNotified3Days      Boolean          @default(false) @map("trial_notified_3days")
-  trialNotified1Day       Boolean          @default(false) @map("trial_notified_1day")
-  expiredHandled          Boolean          @default(false) @map("expired_handled")
-  createdAt               DateTime         @default(now()) @map("created_at")
-  updatedAt               DateTime         @updatedAt @map("updated_at")
-  business                Business?        @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  plan                    Plan             @relation(fields: [planId], references: [id], onDelete: Restrict)
-  price                   PlanPrice?       @relation(fields: [priceId], references: [id], onDelete: SetNull)
+  providerCustomerId      String?            @map("provider_customer_id") @db.VarChar(255)
+  providerSubscriptionId  String?            @map("provider_subscription_id") @db.VarChar(255)
+  providerPaymentMethodId String?            @map("provider_payment_method_id") @db.VarChar(255)
+  paymobSubscriptionId    String?            @map("paymob_subscription_id") @db.VarChar(255)
+  trialNotified3Days      Boolean            @default(false) @map("trial_notified_3days")
+  trialNotified1Day       Boolean            @default(false) @map("trial_notified_1day")
+  expiredHandled          Boolean            @default(false) @map("expired_handled")
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
+  business                Business?          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  plan                    Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+  price                   PlanPrice?         @relation(fields: [priceId], references: [id], onDelete: SetNull)
 
   @@index([planId])
   @@index([priceId])

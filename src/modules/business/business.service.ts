@@ -1,27 +1,30 @@
-import { prisma } from "../../shared/db/prisma";
-import { Prisma, Roles } from "@prisma/client";
-import { signAccessToken } from "../../shared/utils/token.util";
-import type {
-  BusinessUpdateInput,
-  CreateBusinessInput,
-} from "./business.schema";
-import type { WebsiteContentInput } from "../website-content/website-content.schema";
+import { Roles } from "@prisma/client";
 import {
   getVerticalConfig,
   isValidVertical,
 } from "../../shared/config/verticals.config";
+import { prisma } from "../../shared/db/prisma";
+import { enqueueTrialStartedEmail } from "../../shared/services/email.service";
+import { signAccessToken } from "../../shared/utils/token.util";
+import { startLifetimeTrial } from "../subscriptions/subscription.service";
+import type {
+  BusinessUpdateInput,
+  CreateBusinessInput,
+} from "./business.schema";
 
 const buildErr = (message: string, statusCode: number, code: string) => {
-  const err: any = new Error(message);
-  err.statusCode = statusCode;
-  err.code = code;
-  return err;
+  const error = new Error(message) as Error & {
+    statusCode?: number;
+    code?: string;
+  };
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
 };
 
 class BusinessService {
   async isSlugTaken(slug: string): Promise<boolean> {
-    const found = await prisma.business.findUnique({ where: { slug } });
-    return !!found;
+    return Boolean(await prisma.business.findUnique({ where: { slug } }));
   }
 
   async createBusinessForUser(
@@ -45,21 +48,14 @@ class BusinessService {
       );
     }
 
-    const taken = await this.isSlugTaken(payload.slug);
-    if (taken) {
+    if (await this.isSlugTaken(payload.slug)) {
       throw buildErr("Slug already taken", 409, "SLUG_TAKEN");
     }
 
-    const { ...businessFields } = payload;
-
     const result = await prisma.$transaction(async (tx) => {
       const business = await tx.business.create({
-        data: {
-          ...businessFields,
-        },
-        include: {
-          websiteContent: true,
-        },
+        data: payload,
+        include: { websiteContent: true },
       });
 
       const nextRole =
@@ -79,20 +75,38 @@ class BusinessService {
         },
       });
 
+      const trial = await startLifetimeTrial(tx, business.id);
       const accessToken = signAccessToken({
         userId: updatedUser.id,
         businessId: updatedUser.businessId,
         role: updatedUser.role,
       });
 
-      return { business, user: updatedUser, accessToken };
+      return { business, user: updatedUser, accessToken, trial };
     });
 
-    return { ...result, verticalConfig: getVerticalConfig(payload.vertical) };
+    void enqueueTrialStartedEmail(
+      { name: result.user.name, email: result.user.email },
+      {
+        businessName: result.business.name,
+        planName: result.trial.plan.name,
+        trialEnd: result.trial.trialEndsAt?.toISOString() ?? "",
+      },
+    ).catch((error) => {
+      console.error("[Business] Failed to queue trial email", error);
+    });
+
+    return {
+      business: result.business,
+      user: result.user,
+      accessToken: result.accessToken,
+      verticalConfig: getVerticalConfig(payload.vertical),
+    };
   }
 
-  async getAllBusinesses() {
-    const businesses = await prisma.business.findMany({
+  getAllBusinesses() {
+    return prisma.business.findMany({
+      where: { deletedAt: null },
       include: {
         websiteContent: true,
         services: {
@@ -112,14 +126,6 @@ class BusinessService {
         faqs: { orderBy: { displayOrder: "asc" } },
       },
     });
-    if (!businesses) {
-      const err: any = new Error("Business not found");
-      err.statusCode = 404;
-      err.code = "NOT_FOUND";
-      throw err;
-    }
-
-    return businesses;
   }
 
   async getPublicBySlug(slug: string) {
@@ -140,35 +146,25 @@ class BusinessService {
         photos: { orderBy: { position: "asc" } },
       },
     });
-    if (!business || !business.isActive) return null;
+    if (!business || business.deletedAt || !business.isActive) return null;
+
     return {
       ...business,
-      services: business.services.map((s) => ({
-        ...s, // to reshape for the frontend
-        serviceStaff: undefined, // dont need it
-        staffIds: s.serviceStaff.map((ss) => ss.staffId), //flatten to staff ids of the staff eligible for this service
+      services: business.services.map((service) => ({
+        ...service,
+        serviceStaff: undefined,
+        staffIds: service.serviceStaff.map((entry) => entry.staffId),
       })),
     };
   }
 
-  async updateBusiness(id: string, payload: BusinessUpdateInput) {
-    return prisma.business.update({
-      where: { id },
-      data: payload,
-    });
+  updateBusiness(id: string, payload: BusinessUpdateInput) {
+    return prisma.business.update({ where: { id }, data: payload });
   }
 
-  async publishBusiness(id: string, isActive: boolean) {
-    return prisma.business.update({
-      where: { id },
-      data: { isActive },
-    });
+  publishBusiness(id: string, isActive: boolean) {
+    return prisma.business.update({ where: { id }, data: { isActive } });
   }
-
-  // async getStats(id: string): Promise<BusinessStats> {
-  //   const dashboard = await analyticsService.getDashboardOverview(id);
-  //   return dashboard.summary;
-  // }
 }
 
 const businessService = new BusinessService();
