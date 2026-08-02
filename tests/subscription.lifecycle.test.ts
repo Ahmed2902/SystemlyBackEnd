@@ -41,6 +41,34 @@ describe("subscription lifecycle dates", () => {
     ).toBe(SubscriptionStatus.EXPIRED);
   });
 
+  test("requires every active subscription to have a future paid period", () => {
+    const now = new Date("2026-08-20T10:00:00.000Z");
+
+    expect(
+      effectiveSubscriptionStatus(
+        {
+          status: SubscriptionStatus.ACTIVE,
+          trialEndsAt: null,
+          currentPeriodEnd: null,
+          graceEndsAt: null,
+        },
+        now,
+      ),
+    ).toBe(SubscriptionStatus.EXPIRED);
+
+    expect(
+      effectiveSubscriptionStatus(
+        {
+          status: SubscriptionStatus.ACTIVE,
+          trialEndsAt: null,
+          currentPeriodEnd: new Date("2026-09-20T10:00:00.000Z"),
+          graceEndsAt: null,
+        },
+        now,
+      ),
+    ).toBe(SubscriptionStatus.ACTIVE);
+  });
+
   test("keeps a past-due subscription usable until grace expires", () => {
     const now = new Date("2026-08-20T10:00:00.000Z");
 
