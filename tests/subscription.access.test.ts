@@ -2,6 +2,7 @@ import { Roles, SubscriptionStatus } from "@prisma/client";
 import type { NextFunction, Request, Response } from "express";
 import {
   deriveSubscriptionAccess,
+  hasEntitlement,
   SUBSCRIPTION_ACCESS_MODES,
   type SubscriptionAccessSnapshot,
 } from "../src/modules/subscriptions/subscription-access.service";
@@ -138,18 +139,20 @@ describe("subscription access decisions", () => {
     ).toBe(SUBSCRIPTION_ACCESS_MODES.BLOCKED);
   });
 
-  test("keeps platform super administrators operational", () => {
-    expect(
-      deriveSubscriptionAccess(
-        {
-          businessId: "business-1",
-          role: Roles.SuperAdmin,
-          deletedAt: NOW,
-          subscription: null,
-        },
-        NOW,
-      ).mode,
-    ).toBe(SUBSCRIPTION_ACCESS_MODES.FULL);
+  test("keeps platform super administrators operational across entitlements", () => {
+    const access = deriveSubscriptionAccess(
+      {
+        businessId: "business-1",
+        role: Roles.SuperAdmin,
+        deletedAt: NOW,
+        subscription: null,
+      },
+      NOW,
+    );
+
+    expect(access.mode).toBe(SUBSCRIPTION_ACCESS_MODES.FULL);
+    expect(access.platformAdmin).toBe(true);
+    expect(hasEntitlement(access, ENTITLEMENTS.WHATSAPP_AI)).toBe(true);
   });
 });
 
