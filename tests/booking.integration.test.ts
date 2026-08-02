@@ -1,4 +1,6 @@
+import { SubscriptionStatus } from "@prisma/client";
 import bookingsService from "../src/modules/bookings/bookings.service";
+import { ENTITLEMENTS } from "../src/modules/subscriptions/subscription.catalog";
 import { prisma } from "../src/shared/db/prisma";
 
 const makeTx = (conflict = false) => ({
@@ -36,7 +38,13 @@ const makeTx = (conflict = false) => ({
   appointmentService: {
     findMany: async () =>
       conflict
-        ? [{ staffId: "st1", startsAt: new Date("2026-04-20T09:15:00Z"), endsAt: new Date("2026-04-20T10:00:00Z") }]
+        ? [
+            {
+              staffId: "st1",
+              startsAt: new Date("2026-04-20T09:15:00Z"),
+              endsAt: new Date("2026-04-20T10:00:00Z"),
+            },
+          ]
         : [],
     createMany: async () => ({ count: 1 }),
   },
@@ -52,12 +60,29 @@ const makeTx = (conflict = false) => ({
   },
 });
 
+const activeBusiness = {
+  id: "b1",
+  slug: "test-business",
+  timezone: "UTC",
+  isActive: true,
+  deletedAt: null,
+  subscription: {
+    status: SubscriptionStatus.TRIALING,
+    trialEndsAt: new Date("2099-01-01T00:00:00.000Z"),
+    currentPeriodEnd: null,
+    graceEndsAt: null,
+    plan: {
+      entitlements: [{ key: ENTITLEMENTS.ONLINE_BOOKING }],
+    },
+  },
+};
+
 describe("booking integration (mocked prisma)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (prisma.business.findUnique as any) = jest
       .fn()
-      .mockResolvedValue({ id: "b1", timezone: "UTC" });
+      .mockResolvedValue(activeBusiness);
   });
 
   test("createBooking success", async () => {
@@ -65,7 +90,7 @@ describe("booking integration (mocked prisma)", () => {
       .fn()
       .mockImplementation(async (fn: any) => fn(makeTx()));
 
-    const res = await bookingsService.createBooking({
+    const result = await bookingsService.createBooking({
       businessId: "b1",
       services: [{ serviceId: "svc1" }],
       startsAt: "2026-04-20T09:00:00Z",
@@ -73,8 +98,8 @@ describe("booking integration (mocked prisma)", () => {
       customerPhone: "+2012345",
     });
 
-    expect(res).toHaveProperty("appointment");
-    expect(res).toHaveProperty("customer");
+    expect(result).toHaveProperty("appointment");
+    expect(result).toHaveProperty("customer");
   });
 
   test("createBooking conflict", async () => {
