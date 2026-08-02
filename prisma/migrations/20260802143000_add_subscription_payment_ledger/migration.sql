@@ -45,8 +45,7 @@ CREATE INDEX "subscription_payments_subscription_id_created_at_idx"
 CREATE INDEX "subscription_payments_status_expires_at_idx"
   ON "subscription_payments"("status", "expires_at");
 CREATE UNIQUE INDEX "subscription_payments_provider_payment_id_key"
-  ON "subscription_payments"("provider", "provider_payment_id")
-  WHERE "provider_payment_id" IS NOT NULL;
+  ON "subscription_payments"("provider", "provider_payment_id");
 CREATE UNIQUE INDEX "subscription_payments_one_open_checkout"
   ON "subscription_payments"("subscription_id", "plan_id")
   WHERE "status" IN ('PENDING', 'REQUIRES_ACTION');
