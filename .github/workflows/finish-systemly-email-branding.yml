@@ -1,0 +1,37 @@
+name: Finish Systemly email branding
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize]
+    paths:
+      - scripts/finish-systemly-email-branding.mjs
+      - .github/workflows/finish-systemly-email-branding.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/finish-systemly-email-branding.mjs
+      - name: Commit branding and remove one-time files
+        run: |
+          rm -f scripts/finish-systemly-email-branding.mjs
+          rm -f .github/workflows/finish-systemly-email-branding.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: finish Systemly email branding" || exit 0
+          git push origin HEAD:${{ github.head_ref }}
