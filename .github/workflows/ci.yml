@@ -39,10 +39,32 @@ jobs:
         run: npm run prisma:generate
 
       - name: Build TypeScript
-        run: npm run build
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee build.log
 
-      # - name: Validate OpenAPI
-      #   run: npm run validate:openapi
+      - name: Upload build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-build-diagnostics
+          path: build.log
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Validate OpenAPI
+        run: |
+          set -o pipefail
+          npm run validate:openapi 2>&1 | tee openapi.log
+
+      - name: Upload OpenAPI diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-openapi-diagnostics
+          path: openapi.log
+          if-no-files-found: ignore
+          retention-days: 3
 
   test:
     name: Test with PostgreSQL
@@ -92,4 +114,15 @@ jobs:
         run: npm run prisma:migrate:deploy
 
       - name: Run tests
-        run: npm test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee tests.log
+
+      - name: Upload test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-diagnostics
+          path: tests.log
+          if-no-files-found: ignore
+          retention-days: 3
