@@ -539,7 +539,6 @@ model Subscription {
   providerCustomerId      String?          @map("provider_customer_id") @db.VarChar(255)
   providerSubscriptionId  String?          @map("provider_subscription_id") @db.VarChar(255)
   providerPaymentMethodId String?          @map("provider_payment_method_id") @db.VarChar(255)
-  paymobSubscriptionId    String?          @map("paymob_subscription_id") @db.VarChar(255)
   trialNotified3Days      Boolean          @default(false) @map("trial_notified_3days")
   trialNotified1Day       Boolean          @default(false) @map("trial_notified_1day")
   expiredHandled          Boolean          @default(false) @map("expired_handled")
