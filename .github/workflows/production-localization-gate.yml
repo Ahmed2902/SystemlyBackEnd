@@ -107,10 +107,10 @@ jobs:
           - account emails use the user preference
           - customer appointment emails fall back to `Business.language`
           - staff invitations fall back to the business owner's platform preference
-          - bilingual 80 mm receipt PDFs with embedded Arabic font support
-          - Arabic receipts use RTL layout and Latin digits such as `1,250 ج.م.`
-          - strict `?locale=en|ar` receipt validation while preserving tenant scope
-          - localization contract tests for schemas, emails, digits, and PDF generation
+          - English-only 80 mm receipt PDFs
+          - receipt labels, dates, currency formatting, and filenames do not change with platform language
+          - embedded Unicode font support keeps Arabic tenant, customer, service, and notes data renderable
+          - localization contract tests for schemas, emails, digits, and English receipt PDF generation
           - OpenAPI validation and migration coverage
 
           ## Deployment order
@@ -118,7 +118,7 @@ jobs:
           1. Merge this backend PR.
           2. Run `prisma migrate deploy` during the backend release.
           3. Deploy both the API and Graphile Worker from the same revision.
-          4. Smoke-test language persistence, one Arabic account email, one Arabic appointment email, and one Arabic receipt.
+          4. Smoke-test language persistence, one Arabic account email, one Arabic appointment email, and one English receipt.
           5. Merge and deploy the frontend localization PR.
 
           ## Verification
