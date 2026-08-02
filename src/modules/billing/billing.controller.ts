@@ -1,7 +1,11 @@
 import type { NextFunction, Request, Response } from "express";
 import { resolveSubscriptionAccess } from "../subscriptions/subscription-access.service";
 import { fail, ok } from "../../shared/utils/response.util";
-import { subscriptionActionBodySchema } from "./billing.schema";
+import {
+  billingPaymentParamsSchema,
+  billingPaymentsQuerySchema,
+  subscriptionActionBodySchema,
+} from "./billing.schema";
 import billingService from "./billing.service";
 
 function authenticatedBusinessId(req: Request, res: Response) {
@@ -29,6 +33,45 @@ class BillingController {
     }
   }
 
+  async listPlans(_req: Request, res: Response, next: NextFunction) {
+    try {
+      return ok(res, { items: await billingService.listPlans() });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async listPayments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = authenticatedBusinessId(req, res);
+      if (!businessId) return;
+      const query = billingPaymentsQuerySchema.parse(req.query);
+      return ok(
+        res,
+        await billingService.listPayments(
+          businessId,
+          query.page,
+          query.perPage,
+        ),
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async getPayment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = authenticatedBusinessId(req, res);
+      if (!businessId) return;
+      const { paymentId } = billingPaymentParamsSchema.parse(req.params);
+      return ok(res, {
+        payment: await billingService.getPayment(businessId, paymentId),
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   async createCheckout(req: Request, res: Response, next: NextFunction) {
     try {
       const parsed = subscriptionActionBodySchema.safeParse(req.body);
@@ -51,6 +94,30 @@ class BillingController {
         },
         checkoutUrl: result.checkoutUrl,
         reused: result.reused,
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async cancel(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = authenticatedBusinessId(req, res);
+      if (!businessId) return;
+      return ok(res, {
+        subscription: await billingService.cancelAtPeriodEnd(businessId),
+      });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
+  async resume(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = authenticatedBusinessId(req, res);
+      if (!businessId) return;
+      return ok(res, {
+        subscription: await billingService.resumeSubscription(businessId),
       });
     } catch (error) {
       return next(error);
