@@ -227,7 +227,7 @@ export default billingService;
 
 export const findSubscription =
   billingService.findSubscription.bind(billingService);
-// export const createCheckout =
-//   billingService.createCheckout.bind(billingService);
-// export const handlePaymobPayload =
-//   billingService.handlePaymobPayload.bind(billingService);
+export const createCheckout =
+  billingService.createCheckout.bind(billingService);
+export const handlePaymobPayload =
+  billingService.handlePaymobPayload.bind(billingService);
