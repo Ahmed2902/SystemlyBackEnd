@@ -1,0 +1,133 @@
+name: Production localization gate
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - .github/workflows/production-localization-gate.yml
+      - src/**
+      - prisma/**
+      - tests/localization.contract.test.ts
+      - package.json
+      - package-lock.json
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: backend-production-localization-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hgezli_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d hgezli_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hgezli_ci?schema=public
+      NODE_ENV: test
+      JWT_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      CSRF_SECRET: ci-csrf-secret
+      FRONTEND_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm run prisma:migrate:deploy
+
+      - name: TypeScript build
+        run: npm run build
+
+      - name: Full test suite
+        run: npm test -- --runInBand
+
+      - name: OpenAPI validation
+        run: npm run validate:openapi
+
+      - name: Remove temporary localization machinery
+        run: |
+          rm -f .github/workflows/production-localization-gate.yml
+          rm -f .github/workflows/finalize-production-localization.yml
+          rm -f .github/workflows/report-localization-errors.yml
+          rm -f .github/workflows/finalize-localized-email-routing.yml
+          rm -f .github/workflows/cleanup-localized-email-routing.yml
+          rm -f scripts/finalize-localized-email-routing.mjs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: finalize backend Arabic localization" || true
+          git push origin HEAD:${{ github.head_ref }}
+
+      - name: Update pull request and mark ready
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          cat > /tmp/body.md <<'EOF'
+          ## Summary
+
+          Completes the backend contract for production English/Arabic platform localization while keeping the authenticated platform language separate from each business public-site language.
+
+          ## Included
+
+          - `BusinessUser.preferredLanguage` with an `en` / `ar` database constraint
+          - backward-compatible registration with optional language preference
+          - preferred language in login, verification, OAuth, and `/auth/me` responses
+          - authenticated, CSRF-protected `PATCH /auth/preferences`
+          - locale-aware account, password, appointment, staff-invitation, trial, and subscription emails
+          - account emails use the user preference
+          - customer appointment emails fall back to `Business.language`
+          - staff invitations fall back to the business owner's platform preference
+          - bilingual 80 mm receipt PDFs with embedded Arabic font support
+          - Arabic receipts use RTL layout and Latin digits such as `1,250 ج.م.`
+          - strict `?locale=en|ar` receipt validation while preserving tenant scope
+          - localization contract tests for schemas, emails, digits, and PDF generation
+          - OpenAPI validation and migration coverage
+
+          ## Deployment order
+
+          1. Merge this backend PR.
+          2. Run `prisma migrate deploy` during the backend release.
+          3. Deploy both the API and Graphile Worker from the same revision.
+          4. Smoke-test language persistence, one Arabic account email, one Arabic appointment email, and one Arabic receipt.
+          5. Merge and deploy the frontend localization PR.
+
+          ## Verification
+
+          - Prisma client generation: passed
+          - database migration deployment: passed
+          - TypeScript build: passed
+          - full test suite: passed
+          - OpenAPI validation: passed
+          EOF
+          gh pr edit "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file /tmp/body.md
+          gh pr ready "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" || true
