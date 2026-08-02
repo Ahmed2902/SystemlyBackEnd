@@ -41,7 +41,17 @@ class BillingController {
         businessId,
         parsed.data.planId,
       );
-      return ok(res, { subscription: result.subscription });
+      return ok(res, {
+        payment: {
+          id: result.payment.id,
+          status: result.payment.status,
+          amountCents: result.payment.amountCents,
+          currency: result.payment.currency,
+          expiresAt: result.payment.expiresAt,
+        },
+        checkoutUrl: result.checkoutUrl,
+        reused: result.reused,
+      });
     } catch (error) {
       return next(error);
     }
