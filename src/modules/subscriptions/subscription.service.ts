@@ -58,8 +58,7 @@ export function effectiveSubscriptionStatus(
 
   if (
     subscription.status === SubscriptionStatus.ACTIVE &&
-    subscription.currentPeriodEnd &&
-    subscription.currentPeriodEnd <= now
+    (!subscription.currentPeriodEnd || subscription.currentPeriodEnd <= now)
   ) {
     return SubscriptionStatus.EXPIRED;
   }
