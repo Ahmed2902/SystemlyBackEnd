@@ -369,8 +369,8 @@ export const getOpenApiDocument = (
     registry.registerPath({
       method: ep.method,
       path: openApiPath,
-      summary: ep.doc?.summary,
-      description: ep.doc?.description,
+      ...(ep.doc?.summary ? { summary: ep.doc.summary } : {}),
+      ...(ep.doc?.description ? { description: ep.doc.description } : {}),
       tags,
       request,
       responses: buildResponses(ep.doc),

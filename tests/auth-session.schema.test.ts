@@ -9,7 +9,9 @@ describe("cookie-backed auth schemas", () => {
   });
 
   it("does not require a refresh token in the request body", () => {
-    const parsed = refreshTokenBodySchema.parse({ refreshToken: "legacy-body-token" });
+    const parsed = refreshTokenBodySchema.parse({
+      refreshToken: "legacy-body-token",
+    });
     expect(parsed).toEqual({});
   });
 
@@ -21,6 +23,7 @@ describe("cookie-backed auth schemas", () => {
         email: "ahmed@example.com",
         businessId: "business-1",
         role: "BusinessAdmin",
+        preferredLanguage: "en",
         vertical: "salon",
         timezone: "Africa/Cairo",
       }).success,

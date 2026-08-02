@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const egyptPhone = /^(010|011|012|015)\d{8}$/;
 
+export const platformLanguageSchema = z.enum(["en", "ar"]);
+
 const normalizedEmailSchema = z
   .string()
   .email()
@@ -28,6 +30,10 @@ export const registerBodySchema = z
         example: "01012345678",
         description: "Egyptian mobile number",
       }),
+    preferredLanguage: platformLanguageSchema.optional().openapi({
+      example: "ar",
+      description: "Preferred language for the authenticated Systemly platform",
+    }),
   })
   .openapi({ description: "User registration payload" });
 
@@ -61,6 +67,13 @@ export const resetPasswordBodySchema = z
   })
   .openapi({ description: "Password reset payload" });
 
+export const updatePreferredLanguageBodySchema = z
+  .object({
+    preferredLanguage: platformLanguageSchema.openapi({ example: "ar" }),
+  })
+  .strict()
+  .openapi({ description: "Authenticated user's preferred platform language" });
+
 // The refresh token is accepted only from the secure HTTP-only cookie.
 export const refreshTokenBodySchema = z
   .object({})
@@ -88,6 +101,7 @@ export const oauthSignInInputSchema = z.object({
     .nullable()
     .openapi({ example: "https://lh3.googleusercontent.com/photo.jpg" }),
   emailVerified: z.boolean().optional().openapi({ example: true }),
+  preferredLanguage: platformLanguageSchema.optional().openapi({ example: "ar" }),
 });
 
 export const registerResponseSchema = z
@@ -107,6 +121,7 @@ export const authUserSchema = z
     email: z.string().email().openapi({ example: "ahmed@example.com" }),
     businessId: z.string().nullable().openapi({ example: "biz-123" }),
     role: z.string().openapi({ example: "BusinessAdmin" }),
+    preferredLanguage: platformLanguageSchema.openapi({ example: "ar" }),
     vertical: z.string().nullable().optional().openapi({ example: "salon" }),
     timezone: z
       .string()
@@ -154,21 +169,27 @@ export const logoutResponseSchema = z
   })
   .openapi({ description: "Logout response" });
 
+export type PlatformLanguage = z.infer<typeof platformLanguageSchema>;
 export type RegisterBody = z.infer<typeof registerBodySchema>;
 export type LoginBody = z.infer<typeof loginBodySchema>;
 export type VerifyEmailQuery = z.infer<typeof verifyEmailQuerySchema>;
 export type EmailBody = z.infer<typeof emailBodySchema>;
 export type ResetPasswordBody = z.infer<typeof resetPasswordBodySchema>;
+export type UpdatePreferredLanguageBody = z.infer<
+  typeof updatePreferredLanguageBodySchema
+>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenInputSchema>;
 export type GetMeInput = z.infer<typeof getMeInputSchema>;
 export type OauthSignInInput = z.infer<typeof oauthSignInInputSchema>;
 
 export const authSchemas = {
+  platformLanguageSchema,
   registerBodySchema,
   loginBodySchema,
   verifyEmailQuerySchema,
   emailBodySchema,
   resetPasswordBodySchema,
+  updatePreferredLanguageBodySchema,
   refreshTokenBodySchema,
   refreshTokenInputSchema,
   getMeInputSchema,
