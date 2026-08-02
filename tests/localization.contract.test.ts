@@ -1,5 +1,7 @@
-import { registerBodySchema, updatePreferredLanguageBodySchema } from "../src/modules/auth/auth.schema";
-import { receiptLocaleQuerySchema } from "../src/modules/invoices/invoices.workspace.schema";
+import {
+  registerBodySchema,
+  updatePreferredLanguageBodySchema,
+} from "../src/modules/auth/auth.schema";
 import { createReceiptDocument } from "../src/modules/invoices/receipt-pdf";
 import {
   appointmentConfirmationEmailContent,
@@ -79,18 +81,6 @@ describe("platform language contracts", () => {
       updatePreferredLanguageBodySchema.parse({ preferredLanguage: "fr" }),
     ).toThrow();
   });
-
-  it("validates receipt locale without accepting unrelated query keys", () => {
-    expect(receiptLocaleQuerySchema.parse({ locale: "ar" })).toEqual({
-      locale: "ar",
-    });
-    expect(() =>
-      receiptLocaleQuerySchema.parse({ locale: "fr" }),
-    ).toThrow();
-    expect(() =>
-      receiptLocaleQuerySchema.parse({ locale: "ar", businessId: "other" }),
-    ).toThrow();
-  });
 });
 
 describe("localized backend output", () => {
@@ -127,13 +117,10 @@ describe("localized backend output", () => {
     expect(content.subject).toContain("تم تأكيد موعدك");
   });
 
-  it("generates non-empty English and Arabic receipt PDFs", async () => {
-    const english = await pdfBytes(createReceiptDocument(receiptFixture, "en"));
-    const arabic = await pdfBytes(createReceiptDocument(receiptFixture, "ar"));
+  it("generates an English receipt PDF with multilingual business data", async () => {
+    const receipt = await pdfBytes(createReceiptDocument(receiptFixture));
 
-    expect(english.subarray(0, 4).toString()).toBe("%PDF");
-    expect(arabic.subarray(0, 4).toString()).toBe("%PDF");
-    expect(english.length).toBeGreaterThan(1000);
-    expect(arabic.length).toBeGreaterThan(1000);
+    expect(receipt.subarray(0, 4).toString()).toBe("%PDF");
+    expect(receipt.length).toBeGreaterThan(1000);
   });
 });
