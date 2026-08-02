@@ -173,7 +173,7 @@ class BusinessService {
         photos: { orderBy: { position: "asc" } },
       },
     });
-    if (!business) return null;
+    if (!business || business.deletedAt || !business.isActive) return null;
 
     return {
       ...business,
