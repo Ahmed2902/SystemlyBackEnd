@@ -57,7 +57,7 @@ const sendViaBrevo = async (
   html: string,
   fromAddress?: string,
 ) => {
-  const from = fromAddress || EMAIL.FROM_EMAIL || "noreply@hgezli.com";
+  const from = fromAddress || EMAIL.FROM_EMAIL || "noreply@systemly.app";
 
   if (!brevoClient) initBrevoClient();
   if (!brevoClient) throw new Error("Brevo client not initialized");
