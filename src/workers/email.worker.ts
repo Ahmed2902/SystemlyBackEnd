@@ -6,18 +6,15 @@ import { prisma } from "../shared/db/prisma";
 import redis from "../shared/config/redis";
 
 import {
-  verificationEmail,
-  welcomeEmail,
-  passwordResetEmail,
-  appointmentConfirmationEmail,
-  appointmentReminderEmail,
-  staffInviteEmail,
-  trialStartedEmail,
-  trialEndingEmail,
-  trialExpiredEmail,
-  subscriptionActivatedEmail,
-  subscriptionPaymentFailedEmail,
-} from "../shared/utils/email.templates";
+  appointmentConfirmationEmailContent,
+  appointmentReminderEmailContent,
+  normalizeEmailLocale,
+  passwordResetEmailContent,
+  staffInviteEmailContent,
+  subscriptionEmailContent,
+  verificationEmailContent,
+  welcomeEmailContent,
+} from "../shared/utils/localized-email.templates";
 
 let brevoClient: any | null = null;
 
@@ -60,7 +57,7 @@ const sendViaBrevo = async (
   html: string,
   fromAddress?: string,
 ) => {
-  const from = fromAddress || EMAIL.FROM_EMAIL || "noreply@hgezli.com";
+  const from = fromAddress || EMAIL.FROM_EMAIL || "noreply@systemly.app";
 
   if (!brevoClient) initBrevoClient();
   if (!brevoClient) throw new Error("Brevo client not initialized");
@@ -120,7 +117,8 @@ export const sendEmailTask = async (payload: any, _helpers: any) => {
   let to = toRaw;
   let subject = "";
   let html = "";
-  const fromAddress = EMAIL.FROM_EMAIL || "noreply@hgezli.com";
+  const fromAddress = EMAIL.FROM_EMAIL || "noreply@systemly.app";
+  const requestedLocale = normalizeEmailLocale(data.locale);
 
   try {
     switch (type) {
@@ -132,30 +130,35 @@ export const sendEmailTask = async (payload: any, _helpers: any) => {
           if (!user) throw new Error("User not found for verification email");
           to = user.email;
         }
-        subject = "Verify your email to activate your Hgezli account";
-        html = verificationEmail({
-          name: data.name || "there",
+        const content = verificationEmailContent({
+          locale: requestedLocale,
+          name: data.name || "",
           verificationUrl: data.verificationUrl,
         });
+        subject = content.subject;
+        html = content.html;
         break;
       }
 
       case "welcome": {
-        subject = "Welcome to Hgezli — your account is active";
-        html = welcomeEmail({
-          name: data.name || "there",
+        const content = welcomeEmailContent({
+          locale: requestedLocale,
+          name: data.name || "",
           dashboardUrl: data.dashboardUrl || process.env.FRONTEND_URL || "",
-          websiteUrl: data.websiteUrl || process.env.FRONTEND_URL || "",
         });
+        subject = content.subject;
+        html = content.html;
         break;
       }
 
       case "password_reset": {
-        subject = "Reset your Hgezli password";
-        html = passwordResetEmail({
-          name: data.name || "there",
+        const content = passwordResetEmailContent({
+          locale: requestedLocale,
+          name: data.name || "",
           resetUrl: data.resetUrl,
         });
+        subject = content.subject;
+        html = content.html;
         break;
       }
 
@@ -179,37 +182,43 @@ export const sendEmailTask = async (payload: any, _helpers: any) => {
           }
         }
 
-        const name = data.name || appt?.customer?.name || "there";
-        const businessName = data.businessName || appt?.business?.name || "";
-        const serviceName =
-          data.serviceName ||
-          appt?.appointmentServices?.[0]?.service?.name ||
-          "";
+        const name = String(data.name ?? appt?.customer?.name ?? "there");
+        const businessName = String(data.businessName ?? appt?.business?.name ?? "");
+        const serviceName = String(
+          data.serviceName ??
+            appt?.appointmentServices?.[0]?.service?.name ??
+            "",
+        );
         const staffName = data.staffName || appt?.staff?.name || null;
-        const startsAt =
-          data.startsAt || (appt?.startsAt ? appt.startsAt.toISOString() : "");
+        const startsAt = String(
+          data.startsAt ?? (appt?.startsAt ? appt.startsAt.toISOString() : ""),
+        );
 
-        if (subtype === "reminder") {
-          subject = `Reminder: appointment at ${businessName}`;
-          html = appointmentReminderEmail({
-            name,
-            businessName,
-            serviceName,
-            staffName,
-            startsAt,
-            whenLabel: data.whenLabel,
-          });
-        } else {
-          subject = `Your appointment at ${businessName}`;
-          html = appointmentConfirmationEmail({
-            name,
-            businessName,
-            serviceName,
-            staffName,
-            startsAt,
-            cancelUrl: data.cancelUrl,
-          });
-        }
+        const appointmentLocale = normalizeEmailLocale(
+          data.locale ?? appt?.business?.language,
+        );
+        const content =
+          subtype === "reminder"
+            ? appointmentReminderEmailContent({
+                locale: appointmentLocale,
+                name,
+                businessName,
+                serviceName,
+                staffName,
+                startsAt,
+                whenLabel: data.whenLabel,
+              })
+            : appointmentConfirmationEmailContent({
+                locale: appointmentLocale,
+                name,
+                businessName,
+                serviceName,
+                staffName,
+                startsAt,
+                cancelUrl: data.cancelUrl,
+              });
+        subject = content.subject;
+        html = content.html;
 
         // Determine recipient
         if (!to) {
@@ -222,54 +231,28 @@ export const sendEmailTask = async (payload: any, _helpers: any) => {
 
       case "subscription": {
         const subtype = data.subtype || "default";
-        if (subtype === "staff_invite") {
-          subject = `${data.businessName || "Hgezli"}: Invitation to join`;
-          html = staffInviteEmail({
-            inviterName: data.inviterName,
-            businessName: data.businessName,
-            acceptUrl: data.acceptUrl,
-          });
-        } else if (subtype === "trial_started") {
-          subject = `Your ${data.planName} trial has started`;
-          html = trialStartedEmail({
-            name: data.name || "there",
-            businessName: data.businessName || "",
-            planName: data.planName || "",
-            trialEnd: data.trialEnd || "",
-          });
-        } else if (subtype === "trial_ending") {
-          subject = `Trial ending in ${data.daysLeft} day(s) — ${data.businessName}`;
-          html = trialEndingEmail({
-            name: data.name || "there",
-            businessName: data.businessName || "",
-            planName: data.planName || "",
-            trialEnd: data.trialEnd || "",
-            daysLeft: data.daysLeft || 0,
-          });
-        } else if (subtype === "trial_expired") {
-          subject = `Trial ended — ${data.businessName}`;
-          html = trialExpiredEmail({
-            name: data.name || "there",
-            businessName: data.businessName || "",
-            planName: data.planName || "",
-            expiredAt: data.expiredAt || "",
-          });
-        } else if (subtype === "subscription_activated") {
-          subject = `Subscription active — ${data.businessName}`;
-          html = subscriptionActivatedEmail({
-            name: data.name || "there",
-            businessName: data.businessName || "",
-            planName: data.planName || "",
-            periodEnd: data.periodEnd || "",
-          });
-        } else if (subtype === "subscription_payment_failed") {
-          subject = `Payment failed — ${data.businessName}`;
-          html = subscriptionPaymentFailedEmail({
-            name: data.name || "there",
-            businessName: data.businessName || "",
-            planName: data.planName || "",
-          });
-        }
+        const locale = normalizeEmailLocale(data.locale);
+        const content =
+          subtype === "staff_invite"
+            ? staffInviteEmailContent({
+                locale,
+                inviterName: data.inviterName,
+                businessName: data.businessName || "Systemly",
+                acceptUrl: data.acceptUrl,
+              })
+            : subscriptionEmailContent({
+                locale,
+                subtype,
+                name: data.name,
+                businessName: data.businessName,
+                planName: data.planName,
+                trialEnd: data.trialEnd,
+                daysLeft: data.daysLeft,
+                expiredAt: data.expiredAt,
+                periodEnd: data.periodEnd,
+              });
+        subject = content.subject;
+        html = content.html;
         break;
       }
 
