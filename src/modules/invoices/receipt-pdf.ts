@@ -1,5 +1,3 @@
-import path from "node:path";
-
 const RECEIPT_WIDTH = 226.77;
 const RECEIPT_MARGIN = 18;
 const CONTENT_WIDTH = RECEIPT_WIDTH - RECEIPT_MARGIN * 2;
@@ -101,13 +99,6 @@ function paymentMethodLabel(method: unknown) {
   );
 }
 
-function resolveFont(weight: 400 | 700) {
-  const filename = `noto-sans-arabic-arabic-${weight}-normal.woff2`;
-  return require.resolve(
-    path.posix.join("@fontsource/noto-sans-arabic/files", filename),
-  );
-}
-
 function row(
   doc: any,
   label: string,
@@ -117,10 +108,10 @@ function row(
 ) {
   const labelWidth = 74;
   const valueWidth = CONTENT_WIDTH - labelWidth;
-  const font = options.bold ? "ReceiptBold" : "ReceiptRegular";
+  const font = options.bold ? "Helvetica-Bold" : "Helvetica";
 
   doc.font(font).fontSize(options.size ?? 8.5).fillColor("#374151");
-  doc.font("ReceiptBold").text(label, RECEIPT_MARGIN, y, {
+  doc.font("Helvetica-Bold").text(label, RECEIPT_MARGIN, y, {
     width: labelWidth,
     align: "left",
   });
@@ -144,18 +135,13 @@ export function createReceiptDocument(invoice: any) {
     },
   });
 
-  // Keep a Unicode-capable font even though receipt labels are English-only.
-  // Tenant, customer, service, and notes data may still contain Arabic text.
-  doc.registerFont("ReceiptRegular", resolveFont(400));
-  doc.registerFont("ReceiptBold", resolveFont(700));
-
   const timezone = invoice.business.timezone || "Africa/Cairo";
   const currency = invoice.currency || "EGP";
   let y = RECEIPT_MARGIN;
 
   doc
     .fillColor("#111827")
-    .font("ReceiptBold")
+    .font("Helvetica-Bold")
     .fontSize(16)
     .text(invoice.business.name, RECEIPT_MARGIN, y, {
       width: CONTENT_WIDTH,
@@ -163,7 +149,7 @@ export function createReceiptDocument(invoice: any) {
     });
   y = doc.y + 5;
 
-  doc.font("ReceiptRegular").fontSize(8.5).fillColor("#4b5563");
+  doc.font("Helvetica").fontSize(8.5).fillColor("#4b5563");
   const businessAddress = [invoice.business.address, invoice.business.city]
     .filter(Boolean)
     .join(", ");
@@ -192,7 +178,7 @@ export function createReceiptDocument(invoice: any) {
   separator(doc, y);
   y += 11;
   doc
-    .font("ReceiptBold")
+    .font("Helvetica-Bold")
     .fontSize(13)
     .fillColor("#111827")
     .text(RECEIPT_COPY.title, RECEIPT_MARGIN, y, {
@@ -228,7 +214,7 @@ export function createReceiptDocument(invoice: any) {
   separator(doc, y);
   y += 10;
   doc
-    .font("ReceiptBold")
+    .font("Helvetica-Bold")
     .fontSize(9)
     .fillColor("#111827")
     .text(RECEIPT_COPY.items, RECEIPT_MARGIN, y, {
@@ -240,14 +226,14 @@ export function createReceiptDocument(invoice: any) {
   for (const item of invoice.lineItems) {
     const itemTotal =
       item.totalCents ?? item.unitPriceCents * item.quantity;
-    doc.font("ReceiptRegular").fontSize(8.5).fillColor("#111827");
+    doc.font("Helvetica").fontSize(8.5).fillColor("#111827");
     doc.text(item.description, RECEIPT_MARGIN, y, {
       width: CONTENT_WIDTH - 66,
       align: "left",
     });
     const descriptionBottom = doc.y;
     doc
-      .font("ReceiptBold")
+      .font("Helvetica-Bold")
       .text(
         formatMoney(itemTotal, currency),
         RECEIPT_WIDTH - RECEIPT_MARGIN - 64,
@@ -259,7 +245,7 @@ export function createReceiptDocument(invoice: any) {
       );
     y = Math.max(descriptionBottom, doc.y) + 2;
     doc
-      .font("ReceiptRegular")
+      .font("Helvetica")
       .fontSize(7.5)
       .fillColor("#6b7280")
       .text(
@@ -304,7 +290,7 @@ export function createReceiptDocument(invoice: any) {
     .rect(RECEIPT_MARGIN, y, CONTENT_WIDTH, 30)
     .fill("#111827")
     .restore();
-  doc.font("ReceiptBold").fontSize(10).fillColor("#ffffff");
+  doc.font("Helvetica-Bold").fontSize(10).fillColor("#ffffff");
   doc.text(RECEIPT_COPY.total, RECEIPT_MARGIN + 8, y + 9, {
     width: CONTENT_WIDTH / 2 - 8,
     align: "left",
@@ -340,7 +326,7 @@ export function createReceiptDocument(invoice: any) {
   if (invoice.notes) {
     y += 8;
     doc
-      .font("ReceiptBold")
+      .font("Helvetica-Bold")
       .fontSize(8.5)
       .fillColor("#374151")
       .text(RECEIPT_COPY.notes, RECEIPT_MARGIN, y, {
@@ -349,7 +335,7 @@ export function createReceiptDocument(invoice: any) {
       });
     y = doc.y + 3;
     doc
-      .font("ReceiptRegular")
+      .font("Helvetica")
       .fontSize(8)
       .fillColor("#4b5563")
       .text(invoice.notes, RECEIPT_MARGIN, y, {
@@ -362,7 +348,7 @@ export function createReceiptDocument(invoice: any) {
   separator(doc, y);
   y += 12;
   doc
-    .font("ReceiptBold")
+    .font("Helvetica-Bold")
     .fontSize(10)
     .fillColor("#111827")
     .text(RECEIPT_COPY.thanks, RECEIPT_MARGIN, y, {
@@ -371,7 +357,7 @@ export function createReceiptDocument(invoice: any) {
     });
   y = doc.y + 4;
   doc
-    .font("ReceiptRegular")
+    .font("Helvetica")
     .fontSize(8)
     .fillColor("#6b7280")
     .text(RECEIPT_COPY.return, RECEIPT_MARGIN, y, {

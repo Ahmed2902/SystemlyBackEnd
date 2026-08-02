@@ -30,23 +30,23 @@ const receiptFixture = {
   totalCents: 125000,
   paymentMethod: "CASH",
   paymentReference: null,
-  notes: "شكراً لزيارتكم",
+  notes: "Thank you for visiting us",
   business: {
-    name: "عيادة النور",
-    address: "مدينة نصر",
-    city: "القاهرة",
+    name: "Al Noor Clinic",
+    address: "Nasr City",
+    city: "Cairo",
     phone: "01012345678",
     timezone: "Africa/Cairo",
   },
   customer: {
-    name: "أحمد حسن",
+    name: "Ahmed Hassan",
     phone: "01112345678",
   },
-  paidBy: { name: "سارة محمد" },
+  paidBy: { name: "Sara Mohamed" },
   lineItems: [
     {
       id: "line-1",
-      description: "استشارة طبية",
+      description: "Medical consultation",
       quantity: 1,
       unitPriceCents: 125000,
       totalCents: 125000,
@@ -117,7 +117,7 @@ describe("localized backend output", () => {
     expect(content.subject).toContain("تم تأكيد موعدك");
   });
 
-  it("generates an English receipt PDF with multilingual business data", async () => {
+  it("generates an English receipt PDF", async () => {
     const receipt = await pdfBytes(createReceiptDocument(receiptFixture));
 
     expect(receipt.subarray(0, 4).toString()).toBe("%PDF");

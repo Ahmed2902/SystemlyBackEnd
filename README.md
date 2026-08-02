@@ -61,9 +61,7 @@ Environment variables
 - `NODE_ENV` — `development` or `production`
 - `PORT` — server port
 - `SENTRY_DSN` — optional Sentry DSN for errors
-- `PAYMOB_API_KEY`, `PAYMOB_HMAC` — optional Paymob keys for billing
 - `SENTRY_DSN` — optional Sentry DSN for errors
-- `PAYMOB_API_KEY`, `PAYMOB_HMAC` — optional Paymob keys for billing
 - `ENABLE_METRICS` — (optional) enable Prometheus metrics endpoint at `/metrics`
 
 Notes
@@ -90,7 +88,7 @@ npx prisma migrate deploy --schema=prisma/schema.prisma
 
 - Environment variables to set on Railway / Cloudflare Workers Pages (server):
 
-  - `DATABASE_URL`, `REDIS_URL`, `EMAIL_SMTP_URL` (or host/port/user/pass), `EMAIL_FROM`, `FRONTEND_URL`, `APP_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `SENTRY_DSN` (optional), `PAYMOB_API_KEY` (optional).
+  - `DATABASE_URL`, `REDIS_URL`, `EMAIL_SMTP_URL` (or host/port/user/pass), `EMAIL_FROM`, `FRONTEND_URL`, `APP_URL`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `SENTRY_DSN` (optional).
 
 - Services to run:
 

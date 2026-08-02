@@ -3,7 +3,6 @@ import { resolveSubscriptionAccess } from "../subscriptions/subscription-access.
 import { fail, ok } from "../../shared/utils/response.util";
 import { subscriptionActionBodySchema } from "./billing.schema";
 import billingService from "./billing.service";
-import paymob from "./paymob";
 
 function authenticatedBusinessId(req: Request, res: Response) {
   const businessId = req.user?.businessId;
@@ -42,35 +41,7 @@ class BillingController {
         businessId,
         parsed.data.planId,
       );
-      return ok(res, {
-        payment: result.payment,
-        subscription: result.subscription,
-      });
-    } catch (error) {
-      return next(error);
-    }
-  }
-
-  async webhook(req: Request, res: Response, next: NextFunction) {
-    try {
-      const bodyForVerify = Buffer.isBuffer(req.body)
-        ? req.body.toString("utf8")
-        : JSON.stringify(req.body);
-      const verification = await paymob.verifyWebhook(
-        req.headers as any,
-        bodyForVerify,
-      );
-
-      if (verification.verified) {
-        const handled = await billingService.handlePaymobPayload(
-          verification.payload,
-        );
-        if (handled.handled) {
-          return res.status(200).json({ success: true });
-        }
-      }
-
-      return res.status(200).json({ success: true, handled: false });
+      return ok(res, { subscription: result.subscription });
     } catch (error) {
       return next(error);
     }

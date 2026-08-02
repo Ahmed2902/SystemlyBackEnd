@@ -22,7 +22,7 @@ This document describes the architecture, components, deployment notes, and oper
 
 - External Integrations
   - Email provider(s): Brevo or SMTP via nodemailer (configurable by env vars)
-  - Payment gateway: Paymob (checkout + webhook)
+  - Subscription billing: lifecycle state stored in PostgreSQL; payment provider integration is pending.
   - Object storage: local `uploads/` by default; production may use S3-compatible storage or cloudinary.
 
 ## Deployment artifacts
@@ -52,7 +52,7 @@ Variable defaults and reading code is under [src/shared/config/config.ts](src/sh
 1. Client requests `/auth/login` → server validates credentials → responds with `accessToken` + `refreshToken` cookie.
 2. Client requests protected resource → `requireAuth` validates `Authorization: Bearer <token>`.
 3. Booking creation enqueues reminder jobs → worker picks up job and sends emails via the configured email provider.
-4. Payment flow: server triggers Paymob checkout, provider calls `/billing/webhook` → server validates signature and updates subscription state.
+4. Subscription flow: onboarding creates the lifetime trial; billing reads and updates the typed subscription lifecycle.
 
 ## Scaling & operational notes
 

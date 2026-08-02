@@ -28,7 +28,6 @@
   "type": "commonjs",
   "dependencies": {
     "@asteasolutions/zod-to-openapi": "^8.1.0",
-    "@fontsource/noto-sans-arabic": "^5.3.0",
     "@getbrevo/brevo": "^5.0.4",
     "@prisma/client": "^6.19.3",
     "@sendinblue/client": "^3.3.1",
