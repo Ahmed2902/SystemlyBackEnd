@@ -117,6 +117,10 @@ describe("localized backend output", () => {
     expect(content.subject).toContain("تم تأكيد موعدك");
   });
 
+  it("keeps the receipt generator independent from language selection", () => {
+    expect(createReceiptDocument).toHaveLength(1);
+  });
+
   it("generates an English receipt PDF with multilingual business data", async () => {
     const receipt = await pdfBytes(createReceiptDocument(receiptFixture));
 
