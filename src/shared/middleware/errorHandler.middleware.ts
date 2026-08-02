@@ -91,6 +91,11 @@ export const errorHandler = (
     return;
   }
 
+  if (error.code === "PUBLIC_SITE_UNAVAILABLE") {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Retry-After", "3600");
+  }
+
   res.status(Number(error.statusCode) || 500).json({
     ok: false,
     success: false,
