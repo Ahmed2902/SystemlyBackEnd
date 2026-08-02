@@ -141,9 +141,26 @@ class BusinessService {
 
     const business = await prisma.business.findUnique({
       where: { id: gate.id },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        vertical: true,
+        phone: true,
+        address: true,
+        city: true,
+        lat: true,
+        lng: true,
+        logoUrl: true,
+        coverUrl: true,
+        timezone: true,
+        language: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
         websiteContent: true,
         services: {
+          where: { isActive: true },
           include: {
             serviceStaff: {
               where: { staff: { isActive: true } },
