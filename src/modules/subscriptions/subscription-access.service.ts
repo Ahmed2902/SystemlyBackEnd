@@ -24,6 +24,7 @@ export interface SubscriptionAccessSnapshot {
   graceEndsAt: Date | null;
   cancelAtPeriodEnd: boolean;
   businessDeleted: boolean;
+  platformAdmin: boolean;
 }
 
 interface AccessDecisionInput {
@@ -64,9 +65,10 @@ export function deriveSubscriptionAccess(
     ? effectiveSubscriptionStatus(subscription, now)
     : null;
   const businessDeleted = Boolean(input.deletedAt);
+  const platformAdmin = input.role === Roles.SuperAdmin;
 
   let mode: SubscriptionAccessMode;
-  if (input.role === Roles.SuperAdmin) {
+  if (platformAdmin) {
     mode = SUBSCRIPTION_ACCESS_MODES.FULL;
   } else if (businessDeleted) {
     mode = SUBSCRIPTION_ACCESS_MODES.BLOCKED;
@@ -91,6 +93,7 @@ export function deriveSubscriptionAccess(
     graceEndsAt: subscription?.graceEndsAt ?? null,
     cancelAtPeriodEnd: subscription?.cancelAtPeriodEnd ?? false,
     businessDeleted,
+    platformAdmin,
   };
 }
 
@@ -149,5 +152,5 @@ export function hasEntitlement(
   access: SubscriptionAccessSnapshot,
   entitlement: EntitlementKey,
 ) {
-  return access.entitlements.includes(entitlement);
+  return access.platformAdmin || access.entitlements.includes(entitlement);
 }
