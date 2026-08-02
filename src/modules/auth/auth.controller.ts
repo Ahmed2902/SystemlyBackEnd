@@ -4,7 +4,6 @@ import { fail, ok } from "../../shared/utils/response.util";
 import { resolveSubscriptionAccess } from "../subscriptions/subscription-access.service";
 import {
   emailBodySchema,
-  getMeInputSchema,
   loginBodySchema,
   registerBodySchema,
   resetPasswordBodySchema,
