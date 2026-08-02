@@ -29,8 +29,4 @@ router.post(
   billingController.createCheckout,
 );
 
-// Legacy Paymob webhook remains available until the provider-neutral payment
-// ledger and EasyKash adapter replace it in the billing integration PR.
-router.post("/webhook", billingController.webhook);
-
 export default router;

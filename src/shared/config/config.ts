@@ -152,16 +152,6 @@ export const SENTRY = {
   ENABLED: parseBool(process.env.SENTRY_DSN, false),
 } as const;
 
-export const PAYMOB = {
-  API_KEY: process.env.PAYMOB_API_KEY || "",
-  MERCHANT_ID: process.env.PAYMOB_MERCHANT_ID || "",
-  INTEGRATION_ID: process.env.PAYMOB_INTEGRATION_ID || "",
-  HMAC_SECRET: process.env.PAYMOB_HMAC_SECRET || process.env.PAYMOB_HMAC || "",
-  BASE_URL:
-    process.env.PAYMOB_BASE_URL || "https://accept.paymobsolutions.com/api",
-  ENABLED: !!process.env.PAYMOB_API_KEY,
-} as const;
-
 export const ENABLE_METRICS = parseBool(process.env.ENABLE_METRICS, false);
 
 export const config = {
@@ -174,7 +164,6 @@ export const config = {
   AUTH_CONSTANTS,
   JWT,
   SENTRY,
-  PAYMOB,
   ENABLE_METRICS,
 } as const;
 

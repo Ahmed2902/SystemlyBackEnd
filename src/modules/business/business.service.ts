@@ -156,6 +156,7 @@ class BusinessService {
         timezone: true,
         language: true,
         isActive: true,
+        deletedAt: true,
         createdAt: true,
         updatedAt: true,
         websiteContent: true,

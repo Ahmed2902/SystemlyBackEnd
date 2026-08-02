@@ -5,7 +5,7 @@ import "./src/shared/zod-setup";
 import crypto from "node:crypto";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-import express, { Application, raw } from "express";
+import express, { Application } from "express";
 import helmet from "helmet";
 import routes from "./src/routes";
 import { APP_CONFIG } from "./src/shared/config/config";
@@ -21,16 +21,6 @@ import * as promClient from "prom-client";
 const app: Application = express();
 
 app.use(requestPerformanceMiddleware);
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const billingController =
-  require("./src/modules/billing/billing.controller").default;
-
-app.post(
-  "/api/billing/webhook",
-  raw({ type: "application/json" }),
-  (req, res, next) => billingController.webhook(req, res, next),
-);
 
 const allowedOrigins = APP_CONFIG.corsOrigins;
 const allowAnyDevelopmentOrigin =

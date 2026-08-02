@@ -6,13 +6,10 @@ export const subscriptionActionBodySchema = z
   })
   .strict();
 
-export const billingWebhookBodySchema = z.unknown();
-
 export type SubscriptionActionBody = z.infer<
   typeof subscriptionActionBodySchema
 >;
 
 export const billingSchemas = {
   subscriptionActionBodySchema,
-  billingWebhookBodySchema,
 };
