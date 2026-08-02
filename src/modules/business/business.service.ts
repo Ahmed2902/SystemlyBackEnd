@@ -6,6 +6,11 @@ import {
 import { prisma } from "../../shared/db/prisma";
 import { enqueueTrialStartedEmail } from "../../shared/services/email.service";
 import { signAccessToken } from "../../shared/utils/token.util";
+import {
+  findPublicBusinessGateBySlug,
+  requirePublicFeature,
+} from "../subscriptions/public-subscription-access.service";
+import { ENTITLEMENTS } from "../subscriptions/subscription.catalog";
 import { startLifetimeTrial } from "../subscriptions/subscription.service";
 import type {
   BusinessUpdateInput,
@@ -129,8 +134,13 @@ class BusinessService {
   }
 
   async getPublicBySlug(slug: string) {
+    const gate = await findPublicBusinessGateBySlug(slug);
+    if (!gate || gate.deletedAt || !gate.isActive) return null;
+
+    requirePublicFeature(gate, ENTITLEMENTS.PUBLIC_WEBSITE);
+
     const business = await prisma.business.findUnique({
-      where: { slug },
+      where: { id: gate.id },
       include: {
         websiteContent: true,
         services: {
@@ -146,7 +156,7 @@ class BusinessService {
         photos: { orderBy: { position: "asc" } },
       },
     });
-    if (!business || business.deletedAt || !business.isActive) return null;
+    if (!business) return null;
 
     return {
       ...business,
