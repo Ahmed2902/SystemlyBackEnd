@@ -1,12 +1,13 @@
 import { CommissionType, Roles } from "@prisma/client";
 import { Router } from "express";
-import staffController from "./staff.controller";
 import {
   requireAuth,
   requireBusinessAccess,
   requireRole,
 } from "../../shared/middleware/auth.middleware";
+import { requireSubscriptionAccess } from "../../shared/middleware/subscription-access.middleware";
 import validate from "../../shared/middleware/validate.middleware";
+import staffController from "./staff.controller";
 import {
   acceptInviteSchema,
   assignServiceSchema,
@@ -35,6 +36,17 @@ const removeCommissionForOperationalUsers = (req: any, _res: any, next: any) => 
 };
 
 router.use(requireAuth);
+
+// Invitation acceptance is the one authenticated staff action that happens
+// before the user belongs to a business, so it stays outside subscription
+// enforcement. Every subsequent staff request is tenant- and plan-scoped.
+router.post(
+  "/invites/accept",
+  validate.validateBody(acceptInviteSchema),
+  staffController.acceptInvite,
+);
+
+router.use(requireBusinessAccess, requireSubscriptionAccess);
 
 router.get("/", staffController.list);
 router.post("/", validate.validateBody(createStaffSchema), staffController.create);
@@ -107,31 +119,13 @@ router.get(
 
 router.post(
   "/invites",
-  requireBusinessAccess,
   requireRole(OWNER_ROLES),
   validate.validateBody(createInviteSchema),
   staffController.createInvite,
 );
-router.post(
-  "/invites/accept",
-  validate.validateBody(acceptInviteSchema),
-  staffController.acceptInvite,
-);
 
-router.get(
-  "/breaks",
-  requireBusinessAccess,
-  staffController.listStaffBreaksForDate,
-);
-router.post(
-  "/breaks",
-  requireBusinessAccess,
-  staffController.createStaffBreak,
-);
-router.delete(
-  "/breaks/:id",
-  requireBusinessAccess,
-  staffController.removeStaffBreak,
-);
+router.get("/breaks", staffController.listStaffBreaksForDate);
+router.post("/breaks", staffController.createStaffBreak);
+router.delete("/breaks/:id", staffController.removeStaffBreak);
 
 export default router;

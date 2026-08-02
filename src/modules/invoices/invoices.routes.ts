@@ -1,10 +1,14 @@
 import { Router } from "express";
-import { requireAuth } from "../../shared/middleware/auth.middleware";
+import {
+  requireAuth,
+  requireBusinessAccess,
+} from "../../shared/middleware/auth.middleware";
+import { requireSubscriptionAccess } from "../../shared/middleware/subscription-access.middleware";
 import invoiceWorkspaceController from "./invoices.workspace.controller";
 
 const router = Router();
 
-router.use(requireAuth);
+router.use(requireAuth, requireBusinessAccess, requireSubscriptionAccess);
 
 router.get("/", invoiceWorkspaceController.list);
 router.post("/collect-payment", invoiceWorkspaceController.collect);

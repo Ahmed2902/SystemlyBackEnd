@@ -1,10 +1,11 @@
 import { Router } from "express";
-import faqsController from "./faqs.controller";
 import {
   requireAuth,
   requireBusinessAccess,
 } from "../../shared/middleware/auth.middleware";
+import { requireSubscriptionAccess } from "../../shared/middleware/subscription-access.middleware";
 import validate from "../../shared/middleware/validate.middleware";
+import faqsController from "./faqs.controller";
 import {
   createFaqSchema,
   reorderFaqsSchema,
@@ -13,33 +14,24 @@ import {
 
 const router = Router();
 
-router.get("/", requireAuth, faqsController.list);
+router.use(requireAuth, requireBusinessAccess, requireSubscriptionAccess);
+
+router.get("/", faqsController.list);
 router.post(
   "/",
-  requireAuth,
-  requireBusinessAccess,
   validate.validateBody(createFaqSchema),
-  faqsController.create
+  faqsController.create,
 );
 router.patch(
   "/:id",
-  requireAuth,
-  requireBusinessAccess,
   validate.validateBody(updateFaqSchema),
-  faqsController.update
+  faqsController.update,
 );
-router.delete(
-  "/:id",
-  requireAuth,
-  requireBusinessAccess,
-  faqsController.remove
-);
+router.delete("/:id", faqsController.remove);
 router.patch(
   "/reorder",
-  requireAuth,
-  requireBusinessAccess,
   validate.validateBody(reorderFaqsSchema),
-  faqsController.reorder
+  faqsController.reorder,
 );
 
 export default router;

@@ -1,15 +1,22 @@
-import { Router } from "express";
 import { Roles } from "@prisma/client";
+import { Router } from "express";
 import {
   requireAuth,
+  requireBusinessAccess,
   requireRole,
 } from "../../shared/middleware/auth.middleware";
 import { doc } from "../../shared/middleware/doc.middleware";
+import { requireSubscriptionAccess } from "../../shared/middleware/subscription-access.middleware";
 import settingsController from "./settings.controller";
 
 const router = Router();
 
-router.use(requireAuth, requireRole(Roles.BusinessAdmin));
+router.use(
+  requireAuth,
+  requireBusinessAccess,
+  requireRole(Roles.BusinessAdmin),
+  requireSubscriptionAccess,
+);
 
 router.get(
   "/",
