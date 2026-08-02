@@ -11,10 +11,58 @@ const router = Router();
 
 router.use(requireAuth, requireRole(Roles.BusinessAdmin));
 
-router.get("/", settingsController.get);
-router.patch("/business", settingsController.updateBusiness);
-router.patch("/website", settingsController.updateWebsite);
-router.patch("/publish", settingsController.publish);
+router.get(
+  "/",
+  doc({
+    summary: "Get business settings",
+    description:
+      "Return the authenticated business profile, website settings, and publication state.",
+    tags: ["settings"],
+    responses: {
+      200: { description: "Business settings returned" },
+    },
+  }),
+  settingsController.get,
+);
+router.patch(
+  "/business",
+  doc({
+    summary: "Update business settings",
+    description:
+      "Update the authenticated business profile and operational details.",
+    tags: ["settings"],
+    responses: {
+      200: { description: "Business settings updated" },
+    },
+  }),
+  settingsController.updateBusiness,
+);
+router.patch(
+  "/website",
+  doc({
+    summary: "Update website settings",
+    description:
+      "Update public website content and configuration for the authenticated business.",
+    tags: ["settings"],
+    responses: {
+      200: { description: "Website settings updated" },
+    },
+  }),
+  settingsController.updateWebsite,
+);
+router.patch(
+  "/publish",
+  doc({
+    summary: "Update website publication status",
+    description:
+      "Publish or unpublish the authenticated business public website.",
+    tags: ["settings"],
+    responses: {
+      200: { description: "Website publication status updated" },
+    },
+  }),
+  settingsController.publish,
+);
 router.post(
   "/branding/:kind/presign",
   doc({
