@@ -4,6 +4,7 @@ import {
   Prisma,
   Roles,
   SubscriptionPaymentStatus,
+  SubscriptionStatus,
 } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
 import { PLAN_CODES } from "../subscriptions/subscription.catalog";
@@ -18,6 +19,10 @@ const CHECKOUT_TTL_MS = 30 * 60 * 1000;
 const OPEN_PAYMENT_STATUSES: SubscriptionPaymentStatus[] = [
   SubscriptionPaymentStatus.PENDING,
   SubscriptionPaymentStatus.REQUIRES_ACTION,
+];
+const CANCELLABLE_STATUSES: SubscriptionStatus[] = [
+  SubscriptionStatus.ACTIVE,
+  SubscriptionStatus.PAST_DUE,
 ];
 
 function billingError(message: string, statusCode: number, code: string) {
@@ -37,6 +42,60 @@ function isUniqueViolation(error: unknown) {
   );
 }
 
+function paymentView(payment: {
+  id: string;
+  status: SubscriptionPaymentStatus;
+  amountCents: number;
+  currency: string;
+  checkoutUrl: string | null;
+  failureCode: string | null;
+  failureReason: string | null;
+  paidAt: Date | null;
+  failedAt: Date | null;
+  expiresAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  plan: { id: string; code: string; name: string };
+  price: {
+    id: string;
+    amountCents: number;
+    currency: string;
+    interval: BillingInterval;
+  };
+}) {
+  return {
+    id: payment.id,
+    status: payment.status,
+    amountCents: payment.amountCents,
+    currency: payment.currency,
+    checkoutUrl:
+      payment.status === SubscriptionPaymentStatus.REQUIRES_ACTION
+        ? payment.checkoutUrl
+        : null,
+    failureCode: payment.failureCode,
+    failureReason: payment.failureReason,
+    paidAt: payment.paidAt,
+    failedAt: payment.failedAt,
+    expiresAt: payment.expiresAt,
+    createdAt: payment.createdAt,
+    updatedAt: payment.updatedAt,
+    plan: payment.plan,
+    price: payment.price,
+  };
+}
+
+const paymentInclude = {
+  plan: { select: { id: true, code: true, name: true } },
+  price: {
+    select: {
+      id: true,
+      amountCents: true,
+      currency: true,
+      interval: true,
+    },
+  },
+} satisfies Prisma.SubscriptionPaymentInclude;
+
 export class BillingService {
   constructor(
     private readonly db: typeof prisma = prisma,
@@ -45,6 +104,150 @@ export class BillingService {
 
   findSubscription(businessId: string) {
     return getBusinessSubscription(businessId);
+  }
+
+  async listPlans() {
+    const plans = await this.db.plan.findMany({
+      where: { isActive: true, isPublic: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      include: {
+        prices: {
+          where: { isActive: true, interval: BillingInterval.MONTHLY },
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            id: true,
+            amountCents: true,
+            currency: true,
+            interval: true,
+          },
+        },
+        entitlements: {
+          where: { enabled: true },
+          orderBy: { key: "asc" },
+          select: { key: true, limit: true },
+        },
+      },
+    });
+
+    return plans.map((plan) => ({
+      id: plan.id,
+      code: plan.code,
+      name: plan.name,
+      description: plan.description,
+      price: plan.prices[0] ?? null,
+      entitlements: plan.entitlements,
+    }));
+  }
+
+  async listPayments(
+    businessId: string,
+    page = 1,
+    perPage = 20,
+  ) {
+    const where: Prisma.SubscriptionPaymentWhereInput = {
+      subscription: { businessId },
+    };
+    const [items, total] = await Promise.all([
+      this.db.subscriptionPayment.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * perPage,
+        take: perPage,
+        include: paymentInclude,
+      }),
+      this.db.subscriptionPayment.count({ where }),
+    ]);
+    return {
+      items: items.map(paymentView),
+      total,
+      page,
+      perPage,
+    };
+  }
+
+  async getPayment(businessId: string, paymentId: string) {
+    const payment = await this.db.subscriptionPayment.findFirst({
+      where: {
+        id: paymentId,
+        subscription: { businessId },
+      },
+      include: paymentInclude,
+    });
+    if (!payment) {
+      throw billingError(
+        "Subscription payment not found.",
+        404,
+        "SUBSCRIPTION_PAYMENT_NOT_FOUND",
+      );
+    }
+    return paymentView(payment);
+  }
+
+  async cancelAtPeriodEnd(businessId: string, now = new Date()) {
+    const subscription = await this.db.subscription.findUnique({
+      where: { businessId },
+    });
+    if (!subscription) {
+      throw billingError(
+        "Subscription not found for this business.",
+        404,
+        "SUBSCRIPTION_NOT_FOUND",
+      );
+    }
+    if (
+      !CANCELLABLE_STATUSES.includes(subscription.status) ||
+      !subscription.currentPeriodEnd ||
+      subscription.currentPeriodEnd <= now
+    ) {
+      throw billingError(
+        "Only a current paid subscription can be canceled at period end.",
+        409,
+        "SUBSCRIPTION_NOT_CANCELLABLE",
+      );
+    }
+    if (subscription.cancelAtPeriodEnd) return subscription;
+
+    return this.db.subscription.update({
+      where: { id: subscription.id },
+      data: {
+        cancelAtPeriodEnd: true,
+        canceledAt: now,
+      },
+    });
+  }
+
+  async resumeSubscription(businessId: string, now = new Date()) {
+    const subscription = await this.db.subscription.findUnique({
+      where: { businessId },
+    });
+    if (!subscription) {
+      throw billingError(
+        "Subscription not found for this business.",
+        404,
+        "SUBSCRIPTION_NOT_FOUND",
+      );
+    }
+    if (
+      !subscription.cancelAtPeriodEnd ||
+      !CANCELLABLE_STATUSES.includes(subscription.status) ||
+      !subscription.currentPeriodEnd ||
+      subscription.currentPeriodEnd <= now
+    ) {
+      throw billingError(
+        "This subscription cannot be resumed.",
+        409,
+        "SUBSCRIPTION_NOT_RESUMABLE",
+      );
+    }
+
+    return this.db.subscription.update({
+      where: { id: subscription.id },
+      data: {
+        cancelAtPeriodEnd: false,
+        canceledAt: null,
+      },
+    });
   }
 
   private async checkoutPlan(planId?: string) {
