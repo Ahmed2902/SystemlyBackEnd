@@ -18,17 +18,17 @@ router.post(
   billingController.startTrial,
 );
 
-// Create a checkout / payment for subscribing to a plan
-router.post(
-  "/checkout",
-  requireAuth,
-  requireBusinessAccess,
-  validate.validateBody(subscriptionActionBodySchema),
-  billingController.createCheckout,
-);
+// // Create a checkout / payment for subscribing to a plan
+// router.post(
+//   "/checkout",
+//   requireAuth,
+//   requireBusinessAccess,
+//   validate.validateBody(subscriptionActionBodySchema),
+//   billingController.createCheckout,
+// );
 
-// Webhook endpoint for Paymob (no auth)
-// NOTE: raw body capture is done in app.ts (registered before app-wide json parser)
-router.post("/webhook", billingController.webhook);
+// // Webhook endpoint for Paymob (no auth)
+// // NOTE: raw body capture is done in app.ts (registered before app-wide json parser)
+// router.post("/webhook", billingController.webhook);
 
 export default router;
