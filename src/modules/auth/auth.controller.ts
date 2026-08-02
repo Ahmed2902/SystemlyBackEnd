@@ -9,6 +9,8 @@ import {
   registerBodySchema,
   resetPasswordBodySchema,
   verifyEmailQuerySchema,
+  getMeInputSchema,
+  updatePreferredLanguageBodySchema,
 } from "./auth.schema";
 import authService from "./auth.service";
 
@@ -172,6 +174,26 @@ class AuthController {
     }
     clearRefreshCookie(res);
     return ok(res, { message: "Logged out successfully" });
+  }
+
+  async updatePreferredLanguage(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+      const parsed = updatePreferredLanguageBodySchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+      const result = await authService.updatePreferredLanguage(
+        userId,
+        parsed.data.preferredLanguage,
+      );
+      return ok(res, result);
+    } catch (error) {
+      return next(error);
+    }
   }
 
   async getMe(req: Request, res: Response, next: NextFunction) {

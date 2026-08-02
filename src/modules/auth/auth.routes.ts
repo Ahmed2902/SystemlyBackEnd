@@ -23,6 +23,7 @@ import {
   resetPasswordResponseSchema,
   logoutResponseSchema,
   authUserSchema,
+  updatePreferredLanguageBodySchema,
 } from "./auth.schema";
 
 const router = Router();
@@ -171,6 +172,23 @@ router.post(
   }),
   validate.validateBody(resetPasswordBodySchema),
   authController.resetPassword,
+);
+
+router.patch(
+  "/preferences",
+  requireAuth,
+  csrfProtection,
+  doc({
+    summary: "Update platform language preference",
+    description:
+      "Persist the authenticated user's preferred Systemly platform language.",
+    tags: ["auth"],
+    responses: {
+      200: { description: "Language preference updated" },
+    },
+  }),
+  validate.validateBody(updatePreferredLanguageBodySchema),
+  authController.updatePreferredLanguage,
 );
 
 router.get(

@@ -140,6 +140,7 @@ model BusinessUser {
   phone                 String?       @db.VarChar(30)
   phoneVerified         Boolean       @default(false) @map("phone_verified")
   emailVerified         Boolean       @default(false) @map("email_verified")
+  preferredLanguage     String        @default("en") @map("preferred_language") @db.VarChar(5)
   currentRefreshTokenId String?       @map("current_refresh_token_id") @db.Uuid @unique
   role                  Roles
   lastLoginAt           DateTime?     @map("last_login_at")

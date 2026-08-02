@@ -31,7 +31,7 @@ const buildErr = (message: string, statusCode: number, code: string) => {
 
 class AuthService {
   async register(payload: RegisterBody) {
-    const { name, email, password, phone } = payload;
+    const { name, email, password, phone, preferredLanguage } = payload;
     const existing = await prisma.businessUser.findUnique({ where: { email } });
     if (existing) {
       throw buildErr(
@@ -49,6 +49,7 @@ class AuthService {
         email,
         passwordHash,
         phone,
+        preferredLanguage: preferredLanguage ?? "en",
         role: Roles.User,
       },
     });
@@ -64,7 +65,11 @@ class AuthService {
 
     setImmediate(() => {
       void emailService.enqueueVerificationEmail(
-        { name: user.name, email: user.email },
+        {
+          name: user.name,
+          email: user.email,
+          preferredLanguage: user.preferredLanguage,
+        },
         token,
       );
     });
@@ -117,6 +122,8 @@ class AuthService {
         name: user.name,
         email: user.email,
         businessId: user.businessId,
+        role: user.role,
+        preferredLanguage: user.preferredLanguage,
         vertical: user.business?.vertical ?? null,
         timezone: user.business?.timezone ?? null,
       },
@@ -169,6 +176,8 @@ class AuthService {
         name: user.name,
         email: user.email,
         businessId: user.businessId,
+        role: user.role,
+        preferredLanguage: user.preferredLanguage,
         vertical: user.business?.vertical ?? null,
         timezone: user.business?.timezone ?? null,
       },
@@ -298,7 +307,11 @@ class AuthService {
       );
       setImmediate(() => {
         void emailService.enqueueVerificationEmail(
-          { name: user.name, email: user.email },
+          {
+          name: user.name,
+          email: user.email,
+          preferredLanguage: user.preferredLanguage,
+        },
           token,
         );
       });
@@ -318,7 +331,11 @@ class AuthService {
       );
       setImmediate(() => {
         void emailService.enqueuePasswordResetEmail(
-          { name: user.name, email: user.email },
+          {
+          name: user.name,
+          email: user.email,
+          preferredLanguage: user.preferredLanguage,
+        },
           token,
         );
       });
@@ -365,12 +382,25 @@ class AuthService {
     };
   }
 
+  async updatePreferredLanguage(
+    userId: string,
+    preferredLanguage: "en" | "ar",
+  ) {
+    const user = await prisma.businessUser.update({
+      where: { id: userId },
+      data: { preferredLanguage },
+      select: { preferredLanguage: true },
+    });
+    return user;
+  }
+
   async oauthSignIn({
     provider,
     providerId,
     email,
     name,
     emailVerified,
+    preferredLanguage,
   }: OauthSignInInput) {
     if (!email) {
       throw buildErr("OAuth provider did not return an email", 400, "NO_EMAIL");
@@ -397,6 +427,7 @@ class AuthService {
           providerId,
           passwordHash: "",
           emailVerified: !!emailVerified,
+          preferredLanguage: preferredLanguage ?? "en",
           role: Roles.User,
         },
       });
@@ -412,6 +443,10 @@ class AuthService {
 
       if (name && name !== user.name) {
         updateData.name = name;
+      }
+
+      if (preferredLanguage && preferredLanguage !== user.preferredLanguage) {
+        updateData.preferredLanguage = preferredLanguage;
       }
 
       if (user.provider !== provider) {
@@ -456,6 +491,8 @@ class AuthService {
         name: user.name,
         email: user.email,
         businessId: user.businessId,
+        role: user.role,
+        preferredLanguage: user.preferredLanguage,
       },
     };
   }

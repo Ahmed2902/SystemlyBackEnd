@@ -1,37 +1,74 @@
 import { enqueueSendEmail } from "../../queues/emailQueue";
+import { prisma } from "../db/prisma";
+import {
+  normalizeEmailLocale,
+  type EmailLocale,
+} from "../utils/localized-email.templates";
+
+type LocalizedUser = {
+  name: string;
+  email: string;
+  preferredLanguage?: string | null;
+};
+
+function localeFromUser(user: LocalizedUser): EmailLocale {
+  return normalizeEmailLocale(user.preferredLanguage);
+}
+
+async function resolveLocalizedUser(user: LocalizedUser): Promise<LocalizedUser> {
+  if (user.preferredLanguage) return user;
+  const stored = await prisma.businessUser.findUnique({
+    where: { email: user.email },
+    select: { preferredLanguage: true },
+  });
+  return { ...user, preferredLanguage: stored?.preferredLanguage ?? "en" };
+}
 
 export const makeVerificationPayload = (
-  user: { name: string; email: string },
+  user: LocalizedUser,
   token: string,
 ) => {
   const verificationUrl = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
   return {
     type: "verification",
     to: user.email,
-    data: { name: user.name, verificationUrl },
+    data: {
+      name: user.name,
+      verificationUrl,
+      locale: localeFromUser(user),
+    },
     tenantId: undefined,
   };
 };
 
-export const makeWelcomePayload = (user: { name: string; email: string }) => {
-  const dashboardUrl = `${process.env.FRONTEND_URL}/dashboard`;
+export const makeWelcomePayload = (user: LocalizedUser) => {
+  const dashboardUrl = `${process.env.FRONTEND_URL}/operations`;
   const websiteUrl = process.env.FRONTEND_URL || process.env.APP_URL || "";
   return {
     type: "welcome",
     to: user.email,
-    data: { name: user.name, dashboardUrl, websiteUrl },
+    data: {
+      name: user.name,
+      dashboardUrl,
+      websiteUrl,
+      locale: localeFromUser(user),
+    },
   };
 };
 
 export const makePasswordResetPayload = (
-  user: { name: string; email: string },
+  user: LocalizedUser,
   resetToken: string,
 ) => {
   const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
   return {
     type: "password_reset",
     to: user.email,
-    data: { name: user.name, resetUrl },
+    data: {
+      name: user.name,
+      resetUrl,
+      locale: localeFromUser(user),
+    },
   };
 };
 
@@ -40,10 +77,17 @@ export const makeAppointmentPayload = (
   payload: Record<string, any>,
   subtype: "confirmation" | "reminder",
 ) => {
+  const requestedLocale = payload.locale ?? payload.businessLanguage;
   return {
     type: "appointment",
     to,
-    data: { ...payload, subtype },
+    data: {
+      ...payload,
+      subtype,
+      ...(requestedLocale
+        ? { locale: normalizeEmailLocale(requestedLocale) }
+        : {}),
+    },
     tenantId: payload.businessId || payload.tenantId,
     idempotencyKey: payload.idempotencyKey,
   };
@@ -55,7 +99,13 @@ export const makeStaffInvitePayload = (
 ) => ({
   type: "subscription",
   to,
-  data: { ...payload, subtype: "staff_invite" },
+  data: {
+    ...payload,
+    subtype: "staff_invite",
+    locale: normalizeEmailLocale(
+      payload.locale ?? payload.preferredLanguage ?? payload.businessLanguage,
+    ),
+  },
   tenantId: payload.businessId || payload.tenantId,
   idempotencyKey: payload.idempotencyKey,
 });
@@ -67,29 +117,45 @@ export const makeSubscriptionPayload = (
 ) => ({
   type: "subscription",
   to,
-  data: { ...payload, subtype },
+  data: {
+    ...payload,
+    subtype,
+    locale: normalizeEmailLocale(
+      payload.locale ?? payload.preferredLanguage,
+    ),
+  },
   tenantId: payload.businessId || payload.tenantId,
   idempotencyKey: payload.idempotencyKey,
 });
 
 export const enqueueVerificationEmail = async (
-  user: { name: string; email: string },
+  user: LocalizedUser,
   token: string,
   opts: any = {},
 ) => {
-  return enqueueSendEmail(makeVerificationPayload(user, token), opts);
+  const localizedUser = await resolveLocalizedUser(user);
+  return enqueueSendEmail(makeVerificationPayload(localizedUser, token), opts);
 };
 
 export const enqueueWelcomeEmail = async (
-  user: { name: string; email: string },
+  user: LocalizedUser,
   opts: any = {},
-) => enqueueSendEmail(makeWelcomePayload(user), opts);
+) => {
+  const localizedUser = await resolveLocalizedUser(user);
+  return enqueueSendEmail(makeWelcomePayload(localizedUser), opts);
+};
 
 export const enqueuePasswordResetEmail = async (
-  user: { name: string; email: string },
+  user: LocalizedUser,
   resetToken: string,
   opts: any = {},
-) => enqueueSendEmail(makePasswordResetPayload(user, resetToken), opts);
+) => {
+  const localizedUser = await resolveLocalizedUser(user);
+  return enqueueSendEmail(
+    makePasswordResetPayload(localizedUser, resetToken),
+    opts,
+  );
+};
 
 export const enqueueAppointmentConfirmation = async (
   to: string,
@@ -108,57 +174,108 @@ export const enqueueStaffInviteEmail = async (
   to: string,
   payload: Record<string, any>,
   opts: any = {},
-) => enqueueSendEmail(makeStaffInvitePayload(to, payload), opts);
+) => {
+  let preferredLanguage =
+    payload.locale ?? payload.preferredLanguage ?? payload.businessLanguage;
+  const businessId = payload.businessId ?? payload.tenantId;
+
+  if (!preferredLanguage && businessId) {
+    const owner = await prisma.businessUser.findFirst({
+      where: {
+        businessId,
+        role: { in: ["BusinessAdmin", "SuperAdmin"] },
+      },
+      orderBy: { createdAt: "asc" },
+      select: { preferredLanguage: true },
+    });
+    preferredLanguage = owner?.preferredLanguage;
+  }
+
+  return enqueueSendEmail(
+    makeStaffInvitePayload(to, { ...payload, preferredLanguage }),
+    opts,
+  );
+};
 
 export const enqueueTrialStartedEmail = async (
-  user: { name: string; email: string },
+  user: LocalizedUser,
   payload: Record<string, any>,
   opts: any = {},
-) =>
-  enqueueSendEmail(
-    makeSubscriptionPayload(user.email, payload, "trial_started"),
+) => {
+  const localizedUser = await resolveLocalizedUser(user);
+  return enqueueSendEmail(
+    makeSubscriptionPayload(
+      localizedUser.email,
+      { ...payload, preferredLanguage: localizedUser.preferredLanguage },
+      "trial_started",
+    ),
     opts,
   );
+};
 
 export const enqueueTrialEndingEmail = async (
-  user: { name: string; email: string },
+  user: LocalizedUser,
   payload: Record<string, any>,
   opts: any = {},
-) =>
-  enqueueSendEmail(
-    makeSubscriptionPayload(user.email, payload, "trial_ending"),
+) => {
+  const localizedUser = await resolveLocalizedUser(user);
+  return enqueueSendEmail(
+    makeSubscriptionPayload(
+      localizedUser.email,
+      { ...payload, preferredLanguage: localizedUser.preferredLanguage },
+      "trial_ending",
+    ),
     opts,
   );
+};
 
 export const enqueueTrialExpiredEmail = async (
-  user: { name: string; email: string },
+  user: LocalizedUser,
   payload: Record<string, any>,
   opts: any = {},
-) =>
-  enqueueSendEmail(
-    makeSubscriptionPayload(user.email, payload, "trial_expired"),
+) => {
+  const localizedUser = await resolveLocalizedUser(user);
+  return enqueueSendEmail(
+    makeSubscriptionPayload(
+      localizedUser.email,
+      { ...payload, preferredLanguage: localizedUser.preferredLanguage },
+      "trial_expired",
+    ),
     opts,
   );
+};
 
 export const enqueueSubscriptionActivatedEmail = async (
-  user: { name: string; email: string },
+  user: LocalizedUser,
   payload: Record<string, any>,
   opts: any = {},
-) =>
-  enqueueSendEmail(
-    makeSubscriptionPayload(user.email, payload, "subscription_activated"),
+) => {
+  const localizedUser = await resolveLocalizedUser(user);
+  return enqueueSendEmail(
+    makeSubscriptionPayload(
+      localizedUser.email,
+      { ...payload, preferredLanguage: localizedUser.preferredLanguage },
+      "subscription_activated",
+    ),
     opts,
   );
+};
 
 export const enqueueSubscriptionPaymentFailedEmail = async (
-  user: { name: string; email: string },
+  user: LocalizedUser,
   payload: Record<string, any>,
   opts: any = {},
-) =>
-  enqueueSendEmail(
-    makeSubscriptionPayload(user.email, payload, "subscription_payment_failed"),
+) => {
+  const localizedUser = await resolveLocalizedUser(user);
+  return enqueueSendEmail(
+    makeSubscriptionPayload(
+      localizedUser.email,
+      { ...payload, preferredLanguage: localizedUser.preferredLanguage },
+      "subscription_payment_failed",
+    ),
     opts,
   );
+};
 
 export default {
   enqueueVerificationEmail,
