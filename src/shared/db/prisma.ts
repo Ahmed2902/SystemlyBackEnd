@@ -1,8 +1,42 @@
+import "../config/env";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { performance } from "node:perf_hooks";
 import { recordPrismaQuery } from "../observability/request-context";
 
-const basePrisma = new PrismaClient();
+function getPgConnectionString() {
+  const rawConnectionString =
+    process.env.DATABASE_URL ||
+    process.env.PRISMA_DATABASE_URL ||
+    process.env.SUPABASE_TRANSACTION_POOLER ||
+    process.env.SUPABASE_CONNECTION_STRING;
+
+  if (!rawConnectionString) {
+    throw new Error("Missing database connection string.");
+  }
+
+  // Let node-postgres own TLS configuration. Prisma's native Windows TLS
+  // engine can fail against Supabase's pooler before authentication starts.
+  // The connection remains encrypted; certificate verification can be enabled
+  // when a trusted CA is configured through DATABASE_SSL_REJECT_UNAUTHORIZED.
+  const url = new URL(rawConnectionString);
+  url.searchParams.delete("sslmode");
+  return url.toString();
+}
+
+const adapter = new PrismaPg({
+  connectionString: getPgConnectionString(),
+  ssl: {
+    rejectUnauthorized:
+      process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === "true",
+  },
+  max: Number(process.env.DATABASE_POOL_MAX || 5),
+  connectionTimeoutMillis: Number(
+    process.env.DATABASE_CONNECTION_TIMEOUT_MS || 10_000,
+  ),
+});
+
+const basePrisma = new PrismaClient({ adapter });
 
 async function measurePrismaOperation<T>(
   model: string | null,

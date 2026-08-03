@@ -139,11 +139,7 @@ export class BillingService {
       entitlements: plan.entitlements,
     }));
   }
-  async listPayments(
-    businessId: string,
-    page = 1,
-    perPage = 20,
-  ) {
+  async listPayments(businessId: string, page = 1, perPage = 20) {
     const where: Prisma.SubscriptionPaymentWhereInput = {
       subscription: { businessId },
     };
@@ -264,11 +260,7 @@ export class BillingService {
     });
 
     if (!plan) {
-      throw billingError(
-        "Subscription plan not found.",
-        404,
-        "PLAN_NOT_FOUND",
-      );
+      throw billingError("Subscription plan not found.", 404, "PLAN_NOT_FOUND");
     }
 
     const price = plan.prices[0] ?? null;
@@ -283,11 +275,7 @@ export class BillingService {
     return { plan, price };
   }
 
-  private findOpenPayment(
-    subscriptionId: string,
-    planId: string,
-    now: Date,
-  ) {
+  private findOpenPayment(subscriptionId: string, planId: string, now: Date) {
     return this.db.subscriptionPayment.findFirst({
       where: {
         subscriptionId,
@@ -333,11 +321,7 @@ export class BillingService {
     }
   }
 
-  async createCheckout(
-    businessId: string,
-    planId?: string,
-    now = new Date(),
-  ) {
+  async createCheckout(businessId: string, planId?: string, now = new Date()) {
     const adapter = this.providers.get(BillingProvider.EASYKASH);
     if (!adapter.capabilities.checkout) {
       throw billingProviderNotConfigured();
@@ -436,7 +420,9 @@ export class BillingService {
               ? String((error as Error & { code?: string }).code ?? "") || null
               : null,
           failureReason:
-            error instanceof Error ? error.message : "Checkout creation failed.",
+            error instanceof Error
+              ? error.message
+              : "Checkout creation failed.",
           failedAt: now,
         },
       });
