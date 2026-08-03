@@ -7,26 +7,35 @@ import {
 } from "../../shared/middleware/auth.middleware";
 import validate from "../../shared/middleware/validate.middleware";
 import billingController from "./billing.controller";
-import { subscriptionActionBodySchema } from "./billing.schema";
+import {
+  billingPaymentParamsSchema,
+  billingPaymentsQuerySchema,
+  subscriptionActionBodySchema,
+} from "./billing.schema";
 
 const router = Router();
 const OWNER_ROLES = [Roles.BusinessAdmin, Roles.SuperAdmin];
 
-router.get(
-  "/subscription",
-  requireAuth,
-  requireBusinessAccess,
-  requireRole(OWNER_ROLES),
-  billingController.getSubscription,
-);
+router.use(requireAuth, requireBusinessAccess, requireRole(OWNER_ROLES));
 
+router.get("/subscription", billingController.getSubscription);
+router.get("/plans", billingController.listPlans);
+router.get(
+  "/payments",
+  validate.validateQuery(billingPaymentsQuerySchema),
+  billingController.listPayments,
+);
+router.get(
+  "/payments/:paymentId",
+  validate.validateParams(billingPaymentParamsSchema),
+  billingController.getPayment,
+);
 router.post(
   "/checkout",
-  requireAuth,
-  requireBusinessAccess,
-  requireRole(OWNER_ROLES),
   validate.validateBody(subscriptionActionBodySchema),
   billingController.createCheckout,
 );
+router.post("/cancel", billingController.cancel);
+router.post("/resume", billingController.resume);
 
 export default router;
