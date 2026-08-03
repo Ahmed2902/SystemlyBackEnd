@@ -1,8 +1,5 @@
-/*
-  Warnings:
-
-  - You are about to drop the column `paymob_subscription_id` on the `subscriptions` table. All the data in the column will be lost.
-
-*/
--- AlterTable
-ALTER TABLE "subscriptions" DROP COLUMN "paymob_subscription_id";
+-- A prior migration already removes this legacy column on a clean database.
+-- Keep this migration as an idempotent compatibility step for environments
+-- where the earlier cleanup was not applied consistently.
+ALTER TABLE "subscriptions"
+  DROP COLUMN IF EXISTS "paymob_subscription_id";
