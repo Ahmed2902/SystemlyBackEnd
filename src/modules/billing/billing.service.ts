@@ -82,6 +82,9 @@ function paymentView(payment: {
     plan: payment.plan,
     price: payment.price,
   };
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
 }
 
 const paymentInclude = {
@@ -262,7 +265,128 @@ export class BillingService {
           take: 1,
         },
       },
+      orderBy: { createdAt: "desc" },
     });
+  }
+
+  private async createPendingPayment(input: {
+    subscriptionId: string;
+    planId: string;
+    priceId: string;
+    amountCents: number;
+    currency: string;
+    expiresAt: Date;
+    now: Date;
+  }) {
+    try {
+      return await this.db.subscriptionPayment.create({
+        data: {
+          subscriptionId: input.subscriptionId,
+          planId: input.planId,
+          priceId: input.priceId,
+          provider: BillingProvider.EASYKASH,
+          status: SubscriptionPaymentStatus.PENDING,
+          amountCents: input.amountCents,
+          currency: input.currency,
+          expiresAt: input.expiresAt,
+        },
+      });
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      const existing = await this.findOpenPayment(
+        input.subscriptionId,
+        input.planId,
+        input.now,
+      );
+      if (!existing) throw error;
+      return existing;
+    }
+  }
+
+  async createCheckout(
+    businessId: string,
+    planId?: string,
+    now = new Date(),
+  ) {
+    const adapter = this.providers.get(BillingProvider.EASYKASH);
+    if (!adapter.capabilities.checkout) {
+      throw billingProviderNotConfigured();
+    }
+
+    const [{ plan, price }, subscription, owner] = await Promise.all([
+      this.checkoutPlan(planId),
+      this.db.subscription.findUnique({
+        where: { businessId },
+        include: { business: true },
+      }),
+      this.db.businessUser.findFirst({
+        where: { businessId, role: Roles.BusinessAdmin },
+        orderBy: { createdAt: "asc" },
+        select: { name: true, email: true, phone: true },
+      }),
+    ]);
+
+    if (!subscription?.business) {
+      throw billingError(
+        "Subscription not found for this business.",
+        404,
+        "SUBSCRIPTION_NOT_FOUND",
+      );
+    }
+    if (!owner?.email) {
+      throw billingError(
+        "The business owner needs an email address before checkout.",
+        409,
+        "BILLING_CUSTOMER_INCOMPLETE",
+      );
+    }
+
+    let payment = await this.findOpenPayment(subscription.id, plan.id, now);
+    if (payment?.checkoutUrl) {
+      return {
+        payment,
+        checkoutUrl: payment.checkoutUrl,
+        reused: true,
+      };
+    }
+
+    const expiresAt = new Date(now.getTime() + CHECKOUT_TTL_MS);
+    payment ??= await this.createPendingPayment({
+      subscriptionId: subscription.id,
+      planId: plan.id,
+      priceId: price.id,
+      amountCents: price.amountCents,
+      currency: price.currency,
+      expiresAt,
+      now,
+    });
+
+    try {
+      const checkout = await adapter.createCheckout({
+        internalPaymentId: payment.id,
+        amountCents: payment.amountCents,
+        currency: payment.currency,
+        description: `${plan.name} monthly subscription`,
+        customer: {
+          name: owner.name,
+          email: owner.email,
+          phone: owner.phone,
+        },
+        returnUrl: `${process.env.FRONTEND_URL ?? "http://localhost:3000"}/operations/settings/billing/return?paymentId=${encodeURIComponent(payment.id)}`,
+      });
+
+      const updatedPayment = await this.db.subscriptionPayment.update({
+        where: { id: payment.id },
+        data: {
+          status: SubscriptionPaymentStatus.REQUIRES_ACTION,
+          providerCheckoutId: checkout.providerCheckoutId,
+          checkoutUrl: checkout.checkoutUrl,
+          expiresAt: checkout.expiresAt ?? expiresAt,
+          failureCode: null,
+          failureReason: null,
+          failedAt: null,
+        },
+      });
 
     if (!plan) {
       throw billingError(
