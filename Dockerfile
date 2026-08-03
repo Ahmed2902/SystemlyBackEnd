@@ -1,35 +1,32 @@
-# Multi-stage Dockerfile for Hgezli
+FROM node:22-bookworm-slim AS builder
 
-FROM node:18-bullseye-slim AS builder
 WORKDIR /app
-ARG DATABASE_URL="postgres://postgres:postgres@db:5432/hgezli"
+
+ARG DATABASE_URL="postgresql://postgres:postgres@localhost:5432/systemly_build"
 ENV DATABASE_URL=$DATABASE_URL
 
-# Install deps
-COPY package.json package-lock.json* ./
-RUN npm install --silent
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Copy source and build
 COPY . .
-## Generate prisma client for linux (so TS can import generated types)
-RUN npx prisma generate --schema=prisma/schema.prisma
-
-# Build TypeScript
+RUN npm run prisma:generate
 RUN npm run build
+RUN npm prune --omit=dev
 
-# Final image
-FROM node:18-bullseye-slim
+FROM node:22-bookworm-slim AS runtime
+
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Copy built assets and node_modules
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
-COPY package.json ./
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/docker-entrypoint.sh ./docker-entrypoint.sh
-RUN chmod +x ./docker-entrypoint.sh
+COPY package.json ./package.json
 
 EXPOSE 3000
-ENTRYPOINT ["/bin/sh", "/app/docker-entrypoint.sh"]
+
 CMD ["node", "dist/server.js"]
