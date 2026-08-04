@@ -1,12 +1,16 @@
-import type { Server } from "http";
+import "./src/instrument-api";
 
-import * as Sentry from "@sentry/node";
+import type { Server } from "http";
 import app from "./app";
-import { APP_CONFIG, SENTRY } from "./src/shared/config/config";
+import { APP_CONFIG } from "./src/shared/config/config";
 import {
   connectPrisma,
   disconnectPrisma,
 } from "./src/shared/db/prisma";
+import {
+  captureException,
+  flushSentry,
+} from "./src/shared/observability/sentry";
 
 const PORT = Number(process.env.PORT) || APP_CONFIG.port || 3000;
 const SHUTDOWN_DEADLINE_MS = 10_000;
@@ -14,16 +18,6 @@ let server: Server | undefined;
 let shuttingDown = false;
 
 async function startServer() {
-  if (SENTRY.DSN) {
-    Sentry.init({
-      dsn: SENTRY.DSN,
-      environment: SENTRY.ENV,
-      release: SENTRY.RELEASE,
-      tracesSampleRate: 0.05,
-    });
-    console.log("Sentry initialized");
-  }
-
   await connectPrisma();
 
   server = app.listen(PORT, "0.0.0.0", () => {
@@ -42,9 +36,6 @@ async function shutdown(signal: string, exitCode = 0) {
   shuttingDown = true;
   console.log(`${signal} received. Shutting down gracefully...`);
 
-  // A stuck handler or upgraded socket must not keep a corrupted process alive
-  // forever after an uncaught exception. This timer is intentionally independent
-  // of HTTP requestTimeout, which does not bound handler execution.
   const deadline = setTimeout(() => {
     console.error("Shutdown deadline exceeded; forcing process exit.");
     server?.closeAllConnections();
@@ -66,6 +57,7 @@ async function shutdown(signal: string, exitCode = 0) {
     await disconnectPrisma().catch((error: unknown) => {
       console.error("Prisma disconnect failed:", error);
     });
+    await flushSentry();
     clearTimeout(deadline);
     process.exit(exitCode);
   }
@@ -81,18 +73,19 @@ process.on("SIGTERM", () => {
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled promise rejection:", reason);
-  if (SENTRY.DSN) Sentry.captureException(reason as unknown);
+  captureException(reason, "api", { failure_type: "unhandled_rejection" });
 });
 
 process.on("uncaughtException", (error) => {
   console.error("Uncaught exception:", error);
-  if (SENTRY.DSN) Sentry.captureException(error);
+  captureException(error, "api", { failure_type: "uncaught_exception" });
   void shutdown("uncaughtException", 1);
 });
 
 void startServer().catch(async (error: unknown) => {
   console.error("Server startup failed:", error);
-  if (SENTRY.DSN) Sentry.captureException(error);
+  captureException(error, "api", { failure_type: "startup" });
   await disconnectPrisma().catch(() => undefined);
+  await flushSentry();
   process.exit(1);
 });
