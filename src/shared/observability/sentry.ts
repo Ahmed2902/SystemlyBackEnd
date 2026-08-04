@@ -5,14 +5,24 @@ export type SentryComponent = "api" | "worker" | "worker-once";
 
 let initialized = false;
 
+function isSentryEnabled(): boolean {
+  return Boolean(SENTRY.DSN) && process.env.NODE_ENV !== "test";
+}
+
+function resolveTraceSampleRate(): number {
+  const parsed = Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(1, Math.max(0, parsed));
+}
+
 export function initializeSentry(component: SentryComponent): boolean {
-  if (initialized || !SENTRY.ENABLED) return initialized;
+  if (initialized || !isSentryEnabled()) return initialized;
 
   SentrySdk.init({
     dsn: SENTRY.DSN,
     environment: SENTRY.ENV,
     release: SENTRY.RELEASE,
-    tracesSampleRate: SENTRY.TRACES_SAMPLE_RATE,
+    tracesSampleRate: resolveTraceSampleRate(),
     sendDefaultPii: false,
     beforeSend(event) {
       if (event.request) {
@@ -20,7 +30,9 @@ export function initializeSentry(component: SentryComponent): boolean {
         delete event.request.data;
         if (event.request.headers) {
           delete event.request.headers.authorization;
+          delete event.request.headers.Authorization;
           delete event.request.headers.cookie;
+          delete event.request.headers.Cookie;
         }
       }
       return event;
@@ -41,7 +53,7 @@ export function captureException(
   component: SentryComponent,
   tags: Record<string, string> = {},
 ): string | undefined {
-  if (!SENTRY.ENABLED) return undefined;
+  if (!isSentryEnabled()) return undefined;
 
   return SentrySdk.withScope((scope) => {
     scope.setTag("component", component);
@@ -53,6 +65,6 @@ export function captureException(
 }
 
 export async function flushSentry(timeoutMs = 2_000): Promise<boolean> {
-  if (!SENTRY.ENABLED) return true;
+  if (!isSentryEnabled()) return true;
   return SentrySdk.flush(timeoutMs);
 }
