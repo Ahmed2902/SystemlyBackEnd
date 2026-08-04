@@ -29,4 +29,9 @@ export const del = async (key: string) => {
   await client.del(key);
 };
 
-export default { get, set, del };
+export const disconnect = async () => {
+  if (client.status === "end") return;
+  await client.quit();
+};
+
+export default { get, set, del, disconnect };

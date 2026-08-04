@@ -14,9 +14,9 @@ permissions:
 
 jobs:
   build:
-    name: Generate, build and validate OpenAPI
+    name: Generate, build, validate OpenAPI and container
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hgezli_ci?schema=public
       NODE_ENV: test
@@ -64,6 +64,9 @@ jobs:
           path: openapi.log
           if-no-files-found: ignore
           retention-days: 3
+
+      - name: Build production container
+        run: docker build --tag systemly-backend:ci .
 
   test:
     name: Test with PostgreSQL

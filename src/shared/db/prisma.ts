@@ -4,7 +4,14 @@ import { PrismaClient } from "@prisma/client";
 import { performance } from "node:perf_hooks";
 import { recordPrismaQuery } from "../observability/request-context";
 
-function getPgConnectionString() {
+const LOCAL_DATABASE_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+function parseBoolean(value: string | undefined) {
+  if (value === undefined) return undefined;
+  return ["1", "true", "yes"].includes(value.trim().toLowerCase());
+}
+
+function getPgConnectionConfig() {
   const rawConnectionString =
     process.env.DATABASE_URL ||
     process.env.PRISMA_DATABASE_URL ||
@@ -17,19 +24,30 @@ function getPgConnectionString() {
 
   // Let node-postgres own TLS configuration. Prisma's native Windows TLS
   // engine can fail against Supabase's pooler before authentication starts.
-  // The connection remains encrypted; certificate verification can be enabled
-  // when a trusted CA is configured through DATABASE_SSL_REJECT_UNAUTHORIZED.
   const url = new URL(rawConnectionString);
+  const sslMode = url.searchParams.get("sslmode")?.toLowerCase();
   url.searchParams.delete("sslmode");
-  return url.toString();
+
+  const explicitSsl = parseBoolean(process.env.DATABASE_SSL_ENABLED);
+  const sslDisabledByUrl = sslMode === "disable";
+  const useSsl =
+    explicitSsl ??
+    (!sslDisabledByUrl && !LOCAL_DATABASE_HOSTS.has(url.hostname.toLowerCase()));
+
+  return {
+    connectionString: url.toString(),
+    ssl: useSsl
+      ? {
+          rejectUnauthorized:
+            process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === "true",
+        }
+      : false,
+  } as const;
 }
 
+const connectionConfig = getPgConnectionConfig();
 const adapter = new PrismaPg({
-  connectionString: getPgConnectionString(),
-  ssl: {
-    rejectUnauthorized:
-      process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === "true",
-  },
+  ...connectionConfig,
   max: Number(process.env.DATABASE_POOL_MAX || 5),
   connectionTimeoutMillis: Number(
     process.env.DATABASE_CONNECTION_TIMEOUT_MS || 10_000,
