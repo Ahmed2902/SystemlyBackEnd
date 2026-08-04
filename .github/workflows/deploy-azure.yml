@@ -4,7 +4,6 @@ on:
   workflow_run:
     workflows: ["Backend CI"]
     types: [completed]
-  workflow_dispatch:
 
 concurrency:
   group: systemly-production-backend
@@ -16,25 +15,22 @@ permissions:
 
 jobs:
   deploy:
-    name: Migrate and deploy API and worker
+    name: Migrate and deploy API and worker job
     if: >-
       vars.AZURE_DEPLOY_ENABLED == 'true' &&
-      (
-        github.event_name == 'workflow_dispatch' ||
-        (
-          github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.head_branch == 'main'
-        )
-      )
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 35
     environment: production
     env:
-      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
       AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
       AZURE_CONTAINER_REGISTRY: ${{ vars.AZURE_CONTAINER_REGISTRY }}
       AZURE_API_APP: ${{ vars.AZURE_API_APP }}
-      AZURE_WORKER_APP: ${{ vars.AZURE_WORKER_APP }}
+      AZURE_WORKER_JOB: ${{ vars.AZURE_WORKER_JOB }}
 
     steps:
       - name: Checkout the tested revision
@@ -54,7 +50,7 @@ jobs:
       - name: Generate Prisma client
         run: npm run prisma:generate
         env:
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Log in to Azure with OIDC
         uses: azure/login@v2
@@ -70,10 +66,10 @@ jobs:
           : "${AZURE_RESOURCE_GROUP:?Set the AZURE_RESOURCE_GROUP production variable}"
           : "${AZURE_CONTAINER_REGISTRY:?Set the AZURE_CONTAINER_REGISTRY production variable}"
           : "${AZURE_API_APP:?Set the AZURE_API_APP production variable}"
-          : "${AZURE_WORKER_APP:?Set the AZURE_WORKER_APP production variable}"
-          : "${PRODUCTION_DATABASE_URL:?Set the PRODUCTION_DATABASE_URL production secret}"
+          : "${AZURE_WORKER_JOB:?Set the AZURE_WORKER_JOB production variable}"
+          : "${DATABASE_URL:?Set the DATABASE_URL production secret}"
         env:
-          PRODUCTION_DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Install Container Apps CLI extension
         run: az extension add --name containerapp --upgrade
@@ -91,7 +87,7 @@ jobs:
         run: npm run prisma:migrate:deploy
         env:
           NODE_ENV: production
-          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Deploy API revision
         shell: bash
@@ -114,7 +110,13 @@ jobs:
             --output tsv)"
 
           for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error "https://$fqdn/health/ready"; then
+            if curl \
+              --fail \
+              --silent \
+              --show-error \
+              --connect-timeout 5 \
+              --max-time 10 \
+              "https://$fqdn/health/ready"; then
               echo
               echo "API is ready at https://$fqdn"
               exit 0
@@ -126,14 +128,14 @@ jobs:
           echo "API did not become ready in time."
           exit 1
 
-      - name: Deploy worker revision
+      - name: Deploy scheduled worker job image
         shell: bash
         run: |
           set -euo pipefail
           image="$AZURE_CONTAINER_REGISTRY.azurecr.io/systemly-backend:$DEPLOY_SHA"
-          az containerapp update \
+          az containerapp job update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --name "$AZURE_WORKER_APP" \
+            --name "$AZURE_WORKER_JOB" \
             --image "$image"
 
       - name: Deployment summary
@@ -142,4 +144,4 @@ jobs:
           echo "- Revision: \`$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Database migrations: applied before rollout" >> "$GITHUB_STEP_SUMMARY"
           echo "- API app: \`$AZURE_API_APP\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Worker app: \`$AZURE_WORKER_APP\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Scheduled worker job: \`$AZURE_WORKER_JOB\`" >> "$GITHUB_STEP_SUMMARY"
