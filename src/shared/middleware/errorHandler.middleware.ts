@@ -1,5 +1,9 @@
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
+import {
+  captureException,
+  shouldCaptureHttpError,
+} from "../observability/sentry";
 
 type AppError = Error & {
   code?: string;
@@ -45,7 +49,7 @@ const getPrismaErrorResponse = (error: { code: string }) => {
 
 export const errorHandler = (
   error: AppError,
-  _req: Request,
+  req: Request,
   res: Response,
   _next: NextFunction,
 ) => {
@@ -96,7 +100,17 @@ export const errorHandler = (
     res.setHeader("Retry-After", "3600");
   }
 
-  res.status(Number(error.statusCode) || 500).json({
+  const statusCode = Number(error.statusCode) || 500;
+  if (shouldCaptureHttpError(statusCode)) {
+    captureException(error, "api", {
+      error_code: error.code || "INTERNAL_ERROR",
+      http_method: req.method,
+      http_route: req.route?.path || req.path,
+      http_status: String(statusCode),
+    });
+  }
+
+  res.status(statusCode).json({
     ok: false,
     success: false,
     message: error.message || "Internal server error",

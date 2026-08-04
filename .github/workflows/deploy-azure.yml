@@ -97,7 +97,10 @@ jobs:
           az containerapp update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_API_APP" \
-            --image "$image"
+            --image "$image" \
+            --set-env-vars \
+              "SENTRY_ENV=production" \
+              "SENTRY_RELEASE=systemly-backend@$DEPLOY_SHA"
 
       - name: Wait for API readiness
         shell: bash
@@ -136,12 +139,16 @@ jobs:
           az containerapp job update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_WORKER_JOB" \
-            --image "$image"
+            --image "$image" \
+            --set-env-vars \
+              "SENTRY_ENV=production" \
+              "SENTRY_RELEASE=systemly-backend@$DEPLOY_SHA"
 
       - name: Deployment summary
         run: |
           echo "### Systemly backend deployment" >> "$GITHUB_STEP_SUMMARY"
           echo "- Revision: \`$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Sentry release: \`systemly-backend@$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Database migrations: applied before rollout" >> "$GITHUB_STEP_SUMMARY"
           echo "- API app: \`$AZURE_API_APP\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Scheduled worker job: \`$AZURE_WORKER_JOB\`" >> "$GITHUB_STEP_SUMMARY"
