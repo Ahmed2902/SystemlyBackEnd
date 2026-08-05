@@ -11,6 +11,7 @@
     "prisma:generate": "npx prisma generate --schema=prisma/schema.prisma",
     "prisma:migrate:deploy": "npx prisma migrate deploy --schema=prisma/schema.prisma",
     "seed:plans": "node dist/src/scripts/seedPlans.js",
+    "sentry:verify": "npm run build && node dist/src/scripts/verifySentry.js",
     "test": "jest --runInBand --forceExit",
     "validate:openapi": "node scripts/validate-openapi.js",
     "generate:openapi": "node scripts/generate-openapi.js",
@@ -34,7 +35,6 @@
     "cloudinary": "^2.9.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
-    "csurf": "^1.11.0",
     "dotenv": "^17.4.1",
     "dotenv-expand": "^13.0.0",
     "express": "^5.2.1",
@@ -63,7 +63,6 @@
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^9.0.0",
-    "@types/csurf": "^1.11.5",
     "@types/express": "^5.0.6",
     "@types/luxon": "^3.7.2",
     "@types/node": "^25.6.0",
