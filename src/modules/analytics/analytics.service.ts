@@ -1,39 +1,37 @@
 import { DateTime } from "luxon";
-import { prisma } from "../../shared/db/prisma";
 import redis from "../../shared/config/redis";
+import { prisma } from "../../shared/db/prisma";
+import { Errors } from "../../shared/errors/application-error";
 import {
-  resolveRange,
-  BUSINESS_TIMEZONE,
-  type AnalyticsPreset,
-} from "./presets";
-import * as revenueQueries from "./queries/revenue.queries";
+  calculateChange,
+  calculateRate,
+  calculateWeightedRate,
+  roundPercentage,
+} from "./comparisons";
+import {
+  periodCacheKey,
+  resolveAnalyticsPeriod,
+  type AnalyticsPeriodInput,
+  type ResolvedAnalyticsPeriod,
+} from "./periods";
 import * as customerQueries from "./queries/customer.queries";
-import * as summaryQueries from "./queries/summary.queries";
-import * as staffQueries from "./queries/staff.queries";
-import * as operationsQueries from "./queries/operations.queries";
 import * as growthQueries from "./queries/growth.queries";
+import * as operationsQueries from "./queries/operations.queries";
+import * as revenueQueries from "./queries/revenue.queries";
+import * as staffQueries from "./queries/staff.queries";
+import * as summaryQueries from "./queries/summary.queries";
 
 const CACHE_TTL_SECONDS = 120;
-const CACHE_VERSION = "v5";
 const DEFAULT_LAPSED_DAYS = 45;
 const BUSINESS_META_TTL_MS = 5 * 60_000;
 const MAX_BUSINESS_META_ENTRIES = 250;
 const MAX_ANALYTICS_IN_FLIGHT = 250;
 
-export class AnalyticsError extends Error {
-  constructor(
-    message: string,
-    public statusCode: number,
-    public code: string,
-  ) {
-    super(message);
-  }
-}
-
 interface BusinessMeta {
   id: string;
   name: string;
   createdAt: Date;
+  timezone: string;
 }
 
 type BusinessMetaEntry = { value: BusinessMeta; expiresAt: number };
@@ -42,6 +40,10 @@ const businessMetaCache = new Map<string, BusinessMetaEntry>();
 const businessMetaInFlight = new Map<string, Promise<BusinessMeta>>();
 const analyticsInFlight = new Map<string, Promise<unknown>>();
 const analyticsQueryInFlight = new Map<string, Promise<unknown>>();
+
+function sum<T>(rows: readonly T[], getter: (row: T) => number): number {
+  return rows.reduce((total, row) => total + getter(row), 0);
+}
 
 function evictOldest<T>(cache: Map<string, T>, maximum: number) {
   if (cache.size < maximum) return;
@@ -52,9 +54,9 @@ function evictOldest<T>(cache: Map<string, T>, maximum: number) {
 async function loadBusiness(businessId: string): Promise<BusinessMeta> {
   const business = await prisma.business.findUnique({
     where: { id: businessId },
-    select: { id: true, name: true, createdAt: true },
+    select: { id: true, name: true, createdAt: true, timezone: true },
   });
-  if (!business) throw new AnalyticsError("Business not found", 404, "NOT_FOUND");
+  if (!business) throw Errors.notFound("Business not found");
   return business;
 }
 
@@ -83,8 +85,32 @@ async function resolveBusiness(businessId: string): Promise<BusinessMeta> {
   return loading;
 }
 
-function getCacheKey(businessId: string, domain: string, preset: AnalyticsPreset) {
-  return `analytics:${CACHE_VERSION}:${businessId}:${domain}:${preset}`;
+async function analyticsCacheVersion(businessId: string): Promise<string> {
+  try {
+    return (await redis.get(`analytics:version:${businessId}`)) ?? "0";
+  } catch {
+    return "0";
+  }
+}
+
+export async function invalidateAnalyticsCache(
+  businessId: string,
+): Promise<void> {
+  try {
+    await redis.increment(`analytics:version:${businessId}`);
+  } catch {
+    // Analytics caching is an optimization; invalidation failure must not
+    // invalidate the underlying transactional command.
+  }
+}
+
+async function getCacheKey(
+  businessId: string,
+  domain: string,
+  input: AnalyticsPeriodInput,
+) {
+  const version = await analyticsCacheVersion(businessId);
+  return `analytics:v${version}:${businessId}:${domain}:${periodCacheKey(input)}`;
 }
 
 async function readCached<T>(key: string): Promise<T | null> {
@@ -96,11 +122,11 @@ async function readCached<T>(key: string): Promise<T | null> {
   }
 }
 
-async function writeCached<T>(key: string, value: T) {
+async function writeCached<T>(key: string, value: T): Promise<void> {
   try {
     await redis.set(key, JSON.stringify(value), CACHE_TTL_SECONDS);
   } catch {
-    // Redis is an optimisation only. The computed database result is still valid.
+    // Redis is a fail-open optimization.
   }
 }
 
@@ -123,7 +149,6 @@ async function withCache<T>(key: string, loader: () => Promise<T>): Promise<T> {
       return value;
     })
     .finally(() => analyticsInFlight.delete(key));
-
   analyticsInFlight.set(key, loading);
   return loading;
 }
@@ -131,10 +156,57 @@ async function withCache<T>(key: string, loader: () => Promise<T>): Promise<T> {
 function coalesceAnalyticsQuery<T>(key: string, loader: () => Promise<T>) {
   const existing = analyticsQueryInFlight.get(key) as Promise<T> | undefined;
   if (existing) return existing;
-
   const loading = loader().finally(() => analyticsQueryInFlight.delete(key));
   analyticsQueryInFlight.set(key, loading);
   return loading;
+}
+
+function resolvedPeriod(business: BusinessMeta, input: AnalyticsPeriodInput) {
+  return resolveAnalyticsPeriod(input, {
+    businessCreatedAt: business.createdAt,
+    timezone: business.timezone,
+  });
+}
+
+function metadata(period: ResolvedAnalyticsPeriod) {
+  return {
+    period: {
+      mode: period.mode,
+      input: period.input,
+      label: period.label,
+      from: period.from,
+      toExclusive: period.toExclusive,
+      granularity: period.granularity,
+      isComplete: period.isComplete,
+    },
+    comparisonPeriod: period.comparison,
+    // Backward-compatible range shape for the existing frontend during the
+    // selector migration. `to` now has explicit exclusive semantics.
+    range: {
+      from: period.from,
+      to: period.toExclusive,
+      toExclusive: period.toExclusive,
+      granularity: period.granularity,
+    },
+    timezone: period.timezone,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+function getRevenueTrend(
+  businessId: string,
+  period: Pick<ResolvedAnalyticsPeriod, "from" | "toExclusive" | "granularity" | "timezone">,
+) {
+  const key = `revenue-trend:${businessId}:${period.from.toISOString()}:${period.toExclusive.toISOString()}:${period.granularity}:${period.timezone}`;
+  return coalesceAnalyticsQuery(key, () =>
+    revenueQueries.getRevenueTrend(
+      businessId,
+      period.from,
+      period.toExclusive,
+      period.granularity,
+      period.timezone,
+    ),
+  );
 }
 
 function getAcquisitionSources(businessId: string) {
@@ -143,78 +215,116 @@ function getAcquisitionSources(businessId: string) {
   );
 }
 
-function getRetentionCohorts(businessId: string) {
-  return coalesceAnalyticsQuery(`retention:${businessId}`, () =>
-    customerQueries.computeRetentionCohorts(businessId),
+function getRetentionCohorts(businessId: string, timezone: string) {
+  return coalesceAnalyticsQuery(`retention:${businessId}:${timezone}`, () =>
+    customerQueries.computeRetentionCohorts(businessId, timezone),
   );
 }
 
-function getRevenueTrend(
+async function revenueTotals(
   businessId: string,
-  from: Date,
-  to: Date,
-  granularity: Parameters<typeof revenueQueries.getRevenueTrend>[3],
+  boundary: { from: Date; toExclusive: Date },
+  timezone: string,
 ) {
-  const key = `revenue-trend:${businessId}:${from.toISOString()}:${to.toISOString()}:${granularity}`;
-  return coalesceAnalyticsQuery(key, () =>
-    revenueQueries.getRevenueTrend(businessId, from, to, granularity),
-  );
-}
-
-function metadata(
-  preset: AnalyticsPreset,
-  from: Date,
-  to: Date,
-  granularity: string,
-) {
+  const [trend, customItems] = await Promise.all([
+    revenueQueries.getRevenueTrend(
+      businessId,
+      boundary.from,
+      boundary.toExclusive,
+      "month",
+      timezone,
+    ),
+    summaryQueries.getCustomItemRevenue(
+      businessId,
+      boundary.from,
+      boundary.toExclusive,
+    ),
+  ]);
+  const revenueCents = sum(trend, (row) => row.totalCents);
+  const paidInvoiceCount = sum(trend, (row) => row.invoiceCount);
   return {
-    range: { preset, from, to, granularity },
-    timezone: BUSINESS_TIMEZONE,
-    generatedAt: new Date().toISOString(),
+    revenueCents,
+    paidInvoiceCount,
+    averageInvoiceCents:
+      paidInvoiceCount > 0 ? Math.round(revenueCents / paidInvoiceCount) : 0,
+    customItemRevenueCents: sum(customItems, (row) => row.totalCents),
   };
 }
 
-function sum<T>(rows: T[], getter: (row: T) => number) {
-  return rows.reduce((total, row) => total + getter(row), 0);
+function revenueComparisons(
+  current: Awaited<ReturnType<typeof revenueTotals>>,
+  previous: Awaited<ReturnType<typeof revenueTotals>> | null,
+) {
+  if (!previous) return null;
+  return {
+    revenue: calculateChange(current.revenueCents, previous.revenueCents),
+    paidInvoices: calculateChange(
+      current.paidInvoiceCount,
+      previous.paidInvoiceCount,
+    ),
+    averageInvoice: calculateChange(
+      current.averageInvoiceCents,
+      previous.averageInvoiceCents,
+    ),
+    customItemRevenue: calculateChange(
+      current.customItemRevenueCents,
+      previous.customItemRevenueCents,
+    ),
+  };
 }
 
 function retentionRate(
   rows: customerQueries.RetentionCohortRow[],
   field: "retained30" | "retained60" | "retained90",
   days: number,
+  timezone: string,
 ) {
-  const cutoff = DateTime.now().setZone(BUSINESS_TIMEZONE).minus({ days });
+  const cutoff = DateTime.now().setZone(timezone).minus({ days });
   const mature = rows.filter(
     (row) =>
       DateTime.fromJSDate(row.cohortStart)
-        .setZone(BUSINESS_TIMEZONE)
+        .setZone(timezone)
         .endOf("month") <= cutoff,
   );
   const total = sum(mature, (row) => row.totalCustomers);
   if (!total) return null;
-  return (sum(mature, (row) => row[field]) / total) * 100;
+  return roundPercentage((sum(mature, (row) => row[field]) / total) * 100);
 }
 
 class AnalyticsService {
-  async getRevenueAnalytics(businessId: string, preset: AnalyticsPreset) {
-    return withCache(getCacheKey(businessId, "revenue", preset), async () => {
+  async getRevenueAnalytics(
+    businessId: string,
+    input: AnalyticsPeriodInput,
+  ) {
+    const key = await getCacheKey(businessId, "revenue", input);
+    return withCache(key, async () => {
       const business = await resolveBusiness(businessId);
-      const { from, to, granularity } = resolveRange(preset, business.createdAt);
-      const [trend, byCategory, byWeekday, customItems] = await Promise.all([
-        getRevenueTrend(businessId, from, to, granularity),
-        revenueQueries.getRevenueByCategory(businessId, from, to),
-        revenueQueries.getRevenueByWeekday(businessId, from, to),
-        summaryQueries.getCustomItemRevenue(businessId, from, to),
-      ]);
-      const revenueCents = sum(trend, (row) => row.totalCents);
-      const paidInvoiceCount = sum(trend, (row) => row.invoiceCount);
-      const averageInvoiceValue = {
-        averageCents:
-          paidInvoiceCount > 0
-            ? Math.round(revenueCents / paidInvoiceCount)
-            : 0,
-        invoiceCount: paidInvoiceCount,
-      };
+      const period = resolvedPeriod(business, input);
+      const [trend, byCategory, byWeekday, customItems, currentTotals, previousTotals] =
+        await Promise.all([
+          getRevenueTrend(businessId, period),
+          revenueQueries.getRevenueByCategory(
+            businessId,
+            period.from,
+            period.toExclusive,
+          ),
+          revenueQueries.getRevenueByWeekday(
+            businessId,
+            period.from,
+            period.toExclusive,
+            period.timezone,
+          ),
+          summaryQueries.getCustomItemRevenue(
+            businessId,
+            period.from,
+            period.toExclusive,
+          ),
+          revenueTotals(businessId, period, period.timezone),
+          period.comparison
+            ? revenueTotals(businessId, period.comparison, period.timezone)
+            : Promise.resolve(null),
+        ]);
+
       const averageInvoiceValueTrend = trend.map((row) => ({
         bucket: row.bucket,
         averageCents:
@@ -223,7 +333,6 @@ class AnalyticsService {
             : null,
         invoiceCount: row.invoiceCount,
       }));
-
       const topCategory = byCategory[0]
         ? {
             category: byCategory[0].category,
@@ -231,48 +340,53 @@ class AnalyticsService {
           }
         : null;
       const bestWeekdayRow = [...byWeekday].sort(
-        (a, b) => b.totalCents - a.totalCents,
+        (left, right) => right.totalCents - left.totalCents,
       )[0];
-      const bestWeekday = bestWeekdayRow
-        ? {
-            weekday: bestWeekdayRow.weekday,
-            totalCents: bestWeekdayRow.totalCents,
-          }
-        : null;
 
       return {
-        ...metadata(preset, from, to, granularity),
+        ...metadata(period),
+        comparison: revenueComparisons(currentTotals, previousTotals),
         summary: {
-          revenueCents,
-          paidInvoiceCount,
-          averageInvoiceCents: averageInvoiceValue.averageCents,
-          customItemRevenueCents: sum(customItems, (row) => row.totalCents),
+          ...currentTotals,
           customItemQuantity: sum(customItems, (row) => row.quantity),
           topCategory,
-          bestWeekday,
+          bestWeekday: bestWeekdayRow
+            ? {
+                weekday: bestWeekdayRow.weekday,
+                totalCents: bestWeekdayRow.totalCents,
+              }
+            : null,
         },
         trend,
         byCategory,
         byWeekday,
         customItems,
-        averageInvoiceValue,
+        averageInvoiceValue: {
+          averageCents: currentTotals.averageInvoiceCents,
+          invoiceCount: currentTotals.paidInvoiceCount,
+        },
         averageInvoiceValueTrend,
       };
     });
   }
 
-  async getCustomerAnalytics(businessId: string, preset: AnalyticsPreset) {
-    return withCache(getCacheKey(businessId, "customers", preset), async () => {
+  async getCustomerAnalytics(
+    businessId: string,
+    input: AnalyticsPeriodInput,
+  ) {
+    const key = await getCacheKey(businessId, "customers", input);
+    return withCache(key, async () => {
       const business = await resolveBusiness(businessId);
-      const { from, to, granularity } = resolveRange(preset, business.createdAt);
+      const period = resolvedPeriod(business, input);
       const lapsedThreshold = DateTime.now()
-        .setZone(BUSINESS_TIMEZONE)
+        .setZone(period.timezone)
         .minus({ days: DEFAULT_LAPSED_DAYS })
         .toUTC()
         .toJSDate();
 
       const [
         rangeSummary,
+        previousRangeSummary,
         newVsReturning,
         lifetimeValue,
         lifetimeValueAllTime,
@@ -282,43 +396,61 @@ class AnalyticsService {
         retentionCohorts,
         cancellationRate,
       ] = await Promise.all([
-        summaryQueries.getCustomerRangeSummary(businessId, from, to),
+        summaryQueries.getCustomerRangeSummary(
+          businessId,
+          period.from,
+          period.toExclusive,
+        ),
+        period.comparison
+          ? summaryQueries.getCustomerRangeSummary(
+              businessId,
+              period.comparison.from,
+              period.comparison.toExclusive,
+            )
+          : Promise.resolve(null),
         customerQueries.getNewVsReturningCustomers(
           businessId,
-          from,
-          to,
-          granularity,
+          period.from,
+          period.toExclusive,
+          period.granularity,
+          period.timezone,
         ),
-        customerQueries.getCustomerLifetimeValue(businessId, from, to),
+        customerQueries.getCustomerLifetimeValue(
+          businessId,
+          period.from,
+          period.toExclusive,
+        ),
         customerQueries.getCustomerLifetimeValue(businessId),
         getAcquisitionSources(businessId),
-        customerQueries.getLapsedCustomers(businessId, lapsedThreshold),
+        customerQueries.getLapsedCustomers(
+          businessId,
+          lapsedThreshold,
+          10,
+          period.timezone,
+        ),
         prisma.customer.count({
           where: { businessId, lastVisitAt: { lte: lapsedThreshold } },
         }),
-        getRetentionCohorts(businessId),
+        getRetentionCohorts(businessId, period.timezone),
         customerQueries.getCancellationRateOverTime(
           businessId,
-          from,
-          to,
-          granularity,
+          period.from,
+          period.toExclusive,
+          period.granularity,
+          period.timezone,
         ),
       ]);
 
-      const noShowRate = cancellationRate.map((row) => {
-        const denominator = row.completedCount + row.noShowCount;
-        return {
-          bucket: row.bucket,
-          noShowCount: row.noShowCount,
-          completedCount: row.completedCount,
-          rate:
-            denominator === 0 ? 0 : (row.noShowCount / denominator) * 100,
-        };
-      });
-      const completedCount = sum(
-        cancellationRate,
-        (row) => row.completedCount,
-      );
+      const noShowRate = cancellationRate.map((row) => ({
+        bucket: row.bucket,
+        noShowCount: row.noShowCount,
+        completedCount: row.completedCount,
+        rate: calculateRate(
+          row.noShowCount,
+          row.completedCount + row.noShowCount,
+        ),
+      }));
+      const completedCount = sum(cancellationRate, (row) => row.completedCount);
       const noShowCount = sum(cancellationRate, (row) => row.noShowCount);
       const cancellationCount = sum(
         cancellationRate,
@@ -326,32 +458,65 @@ class AnalyticsService {
       );
       const appointmentOutcomeCount =
         completedCount + noShowCount + cancellationCount;
-      const noShowDenominator = completedCount + noShowCount;
 
       return {
-        ...metadata(preset, from, to, granularity),
+        ...metadata(period),
+        comparison: previousRangeSummary
+          ? {
+              activeCustomers: calculateChange(
+                rangeSummary.activeCustomers,
+                previousRangeSummary.activeCustomers,
+              ),
+              newCustomers: calculateChange(
+                rangeSummary.newCustomers,
+                previousRangeSummary.newCustomers,
+              ),
+              returningCustomers: calculateChange(
+                rangeSummary.returningCustomers,
+                previousRangeSummary.returningCustomers,
+              ),
+            }
+          : null,
         summary: {
-          activeCustomers: rangeSummary.activeCustomers,
-          newCustomers: rangeSummary.newCustomers,
-          returningCustomers: rangeSummary.returningCustomers,
+          ...rangeSummary,
           lapsedCustomerCount: lapsedTotal,
-          noShowRate:
-            noShowDenominator > 0
-              ? (noShowCount / noShowDenominator) * 100
-              : 0,
+          noShowRate: calculateRate(
+            noShowCount,
+            completedCount + noShowCount,
+          ),
           noShowCount,
           completedCount,
-          cancellationRate:
-            appointmentOutcomeCount > 0
-              ? (cancellationCount / appointmentOutcomeCount) * 100
-              : 0,
+          cancellationRate: calculateRate(
+            cancellationCount,
+            appointmentOutcomeCount,
+          ),
           cancellationCount,
           appointmentOutcomeCount,
+          rateDefinitions: {
+            noShow: "no_show / (completed + no_show)",
+            cancellation:
+              "cancelled / (cancelled + completed + no_show)",
+          },
         },
         retentionSummary: {
-          day30Rate: retentionRate(retentionCohorts, "retained30", 30),
-          day60Rate: retentionRate(retentionCohorts, "retained60", 60),
-          day90Rate: retentionRate(retentionCohorts, "retained90", 90),
+          day30Rate: retentionRate(
+            retentionCohorts,
+            "retained30",
+            30,
+            period.timezone,
+          ),
+          day60Rate: retentionRate(
+            retentionCohorts,
+            "retained60",
+            60,
+            period.timezone,
+          ),
+          day90Rate: retentionRate(
+            retentionCohorts,
+            "retained90",
+            90,
+            period.timezone,
+          ),
         },
         newVsReturning,
         lifetimeValue,
@@ -369,13 +534,30 @@ class AnalyticsService {
     });
   }
 
-  async getStaffAnalytics(businessId: string, preset: AnalyticsPreset) {
-    return withCache(getCacheKey(businessId, "staff", preset), async () => {
+  async getStaffAnalytics(businessId: string, input: AnalyticsPeriodInput) {
+    const key = await getCacheKey(businessId, "staff", input);
+    return withCache(key, async () => {
       const business = await resolveBusiness(businessId);
-      const { from, to } = resolveRange(preset, business.createdAt);
-      const [revenueGenerated, utilization] = await Promise.all([
-        staffQueries.getStaffRevenue(businessId, from, to),
-        staffQueries.computeStaffUtilization(businessId, from, to),
+      const period = resolvedPeriod(business, input);
+      const [revenueGenerated, utilization, previousRevenue] = await Promise.all([
+        staffQueries.getStaffRevenue(
+          businessId,
+          period.from,
+          period.toExclusive,
+        ),
+        staffQueries.computeStaffUtilization(
+          businessId,
+          period.from,
+          period.toExclusive,
+          period.timezone,
+        ),
+        period.comparison
+          ? staffQueries.getStaffRevenue(
+              businessId,
+              period.comparison.from,
+              period.comparison.toExclusive,
+            )
+          : Promise.resolve(null),
       ]);
       const revenueById = new Map(
         revenueGenerated.map((row) => [row.id, row]),
@@ -401,26 +583,35 @@ class AnalyticsService {
             lineItemCount: revenue?.lineItemCount ?? 0,
             bookedMinutes,
             availableMinutes,
-            utilizationRate:
-              availableMinutes > 0
-                ? (bookedMinutes / availableMinutes) * 100
-                : 0,
+            utilizationRate: calculateRate(bookedMinutes, availableMinutes),
           };
         })
-        .sort((a, b) => b.totalCents - a.totalCents);
+        .sort((left, right) => right.totalCents - left.totalCents);
+      const revenueCents = sum(staffPerformance, (row) => row.totalCents);
+      const previousRevenueCents = previousRevenue
+        ? sum(previousRevenue, (row) => row.totalCents)
+        : null;
 
       return {
-        ...metadata(preset, from, to, "day"),
+        ...metadata(period),
+        comparison:
+          previousRevenueCents === null
+            ? null
+            : {
+                revenue: calculateChange(revenueCents, previousRevenueCents),
+              },
         summary: {
-          revenueCents: sum(staffPerformance, (row) => row.totalCents),
+          revenueCents,
           commissionCents: sum(
             staffPerformance,
             (row) => row.commissionEarnedCents,
           ),
-          averageUtilizationRate: staffPerformance.length
-            ? sum(staffPerformance, (row) => row.utilizationRate) /
-              staffPerformance.length
-            : 0,
+          averageUtilizationRate: calculateWeightedRate(
+            staffPerformance.map((row) => ({
+              numerator: row.bookedMinutes,
+              denominator: row.availableMinutes,
+            })),
+          ),
           lowUtilizationCount: staffPerformance.filter(
             (row) => row.utilizationRate < 40,
           ).length,
@@ -430,25 +621,60 @@ class AnalyticsService {
     });
   }
 
-  async getOperationsAnalytics(businessId: string, preset: AnalyticsPreset) {
-    return withCache(getCacheKey(businessId, "operations", preset), async () => {
+  async getOperationsAnalytics(
+    businessId: string,
+    input: AnalyticsPeriodInput,
+  ) {
+    const key = await getCacheKey(businessId, "operations", input);
+    return withCache(key, async () => {
       const business = await resolveBusiness(businessId);
-      const { from, to, granularity } = resolveRange(preset, business.createdAt);
-      const [heatmap, mostBookedServices, leadTimes] = await Promise.all([
-        operationsQueries.getBookingHeatmap(businessId, from, to),
-        operationsQueries.getMostBookedServices(businessId, from, to),
-        operationsQueries.computeBookingLeadTimes(businessId, from, to),
-      ]);
+      const period = resolvedPeriod(business, input);
+      const [heatmap, mostBookedServices, leadTimes, previousHeatmap] =
+        await Promise.all([
+          operationsQueries.getBookingHeatmap(
+            businessId,
+            period.from,
+            period.toExclusive,
+            period.timezone,
+          ),
+          operationsQueries.getMostBookedServices(
+            businessId,
+            period.from,
+            period.toExclusive,
+          ),
+          operationsQueries.computeBookingLeadTimes(
+            businessId,
+            period.from,
+            period.toExclusive,
+            period.timezone,
+          ),
+          period.comparison
+            ? operationsQueries.getBookingHeatmap(
+                businessId,
+                period.comparison.from,
+                period.comparison.toExclusive,
+                period.timezone,
+              )
+            : Promise.resolve(null),
+        ]);
       const busiest =
-        [...heatmap].sort((a, b) => b.count - a.count)[0] ?? null;
-      const mostBookedService = mostBookedServices[0] ?? null;
+        [...heatmap].sort((left, right) => right.count - left.count)[0] ?? null;
+      const bookingCount = sum(heatmap, (row) => row.count);
       return {
-        ...metadata(preset, from, to, granularity),
+        ...metadata(period),
+        comparison: previousHeatmap
+          ? {
+              bookingCount: calculateChange(
+                bookingCount,
+                sum(previousHeatmap, (row) => row.count),
+              ),
+            }
+          : null,
         summary: {
-          bookingCount: sum(heatmap, (row) => row.count),
+          bookingCount,
           busiestWeekday: busiest?.weekday ?? null,
           busiestHour: busiest?.hour ?? null,
-          mostBookedService,
+          mostBookedService: mostBookedServices[0] ?? null,
         },
         heatmap,
         mostBookedServices,
@@ -457,61 +683,87 @@ class AnalyticsService {
     });
   }
 
-  async getGrowthAnalytics(businessId: string, preset: AnalyticsPreset) {
-    return withCache(getCacheKey(businessId, "growth", preset), async () => {
+  async getGrowthAnalytics(businessId: string, input: AnalyticsPeriodInput) {
+    const key = await getCacheKey(businessId, "growth", input);
+    return withCache(key, async () => {
       const business = await resolveBusiness(businessId);
-      const { from, to } = resolveRange(preset, business.createdAt);
-      const [monthlyRevenue, acquisitionSources, retentionCohorts] =
+      const period = resolvedPeriod(business, input);
+      const [trend, currentTotals, previousTotals, acquisitionSources, retentionCohorts] =
         await Promise.all([
-          getRevenueTrend(businessId, from, to, "month"),
+          getRevenueTrend(businessId, period),
+          revenueTotals(businessId, period, period.timezone),
+          period.comparison
+            ? revenueTotals(businessId, period.comparison, period.timezone)
+            : Promise.resolve(null),
           getAcquisitionSources(businessId),
-          getRetentionCohorts(businessId),
+          getRetentionCohorts(businessId, period.timezone),
         ]);
-      const monthlyGrowth =
-        growthQueries.computeMonthOverMonthGrowth(monthlyRevenue);
-      const current = monthlyGrowth.at(-1) ?? null;
-      const previous = monthlyGrowth.at(-2) ?? null;
-      const bestGrowthMonth =
-        monthlyGrowth
+
+      const bucketGrowth =
+        period.mode === "completed"
+          ? growthQueries.computePeriodOverPeriodGrowth(trend)
+          : [];
+      const bestGrowthPeriod =
+        bucketGrowth
           .filter((row) => row.growthPct !== null)
-          .sort((a, b) => (b.growthPct ?? 0) - (a.growthPct ?? 0))[0] ?? null;
+          .sort(
+            (left, right) =>
+              (right.growthPct ?? 0) - (left.growthPct ?? 0),
+          )[0] ?? null;
+      const comparison = previousTotals
+        ? calculateChange(
+            currentTotals.revenueCents,
+            previousTotals.revenueCents,
+          )
+        : null;
+
       return {
-        ...metadata(preset, from, to, "month"),
+        ...metadata(period),
         summary: {
-          currentMonthRevenueCents: current?.totalCents ?? 0,
-          previousMonthRevenueCents: previous?.totalCents ?? 0,
-          monthOverMonthGrowthPct: current?.growthPct ?? null,
-          bestGrowthMonth,
+          currentPeriodRevenueCents: currentTotals.revenueCents,
+          previousPeriodRevenueCents: previousTotals?.revenueCents ?? null,
+          periodGrowthPct: comparison?.percentageChange ?? null,
+          periodComparisonState: comparison?.comparisonState ?? null,
+          bestGrowthPeriod,
+          // Compatibility fields until the frontend period selector lands.
+          currentMonthRevenueCents: currentTotals.revenueCents,
+          previousMonthRevenueCents: previousTotals?.revenueCents ?? 0,
+          monthOverMonthGrowthPct: comparison?.percentageChange ?? null,
+          bestGrowthMonth: bestGrowthPeriod,
         },
-        monthlyGrowth,
+        comparison,
+        trend,
+        bucketGrowth,
+        monthlyGrowth: bucketGrowth,
         acquisitionSources,
         retentionCohorts,
       };
     });
   }
 
-  async getDashboardOverview(businessId: string, preset: AnalyticsPreset) {
-    return withCache(getCacheKey(businessId, "overview", preset), async () => {
-      const business = await resolveBusiness(businessId);
-      const [revenue, customers, staff, operations, growth] = await Promise.all([
-        this.getRevenueAnalytics(businessId, preset),
-        this.getCustomerAnalytics(businessId, preset),
-        this.getStaffAnalytics(businessId, preset),
-        this.getOperationsAnalytics(businessId, preset),
-        this.getGrowthAnalytics(businessId, preset),
-      ]);
-      return {
-        businessId: business.id,
-        businessName: business.name,
-        timezone: BUSINESS_TIMEZONE,
-        generatedAt: new Date().toISOString(),
-        revenue,
-        customers,
-        staff,
-        operations,
-        growth,
-      };
-    });
+  async getDashboardOverview(
+    businessId: string,
+    input: AnalyticsPeriodInput,
+  ) {
+    const business = await resolveBusiness(businessId);
+    const [revenue, customers, staff, operations, growth] = await Promise.all([
+      this.getRevenueAnalytics(businessId, input),
+      this.getCustomerAnalytics(businessId, input),
+      this.getStaffAnalytics(businessId, input),
+      this.getOperationsAnalytics(businessId, input),
+      this.getGrowthAnalytics(businessId, input),
+    ]);
+    return {
+      businessId: business.id,
+      businessName: business.name,
+      timezone: business.timezone,
+      generatedAt: new Date().toISOString(),
+      revenue,
+      customers,
+      staff,
+      operations,
+      growth,
+    };
   }
 }
 
