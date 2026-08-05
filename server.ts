@@ -3,10 +3,12 @@ import "./src/instrument-api";
 import type { Server } from "http";
 import app from "./app";
 import { APP_CONFIG } from "./src/shared/config/config";
+import { disconnect as disconnectRedis } from "./src/shared/config/redis";
 import {
   connectPrisma,
   disconnectPrisma,
 } from "./src/shared/db/prisma";
+import logger from "./src/shared/observability/logger";
 import {
   captureException,
   flushSentry,
@@ -22,12 +24,14 @@ let shuttingDown = false;
 async function startServer() {
   await connectPrisma();
   await embeddedEmailWorker.start((error) => {
-    console.error("Embedded email worker failed:", error);
+    logger.error("email_worker_failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
     void shutdown("email_worker_failure", 1);
   });
 
   server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
+    logger.info("server_started", { port: PORT, environment: APP_CONFIG.nodeEnv });
   });
   server.requestTimeout = 30_000;
   server.headersTimeout = 15_000;
@@ -38,10 +42,10 @@ async function startServer() {
 async function shutdown(signal: string, exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`${signal} received. Shutting down gracefully...`);
+  logger.info("shutdown_started", { signal });
 
   const deadline = setTimeout(() => {
-    console.error("Shutdown deadline exceeded; forcing process exit.");
+    logger.error("shutdown_deadline_exceeded", { signal });
     server?.closeAllConnections();
     process.exit(exitCode || 1);
   }, SHUTDOWN_DEADLINE_MS);
@@ -51,23 +55,25 @@ async function shutdown(signal: string, exitCode = 0) {
     if (server) {
       server.closeIdleConnections();
       await new Promise<void>((resolve, reject) => {
-        server!.close((error) => {
-          if (error) reject(error);
-          else resolve();
-        });
+        server!.close((error) => (error ? reject(error) : resolve()));
       });
     }
 
     await embeddedEmailWorker.stop();
     await closeWorkerUtils();
+    await disconnectRedis();
   } catch (error) {
     exitCode = 1;
-    console.error("Application shutdown failed:", error);
+    logger.error("shutdown_failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
     captureException(error, "api", { failure_type: "shutdown" });
   } finally {
     await disconnectPrisma().catch((error: unknown) => {
       exitCode = 1;
-      console.error("Prisma disconnect failed:", error);
+      logger.error("prisma_disconnect_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
     });
     await flushSentry();
     clearTimeout(deadline);
@@ -75,30 +81,30 @@ async function shutdown(signal: string, exitCode = 0) {
   }
 }
 
-process.on("SIGINT", () => {
-  void shutdown("SIGINT");
-});
-
-process.on("SIGTERM", () => {
-  void shutdown("SIGTERM");
-});
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
 process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled promise rejection:", reason);
+  logger.error("unhandled_rejection", {
+    message: reason instanceof Error ? reason.message : String(reason),
+  });
   captureException(reason, "api", { failure_type: "unhandled_rejection" });
 });
 
 process.on("uncaughtException", (error) => {
-  console.error("Uncaught exception:", error);
+  logger.error("uncaught_exception", { message: error.message });
   captureException(error, "api", { failure_type: "uncaught_exception" });
   void shutdown("uncaughtException", 1);
 });
 
 void startServer().catch(async (error: unknown) => {
-  console.error("Server startup failed:", error);
+  logger.error("server_startup_failed", {
+    message: error instanceof Error ? error.message : String(error),
+  });
   captureException(error, "api", { failure_type: "startup" });
   await embeddedEmailWorker.stop().catch(() => undefined);
   await closeWorkerUtils().catch(() => undefined);
+  await disconnectRedis().catch(() => undefined);
   await disconnectPrisma().catch(() => undefined);
   await flushSentry();
   process.exit(1);
