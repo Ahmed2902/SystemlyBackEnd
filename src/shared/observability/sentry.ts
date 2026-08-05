@@ -1,7 +1,11 @@
 import * as SentrySdk from "@sentry/node";
 import { SENTRY } from "../config/config";
 
-export type SentryComponent = "api" | "worker" | "worker-once";
+export type SentryComponent =
+  | "api"
+  | "email-worker"
+  | "worker"
+  | "worker-once";
 
 let initialized = false;
 

@@ -19,6 +19,7 @@ import { errorHandler } from "./src/shared/middleware/errorHandler.middleware";
 import { notFoundHandler } from "./src/shared/middleware/notFound.middleware";
 import { globalRateLimit } from "./src/shared/middleware/rateLimit.middleware";
 import { requestPerformanceMiddleware } from "./src/shared/middleware/requestPerformance.middleware";
+import { embeddedEmailWorker } from "./src/workers/embedded-email-worker";
 
 const app: Application = express();
 
@@ -81,16 +82,25 @@ app.get("/health/ready", async (_req, res) => {
   res.set("Cache-Control", "no-store");
   try {
     await prisma.$queryRaw`SELECT 1`;
-    res.status(200).json({ status: "ready" });
+    if (!embeddedEmailWorker.isReady()) {
+      return res.status(503).json({
+        status: "not_ready",
+        components: { database: "ready", emailWorker: "not_ready" },
+      });
+    }
+
+    return res.status(200).json({
+      status: "ready",
+      components: { database: "ready", emailWorker: "ready" },
+    });
   } catch (error) {
     console.error("Readiness check failed", error);
-    res.status(503).json({ status: "not_ready" });
+    return res.status(503).json({
+      status: "not_ready",
+      components: { database: "not_ready", emailWorker: "unknown" },
+    });
   }
 });
-
-// ── OpenAPI / Swagger documentation ──────────────────────────────────
-// Raw JSON spec served at  /openapi.json
-// Swagger UI served at    /docs
 
 app.get("/openapi.json", (_req, res) => {
   const doc = getOpenApiDocument(app, {
@@ -120,8 +130,6 @@ function validMetricsToken(authorization: string | undefined) {
   );
 }
 
-// Process metrics expose operational details. In production this endpoint is
-// hidden unless a token is configured, then protected with constant-time auth.
 promClient.collectDefaultMetrics();
 app.get("/metrics", async (req, res) => {
   if (!validMetricsToken(req.headers.authorization)) {

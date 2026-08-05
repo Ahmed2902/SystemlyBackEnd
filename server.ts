@@ -11,6 +11,8 @@ import {
   captureException,
   flushSentry,
 } from "./src/shared/observability/sentry";
+import { closeWorkerUtils } from "./src/queues/queue";
+import { embeddedEmailWorker } from "./src/workers/embedded-email-worker";
 
 const PORT = Number(process.env.PORT) || APP_CONFIG.port || 3000;
 const SHUTDOWN_DEADLINE_MS = 10_000;
@@ -19,6 +21,10 @@ let shuttingDown = false;
 
 async function startServer() {
   await connectPrisma();
+  await embeddedEmailWorker.start((error) => {
+    console.error("Embedded email worker failed:", error);
+    void shutdown("email_worker_failure", 1);
+  });
 
   server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
@@ -28,8 +34,6 @@ async function startServer() {
   server.keepAliveTimeout = 5_000;
   server.maxRequestsPerSocket = 1_000;
 }
-
-// Background jobs are run in a dedicated worker process (see src/worker.ts)
 
 async function shutdown(signal: string, exitCode = 0) {
   if (shuttingDown) return;
@@ -53,8 +57,16 @@ async function shutdown(signal: string, exitCode = 0) {
         });
       });
     }
+
+    await embeddedEmailWorker.stop();
+    await closeWorkerUtils();
+  } catch (error) {
+    exitCode = 1;
+    console.error("Application shutdown failed:", error);
+    captureException(error, "api", { failure_type: "shutdown" });
   } finally {
     await disconnectPrisma().catch((error: unknown) => {
+      exitCode = 1;
       console.error("Prisma disconnect failed:", error);
     });
     await flushSentry();
@@ -85,6 +97,8 @@ process.on("uncaughtException", (error) => {
 void startServer().catch(async (error: unknown) => {
   console.error("Server startup failed:", error);
   captureException(error, "api", { failure_type: "startup" });
+  await embeddedEmailWorker.stop().catch(() => undefined);
+  await closeWorkerUtils().catch(() => undefined);
   await disconnectPrisma().catch(() => undefined);
   await flushSentry();
   process.exit(1);
