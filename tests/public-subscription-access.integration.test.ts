@@ -172,11 +172,12 @@ describe("public subscription access decisions", () => {
     expect(response.setHeader).toHaveBeenCalledWith("Retry-After", "3600");
     expect(response.status).toHaveBeenCalledWith(503);
     expect(response.json).toHaveBeenCalledWith({
-      ok: false,
       success: false,
-      message: PUBLIC_SITE_UNAVAILABLE_MESSAGE,
-      error: PUBLIC_SITE_UNAVAILABLE_MESSAGE,
-      code: "PUBLIC_SITE_UNAVAILABLE",
+      error: {
+        code: "PUBLIC_SITE_UNAVAILABLE",
+        message: PUBLIC_SITE_UNAVAILABLE_MESSAGE,
+        requestId: null,
+      },
     });
   });
 });
