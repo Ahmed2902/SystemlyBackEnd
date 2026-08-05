@@ -4,6 +4,10 @@ import { prisma } from "../db/prisma";
 import { fail } from "../utils/response.util";
 import { verifyAccessToken } from "../utils/token.util";
 
+function singleParameter(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export const requireAuth = (
   req: Request,
   res: Response,
@@ -118,7 +122,7 @@ export const requireAppointmentOwnerOrAdmin = async (
         req.requestId ?? null,
       );
     }
-    const appointmentId = req.params.appointmentId;
+    const appointmentId = singleParameter(req.params.appointmentId);
     if (!appointmentId) {
       return fail(
         res,
