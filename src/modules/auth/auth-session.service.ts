@@ -47,7 +47,7 @@ async function insertSession(
       user_id,
       token,
       family_id,
-      expires_at,
+      "expiresAt",
       revoked
     ) VALUES (
       ${input.userId}::uuid,
@@ -95,7 +95,7 @@ export class AuthSessionService {
           revoked,
           revoked_at,
           replaced_by_token_id,
-          expires_at
+          "expiresAt" AS expires_at
         FROM refresh_tokens
         WHERE token = ${hash}
         FOR UPDATE
