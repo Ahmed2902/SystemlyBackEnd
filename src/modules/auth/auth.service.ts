@@ -2,7 +2,6 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import {
   generateEmailToken,
-  verifyRefreshToken,
   signAccessToken,
 } from "../../shared/utils/token.util";
 import { prisma } from "../../shared/db/prisma";
@@ -255,7 +254,6 @@ class AuthService {
     accessToken: string;
     refreshToken: string;
   }> {
-    verifyRefreshToken(refreshToken);
     const row = await prisma.refreshToken.findUnique({
       where: { token: refreshToken },
     });
