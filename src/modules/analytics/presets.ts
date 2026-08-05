@@ -1,70 +1,44 @@
-import { DateTime } from "luxon";
+import {
+  DEFAULT_BUSINESS_TIMEZONE,
+  LEGACY_PRESET_ALIASES,
+  ROLLING_PRESETS,
+  resolveAnalyticsPeriod,
+  type Granularity,
+  type LegacyAnalyticsPreset,
+  type RollingPreset,
+} from "./periods";
 
-export const BUSINESS_TIMEZONE = "Africa/Cairo";
-
+export const BUSINESS_TIMEZONE = DEFAULT_BUSINESS_TIMEZONE;
 export const ANALYTICS_PRESETS = [
-  "today",
-  "last_week",
-  "last_month",
-  "last_3_months",
-  "last_year",
-  "all_time",
+  ...ROLLING_PRESETS,
+  ...Object.keys(LEGACY_PRESET_ALIASES),
 ] as const;
 
-export type AnalyticsPreset = (typeof ANALYTICS_PRESETS)[number];
-export type Granularity = "hour" | "day" | "week" | "month";
-
-const PRESET_GRANULARITY: Record<AnalyticsPreset, Granularity> = {
-  today: "hour",
-  last_week: "day",
-  last_month: "week",
-  last_3_months: "week",
-  last_year: "month",
-  all_time: "month",
-};
-
-export interface ResolvedRange {
-  from: Date;
-  to: Date;
-  granularity: Granularity;
-}
+export type AnalyticsPreset = RollingPreset | LegacyAnalyticsPreset;
+export type { Granularity };
 
 /**
- * The ONLY place preset -> concrete date range logic lives.
- * businessCreatedAt is required for "all_time" since it has no relative anchor.
+ * Compatibility wrapper for existing callers while the analytics API moves to
+ * explicit rolling/completed/custom period inputs.
  */
 export function resolveRange(
   preset: AnalyticsPreset,
   businessCreatedAt: Date,
-): ResolvedRange {
-  const now = DateTime.now().setZone(BUSINESS_TIMEZONE);
-  const granularity = PRESET_GRANULARITY[preset];
-
-  let from: DateTime;
-  switch (preset) {
-    case "today":
-      from = now.startOf("day");
-      break;
-    case "last_week":
-      from = now.minus({ days: 7 });
-      break;
-    case "last_month":
-      from = now.minus({ days: 30 });
-      break;
-    case "last_3_months":
-      from = now.minus({ months: 3 });
-      break;
-    case "last_year":
-      from = now.minus({ years: 1 });
-      break;
-    case "all_time":
-      from = DateTime.fromJSDate(businessCreatedAt).setZone(BUSINESS_TIMEZONE);
-      break;
-  }
+  timezone = DEFAULT_BUSINESS_TIMEZONE,
+) {
+  const normalized =
+    preset in LEGACY_PRESET_ALIASES
+      ? LEGACY_PRESET_ALIASES[preset as LegacyAnalyticsPreset]
+      : (preset as RollingPreset);
+  const period = resolveAnalyticsPeriod(
+    { mode: "rolling", preset: normalized },
+    { businessCreatedAt, timezone },
+  );
 
   return {
-    from: from.toUTC().toJSDate(),
-    to: now.toUTC().toJSDate(),
-    granularity,
+    from: period.from,
+    to: period.toExclusive,
+    toExclusive: period.toExclusive,
+    granularity: period.granularity,
   };
 }
