@@ -140,6 +140,16 @@ function resolveRolling(
   };
 }
 
+function subtractCompletedPeriods(
+  value: DateTime,
+  unit: CompletedPeriodUnit,
+  count: number,
+) {
+  return unit === "month"
+    ? value.minus({ months: count })
+    : value.minus({ weeks: count });
+}
+
 function resolveCompleted(
   input: Extract<AnalyticsPeriodInput, { mode: "completed" }>,
   timezone: string,
@@ -147,8 +157,16 @@ function resolveCompleted(
 ): ResolvedAnalyticsPeriod {
   const toExclusive =
     input.unit === "month" ? now.startOf("month") : now.startOf("week");
-  const from = toExclusive.minus({ [input.unit + "s"]: input.count });
-  const comparisonFrom = from.minus({ [input.unit + "s"]: input.count });
+  const from = subtractCompletedPeriods(
+    toExclusive,
+    input.unit,
+    input.count,
+  );
+  const comparisonFrom = subtractCompletedPeriods(
+    from,
+    input.unit,
+    input.count,
+  );
 
   return {
     input,
