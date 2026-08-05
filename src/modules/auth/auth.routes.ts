@@ -7,7 +7,10 @@ import {
 } from "../../shared/middleware/rateLimit.middleware";
 import { requireAuth } from "../../shared/middleware/auth.middleware";
 import validate from "../../shared/middleware/validate.middleware";
-import { csrfProtection } from "../../shared/middleware/CSRF";
+import {
+  csrfProtection,
+  issueCsrfToken,
+} from "../../shared/middleware/CSRF";
 import { doc } from "../../shared/middleware/doc.middleware";
 import {
   registerBodySchema,
@@ -107,6 +110,18 @@ router.get(
   googleOauth.googleCallback,
 );
 
+router.get(
+  "/csrf-token",
+  doc({
+    summary: "Issue a CSRF token",
+    description:
+      "Issue a signed token required for refresh-token and logout requests.",
+    tags: ["auth"],
+    security: false,
+  }),
+  issueCsrfToken,
+);
+
 router.post(
   "/refresh",
   refreshRateLimit,
@@ -129,7 +144,7 @@ router.post(
   csrfProtection,
   doc({
     summary: "Logout",
-    description: "Invalidate the current session.",
+    description: "Invalidate the current cookie-authenticated session.",
     tags: ["auth"],
     security: false,
     responses: {
@@ -177,7 +192,6 @@ router.post(
 router.patch(
   "/preferences",
   requireAuth,
-  csrfProtection,
   doc({
     summary: "Update platform language preference",
     description:
@@ -204,16 +218,5 @@ router.get(
   }),
   authController.getMe,
 );
-
-router.get("/csrf-token", csrfProtection, (req, res) => {
-  res.setHeader("Cache-Control", "no-store");
-
-  res.json({
-    success: true,
-    data: {
-      csrfToken: req.csrfToken(),
-    },
-  });
-});
 
 export default router;
