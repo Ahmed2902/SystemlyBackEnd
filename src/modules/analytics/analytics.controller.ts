@@ -1,103 +1,103 @@
-import type { Request, Response, NextFunction } from "express";
-import analyticsService, { AnalyticsError } from "./analytics.service";
+import type { NextFunction, Request, Response } from "express";
+import { Errors } from "../../shared/errors/application-error";
+import { ok } from "../../shared/utils/response.util";
+import analyticsService from "./analytics.service";
 import { AnalyticsStatsQuerySchema } from "./analytics.schema";
 
-function parsePreset(req: Request) {
-  const { preset } = AnalyticsStatsQuerySchema.parse(req.query);
-  return preset;
+function parsePeriod(req: Request) {
+  return AnalyticsStatsQuerySchema.parse(req.query);
 }
 
 function resolveBusinessId(req: Request) {
   const businessId = req.user?.businessId;
   if (!businessId) {
-    throw new AnalyticsError(
-      "Business id missing",
-      400,
-      "BUSINESS_ID_MISSING",
-    );
+    throw Errors.badRequest("Business id missing", "BUSINESS_ID_MISSING");
   }
-  return String(businessId);
-}
-
-function handleError(err: unknown, res: Response, next: NextFunction) {
-  if (err instanceof AnalyticsError) {
-    return res
-      .status(err.statusCode)
-      .json({ error: err.message, code: err.code });
-  }
-  return next(err);
+  return businessId;
 }
 
 class AnalyticsController {
   async getOverview(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await analyticsService.getDashboardOverview(
-        resolveBusinessId(req),
-        parsePreset(req),
+      return ok(
+        res,
+        await analyticsService.getDashboardOverview(
+          resolveBusinessId(req),
+          parsePeriod(req),
+        ),
       );
-      res.json(data);
-    } catch (err) {
-      handleError(err, res, next);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async getRevenue(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await analyticsService.getRevenueAnalytics(
-        resolveBusinessId(req),
-        parsePreset(req),
+      return ok(
+        res,
+        await analyticsService.getRevenueAnalytics(
+          resolveBusinessId(req),
+          parsePeriod(req),
+        ),
       );
-      res.json(data);
-    } catch (err) {
-      handleError(err, res, next);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async getCustomers(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await analyticsService.getCustomerAnalytics(
-        resolveBusinessId(req),
-        parsePreset(req),
+      return ok(
+        res,
+        await analyticsService.getCustomerAnalytics(
+          resolveBusinessId(req),
+          parsePeriod(req),
+        ),
       );
-      res.json(data);
-    } catch (err) {
-      handleError(err, res, next);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async getStaff(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await analyticsService.getStaffAnalytics(
-        resolveBusinessId(req),
-        parsePreset(req),
+      return ok(
+        res,
+        await analyticsService.getStaffAnalytics(
+          resolveBusinessId(req),
+          parsePeriod(req),
+        ),
       );
-      res.json(data);
-    } catch (err) {
-      handleError(err, res, next);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async getOperations(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await analyticsService.getOperationsAnalytics(
-        resolveBusinessId(req),
-        parsePreset(req),
+      return ok(
+        res,
+        await analyticsService.getOperationsAnalytics(
+          resolveBusinessId(req),
+          parsePeriod(req),
+        ),
       );
-      res.json(data);
-    } catch (err) {
-      handleError(err, res, next);
+    } catch (error) {
+      return next(error);
     }
   }
 
   async getGrowth(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await analyticsService.getGrowthAnalytics(
-        resolveBusinessId(req),
-        parsePreset(req),
+      return ok(
+        res,
+        await analyticsService.getGrowthAnalytics(
+          resolveBusinessId(req),
+          parsePeriod(req),
+        ),
       );
-      res.json(data);
-    } catch (err) {
-      handleError(err, res, next);
+    } catch (error) {
+      return next(error);
     }
   }
 }

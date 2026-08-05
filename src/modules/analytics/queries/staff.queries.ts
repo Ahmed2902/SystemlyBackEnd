@@ -1,7 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "../../../shared/db/prisma";
-import { BUSINESS_TIMEZONE } from "../presets";
 
 export interface StaffRevenueRow {
   id: string;
@@ -24,16 +23,10 @@ const NON_BILLABLE_STATUSES = [
   "no_show",
 ];
 
-/**
- * Revenue + commission generated per staff member, from InvoiceLineItem.
- * Exact-column grouping by staffId -- still raw SQL only because we need
- * the staff name attached via join; otherwise this would be a plain
- * prisma.groupBy.
- */
 export async function getStaffRevenue(
   businessId: string,
   from: Date,
-  to: Date,
+  toExclusive: Date,
 ): Promise<StaffRevenueRow[]> {
   const rows = await prisma.$queryRaw<
     {
@@ -55,38 +48,35 @@ export async function getStaffRevenue(
     JOIN staff st ON st.id = li.staff_id
     WHERE i.business_id = ${businessId}::uuid
       AND i.status = 'paid'
-      AND i.paid_at BETWEEN ${from} AND ${to}
+      AND i.paid_at >= ${from}
+      AND i.paid_at < ${toExclusive}
       AND li.staff_id IS NOT NULL
     GROUP BY st.id, st.name
     ORDER BY total_cents DESC
   `);
 
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    totalCents: Number(r.total_cents),
-    commissionEarnedCents: Number(r.commission_earned_cents),
-    lineItemCount: Number(r.line_item_count),
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    totalCents: Number(row.total_cents),
+    commissionEarnedCents: Number(row.commission_earned_cents),
+    lineItemCount: Number(row.line_item_count),
   }));
 }
 
-/**
- * Booked vs available minutes per staff member. This walks day-by-day
- * through the range checking Availability against AvailabilityOverride
- * (day-offs, custom hours) -- not expressible as a clean GROUP BY, so it
- * stays as a dedicated JS computation rather than raw SQL.
- */
 export async function computeStaffUtilization(
   businessId: string,
   from: Date,
-  to: Date,
+  toExclusive: Date,
+  timezone: string,
 ): Promise<StaffUtilizationRow[]> {
-  const rangeStartDate = new Date(
-    `${DateTime.fromJSDate(from).setZone(BUSINESS_TIMEZONE).toISODate()}T00:00:00.000Z`,
-  );
+  const localFrom = DateTime.fromJSDate(from).setZone(timezone);
+  const localToExclusive = DateTime.fromJSDate(toExclusive).setZone(timezone);
+  const rangeStartDate = new Date(`${localFrom.toISODate()}T00:00:00.000Z`);
   const rangeEndDate = new Date(
-    `${DateTime.fromJSDate(to).setZone(BUSINESS_TIMEZONE).toISODate()}T00:00:00.000Z`,
+    `${localToExclusive.minus({ milliseconds: 1 }).toISODate()}T00:00:00.000Z`,
   );
+
   const [staff, availability, overrides, segmentsInRange] = await Promise.all([
     prisma.staff.findMany({
       where: { businessId },
@@ -118,7 +108,7 @@ export async function computeStaffUtilization(
     prisma.appointmentService.findMany({
       where: {
         appointment: { businessId },
-        startsAt: { gte: from, lte: to },
+        startsAt: { gte: from, lt: toExclusive },
       },
       select: {
         staffId: true,
@@ -130,20 +120,19 @@ export async function computeStaffUtilization(
   ]);
 
   const bookedMinutesByStaff = new Map<string, number>();
-  for (const seg of segmentsInRange) {
-    if (NON_BILLABLE_STATUSES.includes(seg.appointment.status)) continue;
+  for (const segment of segmentsInRange) {
+    if (NON_BILLABLE_STATUSES.includes(segment.appointment.status)) continue;
     const minutes = Math.max(
-      Math.round((seg.endsAt.getTime() - seg.startsAt.getTime()) / 60000),
+      Math.round(
+        (segment.endsAt.getTime() - segment.startsAt.getTime()) / 60_000,
+      ),
       0,
     );
     bookedMinutesByStaff.set(
-      seg.staffId,
-      (bookedMinutesByStaff.get(seg.staffId) ?? 0) + minutes,
+      segment.staffId,
+      (bookedMinutesByStaff.get(segment.staffId) ?? 0) + minutes,
     );
   }
-
-  // availabilityByStaff / overridesByStaff / days / availableMinutesByStaff
-  // loop below is UNCHANGED — it's schedule-based, not appointment-based.
 
   const availabilityByStaff = new Map<string, typeof availability>();
   for (const row of availability) {
@@ -155,17 +144,15 @@ export async function computeStaffUtilization(
   const overridesByStaffAndDate = new Map<string, (typeof overrides)[number]>();
   for (const row of overrides) {
     const date = DateTime.fromJSDate(row.overrideDate)
-      .setZone(BUSINESS_TIMEZONE)
+      .setZone(timezone)
       .toISODate();
     overridesByStaffAndDate.set(`${row.staffId}:${date}`, row);
   }
 
   const days: DateTime[] = [];
   for (
-    let cursor = DateTime.fromJSDate(from)
-      .setZone(BUSINESS_TIMEZONE)
-      .startOf("day");
-    cursor <= DateTime.fromJSDate(to).setZone(BUSINESS_TIMEZONE).endOf("day");
+    let cursor = localFrom.startOf("day");
+    cursor < localToExclusive;
     cursor = cursor.plus({ days: 1 })
   ) {
     days.push(cursor);
@@ -179,20 +166,16 @@ export async function computeStaffUtilization(
     }
 
     const staffAvailability = availabilityByStaff.get(member.id) ?? [];
-
     let total = 0;
+
     for (const day of days) {
       const isoDay = day.toISODate();
       const override = overridesByStaffAndDate.get(`${member.id}:${isoDay}`);
       if (override?.isDayOff) continue;
 
-      if (override?.startTime && override?.endTime) {
-        const start = DateTime.fromJSDate(override.startTime).setZone(
-          BUSINESS_TIMEZONE,
-        );
-        const end = DateTime.fromJSDate(override.endTime).setZone(
-          BUSINESS_TIMEZONE,
-        );
+      if (override?.startTime && override.endTime) {
+        const start = DateTime.fromJSDate(override.startTime).setZone(timezone);
+        const end = DateTime.fromJSDate(override.endTime).setZone(timezone);
         total += Math.max(Math.round(end.diff(start, "minutes").minutes), 0);
         continue;
       }
@@ -201,13 +184,11 @@ export async function computeStaffUtilization(
         (entry) => entry.dayOfWeek === day.weekday % 7,
       );
       for (const row of rows) {
-        const start = DateTime.fromJSDate(row.startTime).setZone(
-          BUSINESS_TIMEZONE,
-        );
-        const end = DateTime.fromJSDate(row.endTime).setZone(BUSINESS_TIMEZONE);
-        const breakAfterMin = row.breakAfterMin ?? 0;
+        const start = DateTime.fromJSDate(row.startTime).setZone(timezone);
+        const end = DateTime.fromJSDate(row.endTime).setZone(timezone);
         total += Math.max(
-          Math.round(end.diff(start, "minutes").minutes) - breakAfterMin,
+          Math.round(end.diff(start, "minutes").minutes) -
+            (row.breakAfterMin ?? 0),
           0,
         );
       }

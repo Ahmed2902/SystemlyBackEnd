@@ -1,26 +1,29 @@
 import type { RevenueTrendRow } from "./revenue.queries";
 
-export interface MonthGrowthRow {
+export interface PeriodGrowthRow {
   bucket: Date;
   totalCents: number;
   invoiceCount: number;
-  growthPct: number | null; // null for the first bucket, no prior month to compare
+  growthPct: number | null;
 }
 
 /**
- * Month-over-month revenue growth, derived from an already-fetched monthly
- * revenue trend (call getRevenueTrend with granularity="month" and pass the
- * result here) -- not a new query, per the PROJECT.md note that this is
- * "derived from the money analytics above."
+ * Period-over-period growth for already-complete buckets. The caller decides
+ * whether the buckets represent complete weeks or complete months.
  */
-export function computeMonthOverMonthGrowth(
-  monthlyRevenueRows: RevenueTrendRow[],
-): MonthGrowthRow[] {
-  return monthlyRevenueRows.map((row, index) => {
-    const previous = monthlyRevenueRows[index - 1];
+export function computePeriodOverPeriodGrowth(
+  rows: RevenueTrendRow[],
+): PeriodGrowthRow[] {
+  return rows.map((row, index) => {
+    const previous = rows[index - 1];
     const growthPct =
       previous && previous.totalCents > 0
-        ? ((row.totalCents - previous.totalCents) / previous.totalCents) * 100
+        ? Math.round(
+            (((row.totalCents - previous.totalCents) /
+              previous.totalCents) *
+              100) *
+              10,
+          ) / 10
         : null;
 
     return {
@@ -31,3 +34,7 @@ export function computeMonthOverMonthGrowth(
     };
   });
 }
+
+/** Backward-compatible export for existing imports and tests. */
+export const computeMonthOverMonthGrowth = computePeriodOverPeriodGrowth;
+export type MonthGrowthRow = PeriodGrowthRow;

@@ -16,7 +16,7 @@ export interface CustomItemRevenueRow {
 export async function getCustomerRangeSummary(
   businessId: string,
   from: Date,
-  to: Date,
+  toExclusive: Date,
 ): Promise<CustomerRangeSummary> {
   const [row] = await prisma.$queryRaw<
     {
@@ -28,7 +28,8 @@ export async function getCustomerRangeSummary(
     SELECT
       COUNT(DISTINCT a.customer_id) AS active_customers,
       COUNT(DISTINCT CASE
-        WHEN c.created_at BETWEEN ${from} AND ${to} THEN a.customer_id
+        WHEN c.created_at >= ${from} AND c.created_at < ${toExclusive}
+        THEN a.customer_id
       END) AS new_customers,
       COUNT(DISTINCT CASE
         WHEN c.created_at < ${from} THEN a.customer_id
@@ -36,7 +37,8 @@ export async function getCustomerRangeSummary(
     FROM appointments a
     JOIN customers c ON c.id = a.customer_id
     WHERE a.business_id = ${businessId}::uuid
-      AND a.starts_at BETWEEN ${from} AND ${to}
+      AND a.starts_at >= ${from}
+      AND a.starts_at < ${toExclusive}
   `);
 
   return {
@@ -49,7 +51,7 @@ export async function getCustomerRangeSummary(
 export async function getCustomItemRevenue(
   businessId: string,
   from: Date,
-  to: Date,
+  toExclusive: Date,
   limit = 12,
 ): Promise<CustomItemRevenueRow[]> {
   const rows = await prisma.$queryRaw<
@@ -63,7 +65,8 @@ export async function getCustomItemRevenue(
     JOIN invoices i ON i.id = li.invoice_id
     WHERE i.business_id = ${businessId}::uuid
       AND i.status = 'paid'
-      AND i.paid_at BETWEEN ${from} AND ${to}
+      AND i.paid_at >= ${from}
+      AND i.paid_at < ${toExclusive}
       AND li.service_id IS NULL
     GROUP BY li.description
     ORDER BY total_cents DESC, li.description ASC

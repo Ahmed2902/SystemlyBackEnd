@@ -1,19 +1,20 @@
 import type { NextFunction, Request, Response } from "express";
-import appointmentsQueryService from "./appointments.query.service";
+import { invalidateAnalyticsCache } from "../analytics/analytics.service";
+import { fail, ok } from "../../shared/utils/response.util";
 import appointmentsCommandService from "./appointments.command.service";
-import { ok, fail } from "../../shared/utils/response.util";
+import appointmentsQueryService from "./appointments.query.service";
 import {
   appointmentIdParamsSchema,
+  cancelAppointmentSchema,
   createManualAppointmentSchema,
+  finishAppointmentSchema,
   listAppointmentsQuerySchema,
+  rescheduleAppointmentSchema,
+  revertAppointmentParamsSchema,
+  revertAppointmentSchema,
+  type UpdateAppointmentBody,
   updateAppointmentNotesSchema,
   updateAppointmentStatusSchema,
-  finishAppointmentSchema,
-  cancelAppointmentSchema,
-  revertAppointmentSchema,
-  revertAppointmentParamsSchema,
-  type UpdateAppointmentBody,
-  rescheduleAppointmentSchema,
 } from "./appointments.schema";
 
 const PHOTO_TYPES = ["before", "after", "progress"] as const;
@@ -30,14 +31,23 @@ function parsePhotoType(value: unknown): PhotoType | null {
     : null;
 }
 
+async function mutationResponse<T>(
+  res: Response,
+  businessId: string,
+  operation: Promise<T>,
+  statusCode = 200,
+) {
+  const result = await operation;
+  await invalidateAnalyticsCache(businessId);
+  return ok(res, result, statusCode);
+}
+
 class AppointmentsController {
-  // #region Queries
   async listAppointments(req: Request, res: Response, next: NextFunction) {
     try {
       const parsed = listAppointmentsQuerySchema.safeParse(req.query);
       if (!parsed.success) return next(parsed.error);
       if (!req.user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
-
       return ok(
         res,
         await appointmentsQueryService.listAppointments({
@@ -54,7 +64,6 @@ class AppointmentsController {
     try {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
-
       const appointment = await appointmentsQueryService.getAppointmentById(
         parsed.data.appointmentId,
       );
@@ -70,9 +79,9 @@ class AppointmentsController {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId)
+      if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
-
+      }
       return ok(
         res,
         await appointmentsQueryService.listAppointmentPhotos(
@@ -84,9 +93,7 @@ class AppointmentsController {
       return next(error);
     }
   }
-  // #endregion
 
-  // #region Commands
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const appointmentId = req.params.appointmentId;
@@ -102,10 +109,10 @@ class AppointmentsController {
           "FORBIDDEN",
         );
       }
-
-      return ok(
+      return mutationResponse(
         res,
-        await appointmentsCommandService.updateAppointment(
+        businessId,
+        appointmentsCommandService.updateAppointment(
           String(appointmentId),
           businessId,
           req.body as UpdateAppointmentBody,
@@ -119,16 +126,17 @@ class AppointmentsController {
   async updateStatus(req: Request, res: Response, next: NextFunction) {
     try {
       const params = appointmentIdParamsSchema.safeParse(req.params);
-      if (!params.success) return next(params.error);
       const body = updateAppointmentStatusSchema.safeParse(req.body);
+      if (!params.success) return next(params.error);
       if (!body.success) return next(body.error);
       const businessId = businessIdFrom(req);
-      if (!businessId)
+      if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
-
-      return ok(
+      }
+      return mutationResponse(
         res,
-        await appointmentsCommandService.updateStatus(
+        businessId,
+        appointmentsCommandService.updateStatus(
           params.data.appointmentId,
           body.data.status,
           businessId,
@@ -142,10 +150,9 @@ class AppointmentsController {
   async updateNotes(req: Request, res: Response, next: NextFunction) {
     try {
       const params = appointmentIdParamsSchema.safeParse(req.params);
-      if (!params.success) return next(params.error);
       const body = updateAppointmentNotesSchema.safeParse(req.body);
+      if (!params.success) return next(params.error);
       if (!body.success) return next(body.error);
-
       return ok(
         res,
         await appointmentsCommandService.updateNotes(
@@ -167,12 +174,13 @@ class AppointmentsController {
       const parsed = createManualAppointmentSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId)
+      if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
-
-      return ok(
+      }
+      return mutationResponse(
         res,
-        await appointmentsCommandService.createManualAppointment(
+        businessId,
+        appointmentsCommandService.createManualAppointment(
           parsed.data,
           businessId,
         ),
@@ -186,16 +194,17 @@ class AppointmentsController {
   async rescheduleAppointment(req: Request, res: Response, next: NextFunction) {
     try {
       const params = appointmentIdParamsSchema.safeParse(req.params);
-      if (!params.success) return next(params.error);
       const body = rescheduleAppointmentSchema.safeParse(req.body);
+      if (!params.success) return next(params.error);
       if (!body.success) return next(body.error);
       const businessId = businessIdFrom(req);
-      if (!businessId)
+      if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
-
-      return ok(
+      }
+      return mutationResponse(
         res,
-        await appointmentsCommandService.rescheduleAppointment(
+        businessId,
+        appointmentsCommandService.rescheduleAppointment(
           params.data.appointmentId,
           businessId,
           body.data.startsAt,
@@ -209,16 +218,17 @@ class AppointmentsController {
   async finishAppointment(req: Request, res: Response, next: NextFunction) {
     try {
       const params = appointmentIdParamsSchema.safeParse(req.params);
-      if (!params.success) return next(params.error);
       const body = finishAppointmentSchema.safeParse(req.body);
+      if (!params.success) return next(params.error);
       if (!body.success) return next(body.error);
       const businessId = businessIdFrom(req);
-      if (!businessId)
+      if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
-
-      return ok(
+      }
+      return mutationResponse(
         res,
-        await appointmentsCommandService.finishAppointment(
+        businessId,
+        appointmentsCommandService.finishAppointment(
           params.data.appointmentId,
           businessId,
           body.data,
@@ -234,12 +244,13 @@ class AppointmentsController {
       const parsed = cancelAppointmentSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId)
+      if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
-
-      return ok(
+      }
+      return mutationResponse(
         res,
-        await appointmentsCommandService.cancelAppointment(
+        businessId,
+        appointmentsCommandService.cancelAppointment(
           String(req.params.appointmentId),
           businessId,
           parsed.data,
@@ -255,17 +266,17 @@ class AppointmentsController {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId)
+      if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
-
+      }
       const contentType = req.body?.contentType;
       if (typeof contentType !== "string" || !contentType) {
         return fail(res, "contentType is required", 400, "BAD_REQUEST");
       }
       const photoType = parsePhotoType(req.body?.type);
-      if (!photoType)
+      if (!photoType) {
         return fail(res, "Invalid photo type", 400, "BAD_REQUEST");
-
+      }
       return ok(
         res,
         await appointmentsCommandService.createProgressPhotoUploadTicket(
@@ -285,17 +296,17 @@ class AppointmentsController {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId)
+      if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
-
+      }
       const publicId = req.body?.publicId;
       if (typeof publicId !== "string" || !publicId) {
         return fail(res, "publicId is required", 400, "BAD_REQUEST");
       }
       const photoType = parsePhotoType(req.body?.type);
-      if (!photoType)
+      if (!photoType) {
         return fail(res, "Invalid photo type", 400, "BAD_REQUEST");
-
+      }
       return ok(
         res,
         await appointmentsCommandService.confirmProgressPhotoUpload(
@@ -320,12 +331,12 @@ class AppointmentsController {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId)
+      if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
+      }
       if (!req.params.photoId) {
         return fail(res, "Photo id is required", 400, "BAD_REQUEST");
       }
-
       return ok(
         res,
         await appointmentsCommandService.deleteAppointmentPhoto(
@@ -344,12 +355,13 @@ class AppointmentsController {
       const parsed = appointmentIdParamsSchema.safeParse(req.params);
       if (!parsed.success) return next(parsed.error);
       const businessId = businessIdFrom(req);
-      if (!businessId)
+      if (!businessId) {
         return fail(res, "Business id missing", 403, "FORBIDDEN");
-
-      return ok(
+      }
+      return mutationResponse(
         res,
-        await appointmentsCommandService.deleteCancelledAppointment(
+        businessId,
+        appointmentsCommandService.deleteCancelledAppointment(
           parsed.data.appointmentId,
           businessId,
         ),
@@ -362,13 +374,13 @@ class AppointmentsController {
   async revertAppointment(req: Request, res: Response, next: NextFunction) {
     try {
       const params = revertAppointmentParamsSchema.safeParse(req.params);
-      if (!params.success) return next(params.error);
       const body = revertAppointmentSchema.safeParse(req.body);
+      if (!params.success) return next(params.error);
       if (!body.success) return next(body.error);
-
-      return ok(
+      return mutationResponse(
         res,
-        await appointmentsCommandService.revertAppointment(
+        body.data.businessId,
+        appointmentsCommandService.revertAppointment(
           params.data.appointmentId,
           body.data.businessId,
         ),
@@ -389,10 +401,10 @@ class AppointmentsController {
           "FORBIDDEN",
         );
       }
-
-      return ok(
+      return mutationResponse(
         res,
-        await appointmentsCommandService.uncancelAppointment(
+        businessId,
+        appointmentsCommandService.uncancelAppointment(
           String(req.params.appointmentId),
           businessId,
         ),
@@ -413,10 +425,10 @@ class AppointmentsController {
           "FORBIDDEN",
         );
       }
-
-      return ok(
+      return mutationResponse(
         res,
-        await appointmentsCommandService.markNoShowManual(
+        businessId,
+        appointmentsCommandService.markNoShowManual(
           String(req.params.appointmentId),
           businessId,
         ),
@@ -425,7 +437,6 @@ class AppointmentsController {
       return next(error);
     }
   }
-  // #endregion
 }
 
 export default new AppointmentsController();

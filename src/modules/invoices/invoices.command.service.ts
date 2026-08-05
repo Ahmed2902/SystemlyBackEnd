@@ -6,13 +6,14 @@ import {
 } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "../../shared/db/prisma";
+import { invalidateAnalyticsCache } from "../analytics/analytics.service";
+import { updateAppointmentInTransaction } from "../appointments/appointments.command.service";
+import appointmentsQueryService from "../appointments/appointments.query.service";
+import { invoiceDetailInclude } from "./invoices.query.service";
 import type {
   CollectPaymentInput,
   VoidInvoiceInput,
 } from "./invoices.workspace.schema";
-import { invoiceDetailInclude } from "./invoices.query.service";
-import { updateAppointmentInTransaction } from "../appointments/appointments.command.service";
-import appointmentsQueryService from "../appointments/appointments.query.service";
 
 const buildError = (message: string, statusCode: number, code: string) => {
   const error = new Error(message) as Error & {
@@ -207,7 +208,7 @@ class InvoicesCommandService {
         ).padStart(4, "0")}`;
 
         const wasCompleted = appointment.status === AppointmentStatus.completed;
-        const invoice = await tx.invoice.create({
+        const created = await tx.invoice.create({
           data: {
             businessId,
             appointmentId: appointment.id,
@@ -248,7 +249,7 @@ class InvoicesCommandService {
           });
         }
 
-        return invoice;
+        return created;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
@@ -259,6 +260,7 @@ class InvoicesCommandService {
       throw buildError("Appointment not found", 404, "NOT_FOUND");
     }
 
+    await invalidateAnalyticsCache(businessId);
     return { ...invoice, updatedAppointment };
   }
 
@@ -268,7 +270,7 @@ class InvoicesCommandService {
     userId: string,
     input: VoidInvoiceInput,
   ) {
-    return prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const invoice = await tx.invoice.findFirst({
         where: { id: invoiceId, businessId },
         select: {
@@ -348,6 +350,9 @@ class InvoicesCommandService {
         include: invoiceDetailInclude,
       });
     });
+
+    await invalidateAnalyticsCache(businessId);
+    return result;
   }
 }
 

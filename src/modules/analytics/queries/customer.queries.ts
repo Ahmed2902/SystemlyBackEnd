@@ -1,9 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "../../../shared/db/prisma";
-import { BUSINESS_TIMEZONE } from "../presets";
+import type { Granularity } from "../periods";
 import { assertSafeGranularity } from "../utils";
-import type { Granularity } from "../presets";
 
 export interface NewVsReturningRow {
   bucket: Date;
@@ -55,67 +54,72 @@ export interface CancellationRateRow {
   rate: number;
 }
 
-/**
- * Per bucket: how many distinct customers booked, split by whether their
- * Customer.createdAt falls in the SAME bucket as the appointment (new) or
- * an earlier bucket (returning).
- */
 export async function getNewVsReturningCustomers(
   businessId: string,
   from: Date,
-  to: Date,
+  toExclusive: Date,
   granularity: Granularity,
+  timezone: string,
 ): Promise<NewVsReturningRow[]> {
   const safeGranularity = assertSafeGranularity(granularity);
-
   const rows = await prisma.$queryRaw<
     { bucket: Date; new_customers: bigint; returning_customers: bigint }[]
   >(Prisma.sql`
     SELECT
-      buckets.bucket,
+      buckets.bucket AT TIME ZONE ${timezone} AS bucket,
       COUNT(DISTINCT CASE
-        WHEN DATE_TRUNC(${safeGranularity}, c.created_at AT TIME ZONE ${BUSINESS_TIMEZONE}) = buckets.bucket
+        WHEN DATE_TRUNC(
+          ${safeGranularity},
+          c.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone}
+        ) = buckets.bucket
         THEN a.customer_id
       END) AS new_customers,
       COUNT(DISTINCT CASE
-        WHEN DATE_TRUNC(${safeGranularity}, c.created_at AT TIME ZONE ${BUSINESS_TIMEZONE}) != buckets.bucket
+        WHEN DATE_TRUNC(
+          ${safeGranularity},
+          c.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone}
+        ) != buckets.bucket
         THEN a.customer_id
       END) AS returning_customers
     FROM generate_series(
-      DATE_TRUNC(${safeGranularity}, ${from}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}),
-      DATE_TRUNC(${safeGranularity}, ${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}),
+      DATE_TRUNC(${safeGranularity}, ${from}::timestamptz AT TIME ZONE ${timezone}),
+      DATE_TRUNC(
+        ${safeGranularity},
+        (${toExclusive}::timestamptz - INTERVAL '1 microsecond') AT TIME ZONE ${timezone}
+      ),
       ${`1 ${safeGranularity}`}::interval
     ) AS buckets(bucket)
     LEFT JOIN appointments a
-      ON DATE_TRUNC(${safeGranularity}, a.starts_at AT TIME ZONE ${BUSINESS_TIMEZONE}) = buckets.bucket
+      ON DATE_TRUNC(
+           ${safeGranularity},
+           a.starts_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone}
+         ) = buckets.bucket
       AND a.business_id = ${businessId}::uuid
-      AND a.starts_at BETWEEN ${from} AND ${to}
+      AND a.starts_at >= ${from}
+      AND a.starts_at < ${toExclusive}
     LEFT JOIN customers c ON c.id = a.customer_id
     GROUP BY buckets.bucket
     ORDER BY buckets.bucket
   `);
 
-  return rows.map((r) => ({
-    bucket: r.bucket,
-    newCustomers: Number(r.new_customers),
-    returningCustomers: Number(r.returning_customers),
+  return rows.map((row) => ({
+    bucket: row.bucket,
+    newCustomers: Number(row.new_customers),
+    returningCustomers: Number(row.returning_customers),
   }));
 }
 
-/**
- * Top customers by total paid spend in range. Needs a join for the name,
- * so this stays raw SQL rather than prisma.groupBy.
- */
 export async function getCustomerLifetimeValue(
   businessId: string,
   from?: Date,
-  to?: Date,
+  toExclusive?: Date,
   limit = 20,
 ): Promise<CustomerLifetimeValueRow[]> {
   const dateFilter =
-    from && to
+    from && toExclusive
       ? Prisma.sql`
-          AND i.paid_at BETWEEN ${from} AND ${to}
+          AND i.paid_at >= ${from}
+          AND i.paid_at < ${toExclusive}
         `
       : Prisma.empty;
 
@@ -128,8 +132,7 @@ export async function getCustomerLifetimeValue(
       SUM(i.total_cents) AS total_cents,
       COUNT(*) AS invoice_count
     FROM invoices i
-    JOIN customers c
-      ON c.id = i.customer_id
+    JOIN customers c ON c.id = i.customer_id
     WHERE i.business_id = ${businessId}::uuid
       AND i.status = 'paid'
       ${dateFilter}
@@ -138,17 +141,14 @@ export async function getCustomerLifetimeValue(
     LIMIT ${limit}
   `);
 
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    totalCents: Number(r.total_cents),
-    invoiceCount: Number(r.invoice_count),
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    totalCents: Number(row.total_cents),
+    invoiceCount: Number(row.invoice_count),
   }));
 }
 
-/**
- * Exact-column grouping -- plain Prisma groupBy, no raw SQL needed.
- */
 export async function getAcquisitionSources(
   businessId: string,
 ): Promise<AcquisitionSourceRow[]> {
@@ -159,21 +159,18 @@ export async function getAcquisitionSources(
   });
 
   return rows
-    .map((r) => ({
-      source: r.acquisitionSource ?? "other",
-      count: r._count,
+    .map((row) => ({
+      source: row.acquisitionSource ?? "other",
+      count: row._count,
     }))
-    .sort((a, b) => b.count - a.count);
+    .sort((left, right) => right.count - left.count);
 }
 
-/**
- * Lapsed customers are NOT date-range scoped -- "lapsed" is relative to now,
- * regardless of which preset the dashboard is viewing.
- */
 export async function getLapsedCustomers(
   businessId: string,
   lapsedThreshold: Date,
   limit = 10,
+  timezone = "Africa/Cairo",
 ): Promise<LapsedCustomerRow[]> {
   const customers = await prisma.customer.findMany({
     where: { businessId, lastVisitAt: { lte: lapsedThreshold } },
@@ -182,15 +179,15 @@ export async function getLapsedCustomers(
     select: { id: true, name: true, lastVisitAt: true },
   });
 
-  const now = DateTime.now().setZone(BUSINESS_TIMEZONE);
-  return customers.map((c) => ({
-    id: c.id,
-    name: c.name,
-    lastVisitAt: c.lastVisitAt,
-    daysSinceLastVisit: c.lastVisitAt
+  const now = DateTime.now().setZone(timezone);
+  return customers.map((customer) => ({
+    id: customer.id,
+    name: customer.name,
+    lastVisitAt: customer.lastVisitAt,
+    daysSinceLastVisit: customer.lastVisitAt
       ? Math.floor(
           now.diff(
-            DateTime.fromJSDate(c.lastVisitAt).setZone(BUSINESS_TIMEZONE),
+            DateTime.fromJSDate(customer.lastVisitAt).setZone(timezone),
             "days",
           ).days,
         )
@@ -198,16 +195,9 @@ export async function getLapsedCustomers(
   }));
 }
 
-/**
- * Retention cohorts: % of customers acquired in a given month who return
- * within 30/60/90 days. This is a per-customer date-diff against their OWN
- * createdAt, not an aggregate -- doesn't reduce to a clean GROUP BY, so it
- * stays in JS. Deliberately fetches FULL appointment history per customer,
- * not range-limited, since a customer's retention shouldn't depend on
- * which dashboard preset happens to be selected.
- */
 export async function computeRetentionCohorts(
   businessId: string,
+  timezone = "Africa/Cairo",
 ): Promise<RetentionCohortRow[]> {
   const rows = await prisma.$queryRaw<
     {
@@ -222,14 +212,13 @@ export async function computeRetentionCohorts(
       (
         DATE_TRUNC(
           'month',
-          c.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE}
-        ) AT TIME ZONE ${BUSINESS_TIMEZONE}
+          c.created_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone}
+        ) AT TIME ZONE ${timezone}
       ) AS cohort_start,
       COUNT(*) AS total_customers,
       COUNT(*) FILTER (
         WHERE EXISTS (
-          SELECT 1
-          FROM appointments a
+          SELECT 1 FROM appointments a
           WHERE a.customer_id = c.id
             AND a.starts_at > c.created_at
             AND a.starts_at <= c.created_at + INTERVAL '30 days'
@@ -237,8 +226,7 @@ export async function computeRetentionCohorts(
       ) AS retained_30,
       COUNT(*) FILTER (
         WHERE EXISTS (
-          SELECT 1
-          FROM appointments a
+          SELECT 1 FROM appointments a
           WHERE a.customer_id = c.id
             AND a.starts_at > c.created_at
             AND a.starts_at <= c.created_at + INTERVAL '60 days'
@@ -246,8 +234,7 @@ export async function computeRetentionCohorts(
       ) AS retained_60,
       COUNT(*) FILTER (
         WHERE EXISTS (
-          SELECT 1
-          FROM appointments a
+          SELECT 1 FROM appointments a
           WHERE a.customer_id = c.id
             AND a.starts_at > c.created_at
             AND a.starts_at <= c.created_at + INTERVAL '90 days'
@@ -268,79 +255,14 @@ export async function computeRetentionCohorts(
   }));
 }
 
-export async function getNoShowRateOverTime(
+async function getOutcomeRates(
   businessId: string,
   from: Date,
-  to: Date,
+  toExclusive: Date,
   granularity: Granularity,
-): Promise<NoShowRateRow[]> {
-  const safeGranularity = assertSafeGranularity(granularity);
-
-  const rows = await prisma.$queryRaw<
-    {
-      bucket: Date;
-      no_show_count: bigint;
-      completed_count: bigint;
-    }[]
-  >(Prisma.sql`
-    SELECT
-      buckets.bucket,
-
-      COUNT(*) FILTER (
-        WHERE a.status = 'no_show'
-      ) AS no_show_count,
-
-      COUNT(*) FILTER (
-        WHERE a.status = 'completed'
-      ) AS completed_count
-
-    FROM generate_series(
-      DATE_TRUNC(
-        ${safeGranularity},
-        ${from}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}
-      ),
-      DATE_TRUNC(
-        ${safeGranularity},
-        ${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}
-      ),
-      ${`1 ${safeGranularity}`}::interval
-    ) AS buckets(bucket)
-
-    LEFT JOIN appointments a
-      ON DATE_TRUNC(
-           ${safeGranularity},
-           a.starts_at AT TIME ZONE ${BUSINESS_TIMEZONE}
-         ) = buckets.bucket
-      AND a.business_id = ${businessId}::uuid
-      AND a.starts_at BETWEEN ${from} AND ${to}
-
-    GROUP BY buckets.bucket
-    ORDER BY buckets.bucket
-  `);
-
-  return rows.map((r) => {
-    const noShowCount = Number(r.no_show_count);
-    const completedCount = Number(r.completed_count);
-
-    const denominator = noShowCount + completedCount;
-
-    return {
-      bucket: r.bucket,
-      noShowCount,
-      completedCount,
-      rate: denominator === 0 ? 0 : (noShowCount / denominator) * 100,
-    };
-  });
-}
-
-export async function getCancellationRateOverTime(
-  businessId: string,
-  from: Date,
-  to: Date,
-  granularity: Granularity,
+  timezone: string,
 ): Promise<CancellationRateRow[]> {
   const safeGranularity = assertSafeGranularity(granularity);
-
   const rows = await prisma.$queryRaw<
     {
       bucket: Date;
@@ -351,66 +273,96 @@ export async function getCancellationRateOverTime(
     }[]
   >(Prisma.sql`
     SELECT
-      buckets.bucket,
-
+      buckets.bucket AT TIME ZONE ${timezone} AS bucket,
       COUNT(*) FILTER (
         WHERE a.status = 'cancelled_by_customer'
       ) AS customer_cancelled,
-
       COUNT(*) FILTER (
         WHERE a.status = 'cancelled_by_business'
       ) AS business_cancelled,
-
       COUNT(*) FILTER (
         WHERE a.status = 'completed'
       ) AS completed_count,
-
       COUNT(*) FILTER (
         WHERE a.status = 'no_show'
       ) AS no_show_count
-
     FROM generate_series(
+      DATE_TRUNC(${safeGranularity}, ${from}::timestamptz AT TIME ZONE ${timezone}),
       DATE_TRUNC(
         ${safeGranularity},
-        ${from}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}
-      ),
-      DATE_TRUNC(
-        ${safeGranularity},
-        ${to}::timestamptz AT TIME ZONE ${BUSINESS_TIMEZONE}
+        (${toExclusive}::timestamptz - INTERVAL '1 microsecond') AT TIME ZONE ${timezone}
       ),
       ${`1 ${safeGranularity}`}::interval
     ) AS buckets(bucket)
-
     LEFT JOIN appointments a
       ON DATE_TRUNC(
            ${safeGranularity},
-           a.starts_at AT TIME ZONE ${BUSINESS_TIMEZONE}
+           a.starts_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone}
          ) = buckets.bucket
       AND a.business_id = ${businessId}::uuid
-      AND a.starts_at BETWEEN ${from} AND ${to}
-
+      AND a.starts_at >= ${from}
+      AND a.starts_at < ${toExclusive}
     GROUP BY buckets.bucket
     ORDER BY buckets.bucket
   `);
 
-  return rows.map((r) => {
-    const customerCancelled = Number(r.customer_cancelled);
-    const businessCancelled = Number(r.business_cancelled);
-    const completedCount = Number(r.completed_count);
-    const noShowCount = Number(r.no_show_count);
-
+  return rows.map((row) => {
+    const customerCancelled = Number(row.customer_cancelled);
+    const businessCancelled = Number(row.business_cancelled);
+    const completedCount = Number(row.completed_count);
+    const noShowCount = Number(row.no_show_count);
     const totalCancelled = customerCancelled + businessCancelled;
-
     const denominator = totalCancelled + completedCount + noShowCount;
 
     return {
-      bucket: r.bucket,
+      bucket: row.bucket,
       customerCancelled,
       businessCancelled,
       totalCancelled,
       completedCount,
       noShowCount,
-      rate: denominator === 0 ? 0 : (totalCancelled / denominator) * 100,
+      rate: denominator > 0 ? (totalCancelled / denominator) * 100 : 0,
     };
   });
+}
+
+export async function getNoShowRateOverTime(
+  businessId: string,
+  from: Date,
+  toExclusive: Date,
+  granularity: Granularity,
+  timezone = "Africa/Cairo",
+): Promise<NoShowRateRow[]> {
+  const outcomes = await getOutcomeRates(
+    businessId,
+    from,
+    toExclusive,
+    granularity,
+    timezone,
+  );
+  return outcomes.map((row) => {
+    const denominator = row.noShowCount + row.completedCount;
+    return {
+      bucket: row.bucket,
+      noShowCount: row.noShowCount,
+      completedCount: row.completedCount,
+      rate: denominator > 0 ? (row.noShowCount / denominator) * 100 : 0,
+    };
+  });
+}
+
+export function getCancellationRateOverTime(
+  businessId: string,
+  from: Date,
+  toExclusive: Date,
+  granularity: Granularity,
+  timezone = "Africa/Cairo",
+): Promise<CancellationRateRow[]> {
+  return getOutcomeRates(
+    businessId,
+    from,
+    toExclusive,
+    granularity,
+    timezone,
+  );
 }
