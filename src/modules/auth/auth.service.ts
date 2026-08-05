@@ -1,13 +1,14 @@
 import bcrypt from "bcryptjs";
-import crypto from "crypto";
-import {
-  generateEmailToken,
-  signAccessToken,
-} from "../../shared/utils/token.util";
+import { Prisma, Roles } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
-import * as redis from "../../shared/config/redis";
-import { AUTH_CONSTANTS } from "../../shared/config/config";
+import { Errors } from "../../shared/errors/application-error";
 import * as emailService from "../../shared/services/email.service";
+import { signAccessToken } from "../../shared/utils/token.util";
+import {
+  AUTH_TOKEN_PURPOSES,
+  authActionTokens,
+} from "./auth-action-token.repository";
+import { authSessions } from "./auth-session.service";
 import type {
   EmailBody,
   GetMeInput,
@@ -18,347 +19,272 @@ import type {
   ResetPasswordBody,
   VerifyEmailQuery,
 } from "./auth.schema";
-import { Roles } from "@prisma/client";
 
-const buildErr = (message: string, statusCode: number, code: string) => {
-  const err: any = new Error(message);
-  err.statusCode = statusCode;
-  err.code = code;
-  return err;
-};
+const AUTH_USER_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  phone: true,
+  phoneVerified: true,
+  emailVerified: true,
+  preferredLanguage: true,
+  businessId: true,
+  role: true,
+  provider: true,
+  lastLoginAt: true,
+  createdAt: true,
+  updatedAt: true,
+  business: { select: { vertical: true, timezone: true } },
+} satisfies Prisma.BusinessUserSelect;
+
+type AuthUser = Prisma.BusinessUserGetPayload<{
+  select: typeof AUTH_USER_SELECT;
+}>;
+
+function publicUser(user: AuthUser) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    phoneVerified: user.phoneVerified,
+    emailVerified: user.emailVerified,
+    preferredLanguage: user.preferredLanguage,
+    businessId: user.businessId,
+    role: user.role,
+    provider: user.provider,
+    lastLoginAt: user.lastLoginAt,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    vertical: user.business?.vertical ?? null,
+    timezone: user.business?.timezone ?? null,
+  };
+}
+
+function accessTokenFor(user: Pick<AuthUser, "id" | "businessId" | "role">) {
+  return signAccessToken({
+    userId: user.id,
+    businessId: user.businessId,
+    role: user.role,
+  });
+}
 
 class AuthService {
   async register(payload: RegisterBody) {
-    const { name, email, password, phone, preferredLanguage } = payload;
-    const existing = await prisma.businessUser.findUnique({ where: { email } });
+    const existing = await prisma.businessUser.findUnique({
+      where: { email: payload.email },
+      select: { id: true },
+    });
     if (existing) {
-      throw buildErr(
-        "An account with this email already exists",
-        409,
+      throw Errors.conflict(
+        "An account with this email already exists.",
         "EMAIL_TAKEN",
       );
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
     const user = await prisma.businessUser.create({
       data: {
-        name,
-        email,
-        passwordHash,
-        phone,
-        preferredLanguage: preferredLanguage ?? "en",
+        name: payload.name,
+        email: payload.email,
+        passwordHash: await bcrypt.hash(payload.password, 12),
+        phone: payload.phone,
+        preferredLanguage: payload.preferredLanguage ?? "en",
         role: Roles.User,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        preferredLanguage: true,
       },
     });
 
-    const token = generateEmailToken();
-    await redis.set(
-      `email_verify:${token}`,
-      user.email,
-      AUTH_CONSTANTS.EMAIL_TOKEN_TTL_SECONDS,
+    const token = await authActionTokens.issue(
+      user.id,
+      AUTH_TOKEN_PURPOSES.EMAIL_VERIFICATION,
     );
-
-    await emailService.enqueueVerificationEmail(
-      {
-        name: user.name,
-        email: user.email,
-        preferredLanguage: user.preferredLanguage,
-      },
-      token,
-      { idempotencyKey: `verification:${user.id}:${token}` },
-    );
+    await emailService.enqueueVerificationEmail(user, token, {
+      idempotencyKey: `verification:${user.id}:${token}`,
+    });
 
     return { userId: user.id };
   }
 
   async verifyEmail({ token }: VerifyEmailQuery) {
-    const key = `email_verify:${token}`;
-    const email = await redis.get(key);
-    if (!email) {
-      throw buildErr(
-        "This verification link is invalid or has expired. Please request a new one.",
-        400,
-        "INVALID_TOKEN",
+    const user = await prisma.$transaction(async (tx) => {
+      const userId = await authActionTokens.consume(
+        tx,
+        AUTH_TOKEN_PURPOSES.EMAIL_VERIFICATION,
+        token,
       );
-    }
+      if (!userId) {
+        throw Errors.badRequest(
+          "This verification link is invalid or has expired. Please request a new one.",
+          "INVALID_TOKEN",
+        );
+      }
 
-    const user = await prisma.businessUser.findUnique({
-      where: { email },
-      include: { business: { select: { vertical: true, timezone: true } } },
+      return tx.businessUser.update({
+        where: { id: userId },
+        data: { emailVerified: true },
+        select: AUTH_USER_SELECT,
+      });
     });
-    if (!user) throw buildErr("User not found", 404, "NOT_FOUND");
 
-    await prisma.businessUser.update({
-      where: { email: user.email },
-      data: { emailVerified: true },
+    await emailService.enqueueWelcomeEmail(user, {
+      idempotencyKey: `welcome:${user.id}`,
     });
-    await redis.del(key);
-
-    await emailService.enqueueWelcomeEmail(
-      {
-        name: user.name,
-        email: user.email,
-        preferredLanguage: user.preferredLanguage,
-      },
-      { idempotencyKey: `welcome:${user.id}` },
-    );
-
-    const accessToken = signAccessToken({
-      userId: user.id,
-      businessId: user.businessId,
-      role: user.role,
-    });
-    const refreshTokenStr = await this.createRefreshToken(user.id);
+    const refreshToken = await authSessions.create(user.id);
 
     return {
-      accessToken,
-      refreshToken: refreshTokenStr,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        businessId: user.businessId,
-        role: user.role,
-        preferredLanguage: user.preferredLanguage,
-        vertical: user.business?.vertical ?? null,
-        timezone: user.business?.timezone ?? null,
-      },
+      accessToken: accessTokenFor(user),
+      refreshToken,
+      user: publicUser(user),
     };
   }
 
   async login(payload: LoginBody) {
-    const { email, password } = payload;
-    const user = await prisma.businessUser.findUnique({
-      where: { email },
-      include: { business: { select: { vertical: true, timezone: true } } },
+    const userWithPassword = await prisma.businessUser.findUnique({
+      where: { email: payload.email },
+      select: { ...AUTH_USER_SELECT, passwordHash: true },
     });
-    if (!user) {
-      throw buildErr("Invalid email or password", 401, "INVALID_CREDENTIALS");
+    if (
+      !userWithPassword ||
+      !userWithPassword.passwordHash ||
+      !(await bcrypt.compare(payload.password, userWithPassword.passwordHash))
+    ) {
+      throw Errors.unauthorized(
+        "Invalid email or password.",
+        "INVALID_CREDENTIALS",
+      );
     }
-
-    const passwordMatches = await bcrypt.compare(password, user.passwordHash);
-    if (!passwordMatches) {
-      throw buildErr("Invalid email or password", 401, "INVALID_CREDENTIALS");
-    }
-
-    if (!user.emailVerified) {
-      const error = buildErr(
+    if (!userWithPassword.emailVerified) {
+      const error = Errors.forbidden(
         "Please verify your email before logging in. Check your inbox for the verification link.",
-        403,
         "EMAIL_NOT_VERIFIED",
-      ) as Error & { details?: { email: string } };
-      error.details = { email: user.email };
+      );
+      Object.assign(error, { details: { email: userWithPassword.email } });
       throw error;
     }
 
-    const now = new Date();
-    setImmediate(() => {
-      void prisma.businessUser.update({
-        where: { id: user.id },
-        data: { lastLoginAt: now },
-      });
+    const user = await prisma.businessUser.update({
+      where: { id: userWithPassword.id },
+      data: { lastLoginAt: new Date() },
+      select: AUTH_USER_SELECT,
     });
-
-    const accessToken = signAccessToken({
-      userId: user.id,
-      businessId: user.businessId,
-      role: user.role,
-    });
-    const refreshTokenStr = await this.createRefreshToken(user.id);
+    const refreshToken = await authSessions.create(user.id);
 
     return {
-      accessToken,
-      refreshToken: refreshTokenStr,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        businessId: user.businessId,
-        role: user.role,
-        preferredLanguage: user.preferredLanguage,
-        vertical: user.business?.vertical ?? null,
-        timezone: user.business?.timezone ?? null,
-      },
+      accessToken: accessTokenFor(user),
+      refreshToken,
+      user: publicUser(user),
     };
   }
 
-  async createRefreshToken(userId: string) {
-    const token = crypto.randomBytes(32).toString("hex");
-    const expiresAt = new Date(
-      Date.now() + AUTH_CONSTANTS.REFRESH_TOKEN_TTL_SECONDS * 1000,
-    );
-    const row = await prisma.refreshToken.create({
-      data: { userId, token, expiresAt },
-    });
-    await prisma.businessUser.update({
-      where: { id: userId },
-      data: { currentRefreshTokenId: row.id },
-    });
-    return token;
+  createRefreshToken(userId: string) {
+    return authSessions.create(userId);
   }
 
-  async revokeRefreshToken(token: string) {
-    const row = await prisma.refreshToken.findUnique({ where: { token } });
-    if (!row) return false;
-    await prisma.refreshToken.update({
-      where: { id: row.id },
-      data: { revoked: true },
-    });
+  revokeRefreshToken(token: string) {
+    return authSessions.revoke(token);
+  }
+
+  async rotateRefreshToken(token: string) {
+    return (await authSessions.rotate(token)).token;
+  }
+
+  async refreshToken({ refreshToken }: RefreshTokenInput) {
+    const rotated = await authSessions.rotate(refreshToken);
     const user = await prisma.businessUser.findUnique({
-      where: { id: row.userId },
-    });
-    if (user && user.currentRefreshTokenId === row.id) {
-      await prisma.businessUser.update({
-        where: { id: user.id },
-        data: { currentRefreshTokenId: null },
-      });
-    }
-    return true;
-  }
-
-  async rotateRefreshToken(oldToken: string) {
-    const row = await prisma.refreshToken.findUnique({
-      where: { token: oldToken },
-    });
-    if (
-      !row ||
-      row.revoked ||
-      (row.expiresAt && row.expiresAt.getTime() < Date.now())
-    ) {
-      throw buildErr(
-        "Invalid or expired refresh token",
-        401,
-        "INVALID_REFRESH_TOKEN",
-      );
-    }
-
-    const newToken = crypto.randomBytes(32).toString("hex");
-    const expiresAt = new Date(
-      Date.now() + AUTH_CONSTANTS.REFRESH_TOKEN_TTL_SECONDS * 1000,
-    );
-    const newRow = await prisma.refreshToken.create({
-      data: { userId: row.userId, token: newToken, expiresAt },
-    });
-    await prisma.refreshToken.update({
-      where: { id: row.id },
-      data: { revoked: true },
-    });
-    await prisma.businessUser.update({
-      where: { id: row.userId },
-      data: { currentRefreshTokenId: newRow.id },
-    });
-    return newToken;
-  }
-
-  async refreshToken({ refreshToken }: RefreshTokenInput): Promise<{
-    accessToken: string;
-    refreshToken: string;
-  }> {
-    const row = await prisma.refreshToken.findUnique({
-      where: { token: refreshToken },
-    });
-    if (
-      !row ||
-      row.revoked ||
-      (row.expiresAt && row.expiresAt.getTime() < Date.now())
-    ) {
-      throw buildErr(
-        "Invalid or expired refresh token",
-        401,
-        "INVALID_REFRESH_TOKEN",
-      );
-    }
-
-    const user = await prisma.businessUser.findUnique({
-      where: { id: row.userId },
+      where: { id: rotated.userId },
+      select: AUTH_USER_SELECT,
     });
     if (!user) {
-      throw buildErr("Invalid token user", 401, "INVALID_REFRESH_TOKEN");
+      throw Errors.unauthorized(
+        "Invalid refresh-token user.",
+        "INVALID_REFRESH_TOKEN",
+      );
     }
 
-    const newRefresh = await this.rotateRefreshToken(refreshToken);
-    const accessToken = signAccessToken({
-      userId: user.id,
-      businessId: user.businessId,
-      role: user.role,
-    });
-    return { accessToken, refreshToken: newRefresh };
+    return {
+      accessToken: accessTokenFor(user),
+      refreshToken: rotated.token,
+    };
   }
 
   async resendVerificationEmail({ email }: EmailBody) {
-    const user = await prisma.businessUser.findUnique({ where: { email } });
-    if (user && user.emailVerified) {
-      throw buildErr(
+    const user = await prisma.businessUser.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        emailVerified: true,
+        preferredLanguage: true,
+      },
+    });
+    if (user?.emailVerified) {
+      throw Errors.badRequest(
         "This email is already verified.",
-        400,
         "ALREADY_VERIFIED",
       );
     }
 
     if (user) {
-      const token = generateEmailToken();
-      await redis.set(
-        `email_verify:${token}`,
-        user.email,
-        AUTH_CONSTANTS.EMAIL_TOKEN_TTL_SECONDS,
+      const token = await authActionTokens.issue(
+        user.id,
+        AUTH_TOKEN_PURPOSES.EMAIL_VERIFICATION,
       );
-      await emailService.enqueueVerificationEmail(
-        {
-          name: user.name,
-          email: user.email,
-          preferredLanguage: user.preferredLanguage,
-        },
-        token,
-        { idempotencyKey: `verification:${user.id}:${token}` },
-      );
+      await emailService.enqueueVerificationEmail(user, token, {
+        idempotencyKey: `verification:${user.id}:${token}`,
+      });
     }
 
     return { sent: true };
   }
 
   async forgotPassword({ email }: EmailBody) {
-    const user = await prisma.businessUser.findUnique({ where: { email } });
+    const user = await prisma.businessUser.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        preferredLanguage: true,
+      },
+    });
     if (user) {
-      const token = crypto.randomBytes(32).toString("hex");
-      await redis.set(
-        `pwd_reset:${token}`,
+      const token = await authActionTokens.issue(
         user.id,
-        AUTH_CONSTANTS.PWD_RESET_TTL_SECONDS,
+        AUTH_TOKEN_PURPOSES.PASSWORD_RESET,
       );
-      await emailService.enqueuePasswordResetEmail(
-        {
-          name: user.name,
-          email: user.email,
-          preferredLanguage: user.preferredLanguage,
-        },
-        token,
-        { idempotencyKey: `password-reset:${user.id}:${token}` },
-      );
+      await emailService.enqueuePasswordResetEmail(user, token, {
+        idempotencyKey: `password-reset:${user.id}:${token}`,
+      });
     }
     return { sent: true };
   }
 
-  async resetPassword({ token, password: newPassword }: ResetPasswordBody) {
-    const key = `pwd_reset:${token}`;
-    const userId = await redis.get(key);
-    if (!userId) {
-      throw buildErr(
-        "This password reset link is invalid or has expired.",
-        400,
-        "INVALID_TOKEN",
+  async resetPassword({ token, password }: ResetPasswordBody) {
+    await prisma.$transaction(async (tx) => {
+      const userId = await authActionTokens.consume(
+        tx,
+        AUTH_TOKEN_PURPOSES.PASSWORD_RESET,
+        token,
       );
-    }
-    const user = await prisma.businessUser.findUnique({
-      where: { id: userId },
-    });
-    if (!user) throw buildErr("Invalid token user", 400, "INVALID_TOKEN");
+      if (!userId) {
+        throw Errors.badRequest(
+          "This password reset link is invalid or has expired.",
+          "INVALID_TOKEN",
+        );
+      }
 
-    const passwordHash = await bcrypt.hash(newPassword, 12);
-    await prisma.businessUser.update({
-      where: { id: userId },
-      data: { passwordHash },
+      await tx.businessUser.update({
+        where: { id: userId },
+        data: { passwordHash: await bcrypt.hash(password, 12) },
+      });
+      await authSessions.revokeAll(userId, tx);
     });
-    await redis.del(key);
 
     return { success: true };
   }
@@ -366,15 +292,10 @@ class AuthService {
   async getMe({ userId }: GetMeInput) {
     const user = await prisma.businessUser.findUnique({
       where: { id: userId },
-      include: { business: { select: { vertical: true, timezone: true } } },
+      select: AUTH_USER_SELECT,
     });
-    if (!user) throw buildErr("User not found", 404, "NOT_FOUND");
-    const { passwordHash, business, ...safeUser } = user as any;
-    return {
-      ...safeUser,
-      vertical: business?.vertical ?? null,
-      timezone: business?.timezone ?? null,
-    };
+    if (!user) throw Errors.notFound("User not found.");
+    return publicUser(user);
   }
 
   async updatePreferredLanguage(
@@ -388,81 +309,66 @@ class AuthService {
     });
   }
 
-  async oauthSignIn({
-    provider,
-    providerId,
-    email,
-    name,
-    emailVerified,
-    preferredLanguage,
-  }: OauthSignInInput) {
-    if (!email) {
-      throw buildErr("OAuth provider did not return an email", 400, "NO_EMAIL");
+  async oauthSignIn(input: OauthSignInInput) {
+    if (!input.email) {
+      throw Errors.badRequest(
+        "OAuth provider did not return an email.",
+        "NO_EMAIL",
+      );
     }
 
-    let user = await prisma.businessUser.findFirst({
-      where: {
-        OR: [{ email }, { provider, providerId }],
-      },
+    const providerIdentity = await prisma.businessUser.findFirst({
+      where: { provider: input.provider, providerId: input.providerId },
+      select: AUTH_USER_SELECT,
     });
+    let user: AuthUser;
 
-    if (!user) {
-      user = await prisma.businessUser.create({
+    if (providerIdentity) {
+      user = await prisma.businessUser.update({
+        where: { id: providerIdentity.id },
         data: {
-          name: name || email.split("@")[0],
-          email,
-          provider,
-          providerId,
-          passwordHash: "",
-          emailVerified: !!emailVerified,
-          preferredLanguage: preferredLanguage ?? "en",
-          role: Roles.User,
+          ...(input.name ? { name: input.name } : {}),
+          ...(input.emailVerified ? { emailVerified: true } : {}),
+          ...(input.preferredLanguage
+            ? { preferredLanguage: input.preferredLanguage }
+            : {}),
+          lastLoginAt: new Date(),
         },
+        select: AUTH_USER_SELECT,
       });
     } else {
-      const updateData: Partial<typeof user> = {};
-      if (!user.emailVerified && emailVerified) updateData.emailVerified = true;
-      if (name && name !== user.name) updateData.name = name;
-      if (preferredLanguage && preferredLanguage !== user.preferredLanguage) {
-        updateData.preferredLanguage = preferredLanguage;
+      const emailOwner = await prisma.businessUser.findUnique({
+        where: { email: input.email },
+        select: { id: true },
+      });
+      if (emailOwner) {
+        throw Errors.conflict(
+          "An account already uses this email. Sign in first to link the OAuth provider.",
+          "OAUTH_ACCOUNT_LINK_REQUIRED",
+        );
       }
-      if (user.provider !== provider) {
-        updateData.provider = provider;
-        updateData.providerId = providerId;
-      }
-      if (Object.keys(updateData).length > 0) {
-        user = await prisma.businessUser.update({
-          where: { id: user.id },
-          data: updateData,
-        });
-      }
+
+      user = await prisma.businessUser.create({
+        data: {
+          name: input.name || input.email.split("@")[0],
+          email: input.email,
+          provider: input.provider,
+          providerId: input.providerId,
+          passwordHash: "",
+          emailVerified: Boolean(input.emailVerified),
+          preferredLanguage: input.preferredLanguage ?? "en",
+          role: Roles.User,
+          lastLoginAt: new Date(),
+        },
+        select: AUTH_USER_SELECT,
+      });
     }
 
-    setImmediate(() => {
-      void prisma.businessUser.update({
-        where: { id: user.id },
-        data: { lastLoginAt: new Date() },
-      });
-    });
-
-    const accessToken = signAccessToken({
-      userId: user.id,
-      businessId: user.businessId,
-      role: user.role,
-    });
-    const refreshToken = await this.createRefreshToken(user.id);
-
+    const refreshToken = await authSessions.create(user.id);
     return {
-      accessToken,
+      accessToken: accessTokenFor(user),
       refreshToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        businessId: user.businessId,
-        role: user.role,
-        preferredLanguage: user.preferredLanguage,
-      },
+      user: publicUser(user),
     };
   }
 }
