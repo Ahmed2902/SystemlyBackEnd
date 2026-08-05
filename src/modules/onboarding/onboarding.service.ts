@@ -1,6 +1,5 @@
 import { CommissionType, Roles } from "@prisma/client";
 import { startLifetimeTrial } from "../subscriptions/subscription.service";
-import { enqueueTrialStartedEmail } from "../../shared/services/email.service";
 import { prisma } from "../../shared/db/prisma";
 import { CompleteOnboardingInput } from "./onboarding.schema";
 
@@ -35,7 +34,7 @@ class OnboardingService {
     });
     if (slugTaken) throw buildErr("Slug already taken", 409, "SLUG_TAKEN");
 
-    const result = await prisma.$transaction(async (tx) => {
+    return prisma.$transaction(async (tx) => {
       const business = await tx.business.create({
         data: {
           name: input.name,
@@ -157,22 +156,9 @@ class OnboardingService {
         await tx.photo.createMany({ data: galleryPhotos });
       }
 
-      const trial = await startLifetimeTrial(tx, business.id);
-      return { business, trial };
+      await startLifetimeTrial(tx, business.id);
+      return business;
     });
-
-    void enqueueTrialStartedEmail(
-      { name: user.name, email: user.email },
-      {
-        businessName: result.business.name,
-        planName: result.trial.plan.name,
-        trialEnd: result.trial.trialEndsAt?.toISOString() ?? "",
-      },
-    ).catch((error) => {
-      console.error("[Onboarding] Failed to queue trial email", error);
-    });
-
-    return result.business;
   }
 }
 
