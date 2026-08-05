@@ -1,164 +1,84 @@
-import crypto from "crypto";
-import { prisma } from "../shared/db/prisma";
+import crypto from "node:crypto";
 import { getWorkerUtils } from "./queue";
+import { emailJobSchema, type EmailJob } from "../workers/email-job.schema";
 
-type EmailJobPayload = {
-  type:
-    | "welcome"
-    | "verification"
-    | "password_reset"
-    | "appointment"
-    | "invoice"
-    | "subscription"
-    | string;
-  to: string | string[];
-  data?: Record<string, any>;
-  tenantId?: string | number | null;
+export interface EmailJobOptions {
+  attempts?: number;
+  delayMs?: number;
   idempotencyKey?: string;
-};
+}
 
-/**
- * Enqueue a single canonical `send_email` job with structured payload.
- * Preferred API for controllers and services.
- */
-export const enqueueSendEmail = async (
-  payload: EmailJobPayload,
-  opts: { attempts?: number; delay?: number; idempotencyKey?: string } = {},
-) => {
-  const utils = await getWorkerUtils();
+function stableIdempotencyKey(job: EmailJob, explicit?: string): string {
+  if (explicit) return explicit;
+  if (job.idempotencyKey) return job.idempotencyKey;
 
-  const keySource =
-    payload.idempotencyKey ||
-    opts.idempotencyKey ||
-    JSON.stringify({
-      type: payload.type,
-      to: payload.to,
-      data: payload.data || {},
-      tenantId: payload.tenantId ?? null,
-    });
-
-  const jobKey = `email:${crypto
+  const hash = crypto
     .createHash("sha256")
-    .update(keySource)
-    .digest("hex")}`;
+    .update(JSON.stringify(job))
+    .digest("hex");
+  return `systemly-email-${hash}`;
+}
 
-  const jobOptions: any = {
-    jobKey,
-    maxAttempts: opts.attempts ?? 5,
-  };
+/** Persist an email job before the HTTP request is acknowledged. */
+export async function enqueueSendEmail(
+  input: unknown,
+  options: EmailJobOptions = {},
+) {
+  const parsed = emailJobSchema.parse(input);
+  const idempotencyKey = stableIdempotencyKey(
+    parsed,
+    options.idempotencyKey,
+  );
+  const job = emailJobSchema.parse({ ...parsed, idempotencyKey });
+  const workerUtils = await getWorkerUtils();
 
-  if (typeof opts.delay === "number") {
-    jobOptions.runAt = new Date(Date.now() + opts.delay);
-  }
+  return workerUtils.addJob("send_email", job, {
+    jobKey: `email:${idempotencyKey}`,
+    maxAttempts: options.attempts ?? 5,
+    ...(typeof options.delayMs === "number"
+      ? { runAt: new Date(Date.now() + options.delayMs) }
+      : {}),
+  });
+}
 
-  return utils.addJob("send_email", payload, jobOptions);
-};
-
-/**
- * Backwards-compatible wrapper for existing callers using legacy job names.
- * Maps legacy names (confirmation, reminder, staff_invite) to `send_email`.
- */
-export const enqueueEmailJob = async (
+/** Compatibility entrypoint for the active staff-invitation flow. */
+export async function enqueueEmailJob(
   name: string,
-  data: Record<string, any>,
-  opts: Record<string, any> = {},
-) => {
-  // Direct passthrough if caller already uses canonical job name
-  if (name === "send_email") {
-    return enqueueSendEmail(data as EmailJobPayload, opts as any);
-  }
-
-  // Appointment-related legacy jobs: resolve recipient if only appointmentId provided
-  if (name === "confirmation" || name === "reminder") {
-    let to = data.to;
-    let tenantId = data.tenantId;
-    let extraData = { ...data };
-
-    if (!to && data.appointmentId) {
-      const appt = await prisma.appointment.findUnique({
-        where: { id: data.appointmentId },
-        include: {
-          customer: true,
-          business: true,
-          appointmentServices: { include: { service: true } },
-          staff: true,
-        },
-      });
-      if (!appt) throw new Error("Appointment not found for email enqueue");
-      if (!appt.customer?.email)
-        throw new Error("Appointment has no customer email");
-      to = appt.customer.email;
-      tenantId = (appt as any).businessId ?? appt.business?.id;
-      extraData = {
-        appointmentId: appt.id,
-        name: appt.customer.name,
-        businessName: appt.business?.name,
-        serviceName: appt.appointmentServices?.[0]?.service?.name ?? null,
-        staffName: appt.staff?.name ?? null,
-        startsAt: appt.startsAt ? appt.startsAt.toISOString() : undefined,
-        whenKey: data.whenKey,
-        whenLabel: data.whenLabel,
-      };
-    }
-
-    const payload: EmailJobPayload = {
-      type: "appointment",
-      to: to,
-      data: {
-        subtype: name === "confirmation" ? "confirmation" : "reminder",
-        ...extraData,
-      },
-      tenantId,
-      idempotencyKey: data.idempotencyKey,
-    };
-
-    return enqueueSendEmail(payload, opts as any);
-  }
-
+  data: Record<string, unknown>,
+  options: EmailJobOptions = {},
+) {
   if (name === "staff_invite") {
-    if (!data.to) throw new Error("Missing 'to' for staff invite email");
-    const payload: EmailJobPayload = {
-      type: "subscription",
-      to: data.to,
-      data: { subtype: "staff_invite", ...data },
-      tenantId: data.businessId || data.tenantId,
-      idempotencyKey: data.idempotencyKey,
-    };
-    return enqueueSendEmail(payload, opts as any);
+    return enqueueSendEmail(
+      {
+        type: "staff_invite",
+        to: data.to,
+        data: {
+          inviterName: data.inviterName,
+          businessName: data.businessName,
+          acceptUrl: data.acceptUrl,
+          locale: data.locale ?? "en",
+        },
+        idempotencyKey: data.idempotencyKey,
+      },
+      options,
+    );
   }
 
-  // Generic mapping for common names
-  const mapping: Record<string, any> = {
-    confirmation: "appointment",
-    reminder: "appointment",
-    welcome: "welcome",
-    verification: "verification",
-    password_reset: "password_reset",
-    invoice: "invoice",
-    subscription: "subscription",
-  };
-
-  if (mapping[name]) {
-    const payload: EmailJobPayload = {
-      type: mapping[name],
-      to: data.to || data.email,
-      data,
-      tenantId: data.businessId || data.tenantId,
-      idempotencyKey: (data as any).idempotencyKey,
-    };
-    return enqueueSendEmail(payload, opts as any);
+  if (
+    name === "verification" ||
+    name === "welcome" ||
+    name === "password_reset" ||
+    name === "send_email"
+  ) {
+    return enqueueSendEmail(
+      name === "send_email" ? data : { type: name, ...data },
+      options,
+    );
   }
 
-  // Fallback: keep previous behavior for non-email jobs
-  const utils = await getWorkerUtils();
-  const jobOptions: any = {};
-  if ((opts as any).attempts) jobOptions.maxAttempts = (opts as any).attempts;
-  if (typeof (opts as any).delay === "number")
-    jobOptions.runAt = new Date(Date.now() + (opts as any).delay);
-  return utils.addJob(name, data, jobOptions);
-};
+  throw new Error(`Unsupported email job: ${name}`);
+}
 
-export const initEmailQueue = async () => {
+export async function initEmailQueue() {
   await getWorkerUtils();
-  return { init: true };
-};
+}
