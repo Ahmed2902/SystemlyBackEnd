@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { Prisma, Roles } from "@prisma/client";
+import { Roles } from "@prisma/client";
 import authService from "../src/modules/auth/auth.service";
 import {
   AUTH_TOKEN_PURPOSES,
@@ -26,22 +26,25 @@ async function createUser() {
 
 afterEach(async () => {
   if (createdUserIds.length === 0) return;
-  await prisma.businessUser.deleteMany({
-    where: { id: { in: createdUserIds.splice(0) } },
-  });
+  const userIds = createdUserIds.splice(0);
+  await prisma.$transaction([
+    prisma.authActionToken.deleteMany({ where: { userId: { in: userIds } } }),
+    prisma.authSession.deleteMany({ where: { userId: { in: userIds } } }),
+    prisma.businessUser.deleteMany({ where: { id: { in: userIds } } }),
+  ]);
 });
 
 describe("hardened auth sessions", () => {
   test("stores only a token hash", async () => {
     const user = await createUser();
     const rawToken = await authSessions.create(user.id);
-    const stored = await prisma.refreshToken.findFirstOrThrow({
+    const stored = await prisma.authSession.findFirstOrThrow({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
     });
 
-    expect(stored.token).not.toBe(rawToken);
-    expect(stored.token).toMatch(/^[a-f0-9]{64}$/);
+    expect(stored.tokenHash).not.toBe(rawToken);
+    expect(stored.tokenHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   test("allows exactly one concurrent rotation", async () => {
@@ -76,12 +79,13 @@ describe("hardened auth sessions", () => {
     const original = await authSessions.create(user.id);
     const replacement = await authSessions.rotate(original);
 
-    await prisma.$executeRaw(Prisma.sql`
-      UPDATE refresh_tokens
-      SET revoked_at = CURRENT_TIMESTAMP - INTERVAL '1 minute'
-      WHERE user_id = ${user.id}::uuid
-        AND replaced_by_token_id IS NOT NULL
-    `);
+    await prisma.authSession.updateMany({
+      where: {
+        userId: user.id,
+        replacedBySessionId: { not: null },
+      },
+      data: { revokedAt: new Date(Date.now() - 60_000) },
+    });
 
     await expect(authSessions.rotate(original)).rejects.toMatchObject({
       code: "REFRESH_TOKEN_REUSE_DETECTED",
@@ -135,12 +139,16 @@ describe("hardened auth sessions", () => {
     });
     const updated = await prisma.businessUser.findUniqueOrThrow({
       where: { id: user.id },
-      select: { passwordHash: true, currentRefreshTokenId: true },
+      select: { passwordHash: true },
     });
     expect(await bcrypt.compare("NewPassword123!", updated.passwordHash)).toBe(
       true,
     );
-    expect(updated.currentRefreshTokenId).toBeNull();
+    expect(
+      await prisma.authSession.count({
+        where: { userId: user.id, revokedAt: null },
+      }),
+    ).toBe(0);
   });
 
   test("getMe returns an explicit safe DTO", async () => {
