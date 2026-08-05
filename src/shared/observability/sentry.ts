@@ -4,12 +4,11 @@ import { SENTRY } from "../config/config";
 export type SentryComponent =
   | "api"
   | "email-worker"
-  | "worker"
-  | "worker-once";
+  | "sentry-verifier";
 
 let initialized = false;
 
-function isSentryEnabled(): boolean {
+export function isSentryConfigured(): boolean {
   return Boolean(SENTRY.DSN) && process.env.NODE_ENV !== "test";
 }
 
@@ -20,13 +19,14 @@ function resolveTraceSampleRate(): number {
 }
 
 export function initializeSentry(component: SentryComponent): boolean {
-  if (initialized || !isSentryEnabled()) return initialized;
+  if (initialized || !isSentryConfigured()) return initialized;
 
   SentrySdk.init({
     dsn: SENTRY.DSN,
     environment: SENTRY.ENV,
     release: SENTRY.RELEASE,
     tracesSampleRate: resolveTraceSampleRate(),
+    debug: process.env.SENTRY_DEBUG === "true",
     sendDefaultPii: false,
     beforeSend(event) {
       if (event.request) {
@@ -57,7 +57,7 @@ export function captureException(
   component: SentryComponent,
   tags: Record<string, string> = {},
 ): string | undefined {
-  if (!isSentryEnabled()) return undefined;
+  if (!isSentryConfigured()) return undefined;
 
   return SentrySdk.withScope((scope) => {
     scope.setTag("component", component);
@@ -69,6 +69,10 @@ export function captureException(
 }
 
 export async function flushSentry(timeoutMs = 2_000): Promise<boolean> {
-  if (!isSentryEnabled()) return true;
+  if (!isSentryConfigured()) return true;
   return SentrySdk.flush(timeoutMs);
+}
+
+export function resetSentryForTests() {
+  initialized = false;
 }

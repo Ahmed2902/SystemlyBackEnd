@@ -30,6 +30,7 @@ describe("validateEnvironment", () => {
       DATABASE_URL: "postgresql://user:pass@db.example.com:5432/systemly",
       JWT_SECRET: "access-secret",
       JWT_REFRESH_SECRET: "refresh-secret",
+      CSRF_SECRET: "csrf-secret",
       FRONTEND_URL: "https://app.systemly.example",
       APP_URL: "https://api.systemly.example",
       RESEND_API_KEY: "re_test",

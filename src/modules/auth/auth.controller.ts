@@ -1,15 +1,16 @@
 import type { CookieOptions, NextFunction, Request, Response } from "express";
 import { AUTH_CONSTANTS } from "../../shared/config/config";
+import { clearCsrfCookie } from "../../shared/middleware/CSRF";
 import { fail, ok } from "../../shared/utils/response.util";
 import { resolveSubscriptionAccess } from "../subscriptions/subscription-access.service";
 import {
   emailBodySchema,
+  getMeInputSchema,
   loginBodySchema,
   registerBodySchema,
   resetPasswordBodySchema,
-  verifyEmailQuerySchema,
-  getMeInputSchema,
   updatePreferredLanguageBodySchema,
+  verifyEmailQuerySchema,
 } from "./auth.schema";
 import authService from "./auth.service";
 
@@ -105,7 +106,13 @@ class AuthController {
     try {
       const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
       if (typeof refreshToken !== "string" || !refreshToken) {
-        return fail(res, "No refresh token", 401, "UNAUTHORIZED");
+        return fail(
+          res,
+          "No refresh token",
+          401,
+          "UNAUTHORIZED",
+          req.requestId ?? null,
+        );
       }
       const result = await authService.refreshToken({ refreshToken });
       setRefreshCookie(res, result.refreshToken);
@@ -169,9 +176,10 @@ class AuthController {
         await authService.revokeRefreshToken(refreshToken);
       }
     } catch {
-      // Clearing the browser cookie still signs the user out locally.
+      // Clearing browser cookies still signs the user out locally.
     }
     clearRefreshCookie(res);
+    clearCsrfCookie(res);
     return ok(res, { message: "Logged out successfully" });
   }
 
@@ -182,7 +190,15 @@ class AuthController {
   ) {
     try {
       const userId = req.user?.id;
-      if (!userId) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+      if (!userId) {
+        return fail(
+          res,
+          "Unauthorized",
+          401,
+          "UNAUTHORIZED",
+          req.requestId ?? null,
+        );
+      }
       const parsed = updatePreferredLanguageBodySchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
       const result = await authService.updatePreferredLanguage(
@@ -199,7 +215,13 @@ class AuthController {
     try {
       const parsed = getMeInputSchema.safeParse({ userId: req.user?.id });
       if (!parsed.success) {
-        return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+        return fail(
+          res,
+          "Unauthorized",
+          401,
+          "UNAUTHORIZED",
+          req.requestId ?? null,
+        );
       }
       const user = await withSubscriptionAccess(
         await authService.getMe(parsed.data),
