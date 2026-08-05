@@ -1,4 +1,7 @@
 ALTER TABLE "refresh_tokens"
+  RENAME COLUMN "expiresAt" TO "expires_at";
+
+ALTER TABLE "refresh_tokens"
   ADD COLUMN "family_id" UUID,
   ADD COLUMN "replaced_by_token_id" UUID,
   ADD COLUMN "revoked_at" TIMESTAMPTZ;
