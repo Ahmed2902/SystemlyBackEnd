@@ -6,10 +6,24 @@ jest.mock("../../shared/observability/sentry", () => ({
   captureException: jest.fn(),
 }));
 
-import { run } from "graphile-worker";
+import { EventEmitter } from "node:events";
+import { run, type Runner } from "graphile-worker";
 import { EmbeddedEmailWorker } from "../embedded-email-worker";
 
 const mockedRun = run as jest.MockedFunction<typeof run>;
+
+function runnerDouble(
+  promise: Promise<void>,
+  stop = jest.fn().mockResolvedValue(undefined),
+): Runner {
+  return {
+    stop,
+    kill: jest.fn().mockResolvedValue(undefined),
+    addJob: jest.fn(),
+    events: new EventEmitter(),
+    promise,
+  } as unknown as Runner;
+}
 
 describe("EmbeddedEmailWorker", () => {
   const originalDatabaseUrl = process.env.DATABASE_URL;
@@ -25,10 +39,9 @@ describe("EmbeddedEmailWorker", () => {
 
   test("coalesces concurrent startup and stops the runner", async () => {
     const stop = jest.fn().mockResolvedValue(undefined);
-    mockedRun.mockResolvedValue({
-      stop,
-      promise: new Promise<void>(() => undefined),
-    } as Awaited<ReturnType<typeof run>>);
+    mockedRun.mockResolvedValue(
+      runnerDouble(new Promise<void>(() => undefined), stop),
+    );
 
     const worker = new EmbeddedEmailWorker();
     const onFatal = jest.fn();
@@ -53,10 +66,7 @@ describe("EmbeddedEmailWorker", () => {
     const runnerPromise = new Promise<void>((_resolve, reject) => {
       rejectRunner = reject;
     });
-    mockedRun.mockResolvedValue({
-      stop: jest.fn().mockResolvedValue(undefined),
-      promise: runnerPromise,
-    } as Awaited<ReturnType<typeof run>>);
+    mockedRun.mockResolvedValue(runnerDouble(runnerPromise));
 
     const worker = new EmbeddedEmailWorker();
     const onFatal = jest.fn();
