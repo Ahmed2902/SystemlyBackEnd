@@ -1,24 +1,29 @@
 import authRoutes from "../src/modules/auth/auth.routes";
 
+function handlersFor(path: string) {
+  const router = authRoutes as any;
+  const layer = (router.stack || []).find(
+    (entry: any) => entry?.route?.path === path,
+  );
+  expect(layer).toBeTruthy();
+  return layer.route.stack.map((entry: any) => entry.handle?.name);
+}
+
 describe("auth routes", () => {
-  test("Google OAuth routes do not use CSRF middleware", () => {
-    const router: any = authRoutes as any;
-    const stack: any[] = router.stack || [];
+  test("protects only cookie-authenticated session mutations", () => {
+    expect(handlersFor("/refresh")).toContain("csrfProtection");
+    expect(handlersFor("/logout")).toContain("csrfProtection");
 
-    const google = stack.find((l) => l?.route?.path === "/oauth/google");
-    const googleCallback = stack.find(
-      (l) => l?.route?.path === "/oauth/google/callback"
+    expect(handlersFor("/preferences")).not.toContain("csrfProtection");
+    expect(handlersFor("/register")).not.toContain("csrfProtection");
+    expect(handlersFor("/forgot-password")).not.toContain("csrfProtection");
+    expect(handlersFor("/reset-password")).not.toContain("csrfProtection");
+  });
+
+  test("Google OAuth routes use state rather than CSRF middleware", () => {
+    expect(handlersFor("/oauth/google")).not.toContain("csrfProtection");
+    expect(handlersFor("/oauth/google/callback")).not.toContain(
+      "csrfProtection",
     );
-
-    expect(google).toBeTruthy();
-    expect(googleCallback).toBeTruthy();
-
-    const googleHandlers = google.route.stack.map((s: any) => s.handle?.name);
-    const callbackHandlers = googleCallback.route.stack.map(
-      (s: any) => s.handle?.name
-    );
-
-    expect(googleHandlers).not.toContain("csrf");
-    expect(callbackHandlers).not.toContain("csrf");
   });
 });
