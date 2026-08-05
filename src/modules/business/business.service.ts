@@ -4,7 +4,6 @@ import {
   isValidVertical,
 } from "../../shared/config/verticals.config";
 import { prisma } from "../../shared/db/prisma";
-import { enqueueTrialStartedEmail } from "../../shared/services/email.service";
 import { signAccessToken } from "../../shared/utils/token.util";
 import {
   findPublicBusinessGateBySlug,
@@ -80,25 +79,14 @@ class BusinessService {
         },
       });
 
-      const trial = await startLifetimeTrial(tx, business.id);
+      await startLifetimeTrial(tx, business.id);
       const accessToken = signAccessToken({
         userId: updatedUser.id,
         businessId: updatedUser.businessId,
         role: updatedUser.role,
       });
 
-      return { business, user: updatedUser, accessToken, trial };
-    });
-
-    void enqueueTrialStartedEmail(
-      { name: result.user.name, email: result.user.email },
-      {
-        businessName: result.business.name,
-        planName: result.trial.plan.name,
-        trialEnd: result.trial.trialEndsAt?.toISOString() ?? "",
-      },
-    ).catch((error) => {
-      console.error("[Business] Failed to queue trial email", error);
+      return { business, user: updatedUser, accessToken };
     });
 
     return {
