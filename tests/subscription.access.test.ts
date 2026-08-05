@@ -60,6 +60,13 @@ function responseDouble() {
   return response as unknown as Response;
 }
 
+function expectErrorCode(response: Response, code: string) {
+  expect(response.json).toHaveBeenCalledWith({
+    success: false,
+    error: expect.objectContaining({ code }),
+  });
+}
+
 describe("subscription access decisions", () => {
   test.each([
     [
@@ -192,9 +199,7 @@ describe("subscription access middleware", () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(response.status).toHaveBeenCalledWith(402);
-    expect(response.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "SUBSCRIPTION_READ_ONLY" }),
-    );
+    expectErrorCode(response, "SUBSCRIPTION_READ_ONLY");
   });
 
   test("blocks staff from reads after expiry", async () => {
@@ -217,9 +222,7 @@ describe("subscription access middleware", () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(response.status).toHaveBeenCalledWith(402);
-    expect(response.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "SUBSCRIPTION_INACTIVE" }),
-    );
+    expectErrorCode(response, "SUBSCRIPTION_INACTIVE");
   });
 
   test("checks optional plan entitlements without another database read", async () => {
@@ -244,8 +247,6 @@ describe("subscription access middleware", () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(response.status).toHaveBeenCalledWith(403);
-    expect(response.json).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "PLAN_FEATURE_REQUIRED" }),
-    );
+    expectErrorCode(response, "PLAN_FEATURE_REQUIRED");
   });
 });
