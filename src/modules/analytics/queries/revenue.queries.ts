@@ -3,6 +3,8 @@ import { prisma } from "../../../shared/db/prisma";
 import type { Granularity } from "../periods";
 import { assertSafeGranularity } from "../utils";
 
+const DEFAULT_TIMEZONE = "Africa/Cairo";
+
 export interface RevenueTrendRow {
   bucket: Date;
   totalCents: number;
@@ -37,7 +39,7 @@ export async function getRevenueTrend(
   from: Date,
   toExclusive: Date,
   granularity: Granularity,
-  timezone: string,
+  timezone = DEFAULT_TIMEZONE,
 ): Promise<RevenueTrendRow[]> {
   const safeGranularity = assertSafeGranularity(granularity);
   const rows = await prisma.$queryRaw<
@@ -118,7 +120,7 @@ export async function getRevenueByWeekday(
   businessId: string,
   from: Date,
   toExclusive: Date,
-  timezone: string,
+  timezone = DEFAULT_TIMEZONE,
 ): Promise<RevenueWeekdayRow[]> {
   const rows = await prisma.$queryRaw<
     { weekday: number; total_cents: bigint; invoice_count: bigint }[]
@@ -171,7 +173,7 @@ export async function getAverageInvoiceValueTrend(
   from: Date,
   toExclusive: Date,
   granularity: Granularity,
-  timezone: string,
+  timezone = DEFAULT_TIMEZONE,
 ): Promise<AverageInvoiceValueTrendRow[]> {
   const safeGranularity = assertSafeGranularity(granularity);
   const rows = await prisma.$queryRaw<
