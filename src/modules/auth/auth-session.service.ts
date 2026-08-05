@@ -42,24 +42,24 @@ async function insertSession(
     expiresAt: Date;
   },
 ) {
-  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+  const id = crypto.randomUUID();
+  await tx.$executeRaw(Prisma.sql`
     INSERT INTO refresh_tokens (
+      id,
       user_id,
       token,
       family_id,
       "expiresAt",
       revoked
     ) VALUES (
+      ${id}::uuid,
       ${input.userId}::uuid,
       ${input.tokenHash},
       ${input.familyId}::uuid,
       ${input.expiresAt},
       false
     )
-    RETURNING id
   `);
-  const id = rows[0]?.id;
-  if (!id) throw Errors.internal("Failed to create refresh session.");
   return id;
 }
 
