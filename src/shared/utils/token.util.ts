@@ -1,47 +1,58 @@
-import jwt from "jsonwebtoken";
-import crypto from "crypto";
+import crypto from "node:crypto";
+import jwt, { type JwtPayload, type SignOptions } from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
+import { JWT } from "../config/config";
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev_jwt_secret";
-const JWT_REFRESH_SECRET =
-  process.env.JWT_REFRESH_SECRET || "dev_jwt_refresh_secret";
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "15m";
-const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || "30d";
-
-export const generateEmailToken = (): string => {
-  return crypto.randomBytes(32).toString("hex");
+const ACCESS_OPTIONS: SignOptions = {
+  algorithm: "HS256",
+  expiresIn: JWT.EXPIRES_IN as SignOptions["expiresIn"],
+  issuer: JWT.ISSUER,
+  audience: JWT.AUDIENCE,
 };
 
-export const generateCancelToken = (): string => {
-  return uuidv4();
+const REFRESH_OPTIONS: SignOptions = {
+  algorithm: "HS256",
+  expiresIn: JWT.REFRESH_EXPIRES_IN as SignOptions["expiresIn"],
+  issuer: JWT.ISSUER,
+  audience: `${JWT.AUDIENCE}:refresh`,
 };
 
-export const signAccessToken = (payload: object) => {
-  return jwt.sign(payload as string | object | Buffer, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN,
-  });
-};
+export const generateEmailToken = (): string =>
+  crypto.randomBytes(32).toString("hex");
 
-export const verifyAccessToken = (token: string) => {
-  return jwt.verify(token, JWT_SECRET) as any;
-};
+export const generateCancelToken = (): string => uuidv4();
 
-export const signRefreshToken = (payload: object) => {
-  return jwt.sign(payload as string | object | Buffer, JWT_REFRESH_SECRET, {
-    expiresIn: JWT_REFRESH_EXPIRES_IN,
-  });
-};
+export function signAccessToken(payload: object): string {
+  return jwt.sign(payload, JWT.SECRET, ACCESS_OPTIONS);
+}
 
-export const verifyRefreshToken = (token: string) => {
-  return jwt.verify(token, JWT_REFRESH_SECRET) as any;
-};
+export function verifyAccessToken(token: string): JwtPayload {
+  return jwt.verify(token, JWT.SECRET, {
+    algorithms: ["HS256"],
+    issuer: JWT.ISSUER,
+    audience: JWT.AUDIENCE,
+  }) as JwtPayload;
+}
 
-export const generateTokens = (payload: object) => {
+/** Retained only for compatibility with non-browser integrations. */
+export function signRefreshToken(payload: object): string {
+  return jwt.sign(payload, JWT.REFRESH_SECRET, REFRESH_OPTIONS);
+}
+
+export function verifyRefreshToken(token: string): JwtPayload {
+  return jwt.verify(token, JWT.REFRESH_SECRET, {
+    algorithms: ["HS256"],
+    issuer: JWT.ISSUER,
+    audience: `${JWT.AUDIENCE}:refresh`,
+  }) as JwtPayload;
+}
+
+export function generateTokens(payload: object) {
   return {
     accessToken: signAccessToken(payload),
     refreshToken: signRefreshToken(payload),
   };
-};
+}
 
 export default {
   generateEmailToken,
