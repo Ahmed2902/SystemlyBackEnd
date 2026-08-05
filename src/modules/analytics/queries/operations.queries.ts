@@ -1,7 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
 import { prisma } from "../../../shared/db/prisma";
-import { BUSINESS_TIMEZONE } from "../presets";
 import { bucketLeadTimeDays, type LeadTimeBucket } from "../utils";
 
 export interface BookingHeatmapRow {
@@ -25,28 +24,24 @@ export interface BookingLeadTimeRow {
 export async function getBookingHeatmap(
   businessId: string,
   from: Date,
-  to: Date,
+  toExclusive: Date,
+  timezone: string,
 ): Promise<BookingHeatmapRow[]> {
   const rows = await prisma.$queryRaw<
     { weekday: number; hour: number; count: bigint }[]
   >(Prisma.sql`
     SELECT
-      -- Prisma stores these DateTime values as UTC in PostgreSQL's
-      -- timezone-less timestamp column. Convert UTC -> business-local time
-      -- before extracting the weekday/hour; applying the business timezone
-      -- directly makes PostgreSQL return a timestamptz and extraction then
-      -- uses the database session timezone (which shifted Cairo bookings
-      -- several hours backwards in the heatmap).
       EXTRACT(
-        DOW FROM (a.starts_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE})
+        DOW FROM (a.starts_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})
       )::int AS weekday,
       EXTRACT(
-        HOUR FROM (a.starts_at AT TIME ZONE 'UTC' AT TIME ZONE ${BUSINESS_TIMEZONE})
+        HOUR FROM (a.starts_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})
       )::int AS hour,
       COUNT(*) AS count
     FROM appointments a
     WHERE a.business_id = ${businessId}::uuid
-      AND a.starts_at BETWEEN ${from} AND ${to}
+      AND a.starts_at >= ${from}
+      AND a.starts_at < ${toExclusive}
     GROUP BY weekday, hour
     ORDER BY weekday, hour
   `);
@@ -61,7 +56,7 @@ export async function getBookingHeatmap(
 export async function getMostBookedServices(
   businessId: string,
   from: Date,
-  to: Date,
+  toExclusive: Date,
   limit = 10,
 ): Promise<MostBookedServiceRow[]> {
   const rows = await prisma.$queryRaw<
@@ -76,7 +71,8 @@ export async function getMostBookedServices(
     JOIN appointments a ON a.id = aps.appointment_id
     JOIN services s ON s.id = aps.service_id
     WHERE a.business_id = ${businessId}::uuid
-      AND aps.starts_at BETWEEN ${from} AND ${to}
+      AND aps.starts_at >= ${from}
+      AND aps.starts_at < ${toExclusive}
     GROUP BY s.id, s.name, s.category
     ORDER BY count DESC
     LIMIT ${limit}
@@ -93,20 +89,21 @@ export async function getMostBookedServices(
 export async function computeBookingLeadTimes(
   businessId: string,
   from: Date,
-  to: Date,
+  toExclusive: Date,
+  timezone: string,
 ): Promise<BookingLeadTimeRow[]> {
   const appointments = await prisma.appointment.findMany({
-    where: { businessId, startsAt: { gte: from, lte: to } },
+    where: { businessId, startsAt: { gte: from, lt: toExclusive } },
     select: { startsAt: true, createdAt: true },
   });
 
   const counts = new Map<LeadTimeBucket, number>();
   for (const appointment of appointments) {
     const startsLocal = DateTime.fromJSDate(appointment.startsAt).setZone(
-      BUSINESS_TIMEZONE,
+      timezone,
     );
     const createdLocal = DateTime.fromJSDate(appointment.createdAt).setZone(
-      BUSINESS_TIMEZONE,
+      timezone,
     );
     const diffDays = Math.max(startsLocal.diff(createdLocal, "days").days, 0);
     const bucket = bucketLeadTimeDays(diffDays);
