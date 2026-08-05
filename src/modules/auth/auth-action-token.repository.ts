@@ -11,7 +11,10 @@ export const AUTH_TOKEN_PURPOSES = {
 export type AuthTokenPurpose =
   (typeof AUTH_TOKEN_PURPOSES)[keyof typeof AUTH_TOKEN_PURPOSES];
 
-type SqlClient = Pick<Prisma.TransactionClient, "$executeRaw" | "$queryRaw">;
+type AuthActionTokenClient = Pick<
+  Prisma.TransactionClient,
+  "authActionToken"
+>;
 
 function ttlSeconds(purpose: AuthTokenPurpose): number {
   return purpose === AUTH_TOKEN_PURPOSES.EMAIL_VERIFICATION
@@ -30,48 +33,41 @@ export class AuthActionTokenRepository {
     const expiresAt = new Date(Date.now() + ttlSeconds(purpose) * 1_000);
 
     await prisma.$transaction(async (tx) => {
-      await tx.$executeRaw(Prisma.sql`
-        UPDATE auth_action_tokens
-        SET used_at = CURRENT_TIMESTAMP
-        WHERE user_id = ${userId}::uuid
-          AND purpose = ${purpose}
-          AND used_at IS NULL
-      `);
-      await tx.$executeRaw(Prisma.sql`
-        INSERT INTO auth_action_tokens (
-          user_id,
-          purpose,
-          token_hash,
-          expires_at
-        ) VALUES (
-          ${userId}::uuid,
-          ${purpose},
-          ${tokenHash},
-          ${expiresAt}
-        )
-      `);
+      await tx.authActionToken.updateMany({
+        where: { userId, purpose, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      await tx.authActionToken.create({
+        data: { userId, purpose, tokenHash, expiresAt },
+      });
     });
 
     return token;
   }
 
   async consume(
-    client: SqlClient,
+    client: AuthActionTokenClient,
     purpose: AuthTokenPurpose,
     token: string,
   ): Promise<string | null> {
     const tokenHash = hashForPurpose(token, purpose);
-    const rows = await client.$queryRaw<Array<{ user_id: string }>>(Prisma.sql`
-      UPDATE auth_action_tokens
-      SET used_at = CURRENT_TIMESTAMP
-      WHERE token_hash = ${tokenHash}
-        AND purpose = ${purpose}
-        AND used_at IS NULL
-        AND expires_at > CURRENT_TIMESTAMP
-      RETURNING user_id
-    `);
+    const consumedAt = new Date();
+    const result = await client.authActionToken.updateMany({
+      where: {
+        tokenHash,
+        purpose,
+        usedAt: null,
+        expiresAt: { gt: consumedAt },
+      },
+      data: { usedAt: consumedAt },
+    });
 
-    return rows[0]?.user_id ?? null;
+    if (result.count !== 1) return null;
+    const consumed = await client.authActionToken.findUnique({
+      where: { tokenHash },
+      select: { userId: true },
+    });
+    return consumed?.userId ?? null;
   }
 }
 
