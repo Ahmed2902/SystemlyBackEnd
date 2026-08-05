@@ -9,6 +9,7 @@ const environmentSchema = z
     REDIS_URL: z.string().url().optional(),
     JWT_SECRET: z.string().optional(),
     JWT_REFRESH_SECRET: z.string().optional(),
+    CSRF_SECRET: z.string().optional(),
     FRONTEND_URL: z.string().url().optional(),
     APP_URL: z.string().url().optional(),
     RESEND_API_KEY: z.string().optional(),
@@ -25,6 +26,7 @@ const environmentSchema = z
     const required = [
       "JWT_SECRET",
       "JWT_REFRESH_SECRET",
+      "CSRF_SECRET",
       "FRONTEND_URL",
       "APP_URL",
       "RESEND_API_KEY",
