@@ -1,15 +1,14 @@
 import "./env";
+import { environment } from "./environment";
 
 const parseNumber = (value: string | undefined, fallback: number) => {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return parsed;
+  return Number.isFinite(parsed) ? parsed : fallback;
 };
 
 const parseBool = (value: string | undefined, fallback = false) => {
   if (value === undefined || value === null) return fallback;
-  const v = String(value).toLowerCase().trim();
-  return v === "true" || v === "1" || v === "yes";
+  return ["true", "1", "yes"].includes(value.toLowerCase().trim());
 };
 
 const parseOrigins = (value: string | undefined) => {
@@ -18,49 +17,21 @@ const parseOrigins = (value: string | undefined) => {
     new Set(
       value
         .split(",")
-        .map((o) => o.trim())
-        .map((origin) => {
-          try {
-            return new URL(origin).origin;
-          } catch {
-            return origin.replace(/\/+$/, "");
-          }
-        })
-        .filter(Boolean),
+        .map((origin) => origin.trim())
+        .filter(Boolean)
+        .map((origin) => new URL(origin).origin),
     ),
   );
 };
 
-const resolveDatabaseUrl = () => {
-  const url =
-    process.env.DOCKER_DATABASE_URL ||
-    process.env.DATABASE_URL ||
-    process.env.PRISMA_DATABASE_URL ||
-    (process.env.NODE_ENV === "production"
-      ? process.env.SUPABASE_TRANSACTION_POOLER
-      : process.env.SUPABASE_CONNECTION_STRING) ||
-    process.env.SUPABASE_TRANSACTION_POOLER ||
-    process.env.SUPABASE_CONNECTION_STRING;
-
-  if (!url) {
-    throw new Error(
-      "Missing database connection string. Set DATABASE_URL in .env.",
-    );
-  }
-
-  return url;
-};
-
 export const APP_CONFIG = {
-  nodeEnv:
-    (process.env.NODE_ENV as "development" | "production" | "test") ||
-    "development",
-  isDevelopment: process.env.NODE_ENV === "development",
-  isProduction: process.env.NODE_ENV === "production",
-  isTest: process.env.NODE_ENV === "test",
+  nodeEnv: environment.NODE_ENV,
+  isDevelopment: environment.NODE_ENV === "development",
+  isProduction: environment.NODE_ENV === "production",
+  isTest: environment.NODE_ENV === "test",
   port: parseNumber(process.env.PORT, 3000),
   corsOrigins: parseOrigins(
-    [process.env.FRONTEND_URL, process.env.CORS_ORIGINS]
+    [environment.FRONTEND_URL, process.env.CORS_ORIGINS]
       .filter(Boolean)
       .join(","),
   ),
@@ -88,48 +59,38 @@ export const APP_CONFIG = {
   },
 } as const;
 
-export const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
-
-export const APP_URL = process.env.APP_URL || "http://localhost:3000";
+export const FRONTEND_URL =
+  environment.FRONTEND_URL || "http://localhost:3000";
+export const APP_URL = environment.APP_URL || "http://localhost:3000";
 
 export const DATABASE = {
-  DATABASE_URL: resolveDatabaseUrl(),
+  DATABASE_URL: environment.DATABASE_URL,
 } as const;
 
 export const REDIS = {
-  URL:
-    process.env.REDIS_URL ||
-    (APP_CONFIG.isDevelopment ? "redis://localhost:6379" : undefined),
-  HOST: process.env.REDIS_HOST || "localhost",
-  PORT: parseNumber(process.env.REDIS_PORT, 6379),
-  PASSWORD: process.env.REDIS_PASSWORD || undefined,
-  DB: parseNumber(process.env.REDIS_DB, 0),
+  URL: environment.REDIS_URL,
+  CONNECT_TIMEOUT_MS: parseNumber(process.env.REDIS_CONNECT_TIMEOUT_MS, 2_000),
+  COMMAND_TIMEOUT_MS: parseNumber(process.env.REDIS_COMMAND_TIMEOUT_MS, 1_500),
+  MAX_RETRIES_PER_REQUEST: parseNumber(
+    process.env.REDIS_MAX_RETRIES_PER_REQUEST,
+    1,
+  ),
 } as const;
 
 export const EMAIL = {
-  FROM_EMAIL:
-    process.env.EMAIL_FROM ||
-    process.env.RESEND_FROM_EMAIL ||
-    process.env.BREVO_FROM_EMAIL ||
-    "ahmedabdelrahma@gmail.com",
-  SMTP_URL: process.env.EMAIL_SMTP_URL || process.env.SMTP_URL,
-  SMTP_HOST: process.env.EMAIL_SMTP_HOST || "localhost",
-  SMTP_PORT: process.env.EMAIL_SMTP_PORT
-    ? Number(process.env.EMAIL_SMTP_PORT)
-    : 587,
-  SMTP_SECURE: parseBool(process.env.EMAIL_SMTP_SECURE, false),
-  SMTP_USER: process.env.EMAIL_SMTP_USER || "",
-  SMTP_PASS: process.env.EMAIL_SMTP_PASS || "",
-  RESEND_API_KEY: process.env.RESEND_API_KEY || "",
-  BREVO_API_KEY: process.env.BREVO_API_KEY || "",
+  FROM_EMAIL: environment.EMAIL_FROM || "Systemly <onboarding@resend.dev>",
+  RESEND_API_KEY: environment.RESEND_API_KEY || "",
 } as const;
 
 export const AUTH_CONSTANTS = {
   EMAIL_TOKEN_TTL_SECONDS: parseNumber(
     process.env.EMAIL_TOKEN_TTL_SECONDS,
-    86400,
+    86_400,
   ),
-  PWD_RESET_TTL_SECONDS: parseNumber(process.env.PWD_RESET_TTL_SECONDS, 3600),
+  PWD_RESET_TTL_SECONDS: parseNumber(
+    process.env.PWD_RESET_TTL_SECONDS,
+    3_600,
+  ),
   REFRESH_TOKEN_TTL_SECONDS: parseNumber(
     process.env.REFRESH_TOKEN_TTL_SECONDS,
     30 * 24 * 60 * 60,
@@ -138,18 +99,20 @@ export const AUTH_CONSTANTS = {
 } as const;
 
 export const JWT = {
-  SECRET: process.env.JWT_SECRET || "dev-jwt-secret-change-me",
+  SECRET: environment.JWT_SECRET || "ci-development-access-secret",
   REFRESH_SECRET:
-    process.env.JWT_REFRESH_SECRET || "dev-refresh-secret-change-me",
+    environment.JWT_REFRESH_SECRET || "ci-development-refresh-secret",
   EXPIRES_IN: process.env.JWT_EXPIRES_IN || "15m",
   REFRESH_EXPIRES_IN: process.env.JWT_REFRESH_EXPIRES_IN || "7d",
+  ISSUER: process.env.JWT_ISSUER || "systemly-api",
+  AUDIENCE: process.env.JWT_AUDIENCE || "systemly-web",
 } as const;
 
 export const SENTRY = {
-  DSN: process.env.SENTRY_DSN || "",
-  ENV: process.env.SENTRY_ENV || process.env.NODE_ENV || "production",
+  DSN: environment.SENTRY_DSN || "",
+  ENV: process.env.SENTRY_ENV || environment.NODE_ENV,
   RELEASE: process.env.SENTRY_RELEASE || undefined,
-  ENABLED: parseBool(process.env.SENTRY_DSN, false),
+  ENABLED: Boolean(environment.SENTRY_DSN),
 } as const;
 
 export const ENABLE_METRICS = parseBool(process.env.ENABLE_METRICS, false);

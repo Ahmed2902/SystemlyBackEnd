@@ -1,11 +1,23 @@
 import type { Response } from "express";
 
-export const ok = (res: Response, data: unknown, statusCode = 200) => {
+export function ok(res: Response, data: unknown, statusCode = 200) {
   return res.status(statusCode).json({ success: true, data });
-};
+}
 
-export const fail = (res: Response, error: string, statusCode = 400, code = "ERROR") => {
-  return res.status(statusCode).json({ success: false, error, code });
-};
+export function fail(
+  res: Response,
+  message: string,
+  statusCode = 400,
+  code = "ERROR",
+  requestId: string | null = null,
+) {
+  return res.status(statusCode).json({
+    success: false,
+    error: { code, message, requestId },
+  });
+}
 
-export default { ok, fail };
+export const created = (res: Response, data: unknown) => ok(res, data, 201);
+export const noContent = (res: Response) => res.status(204).end();
+
+export default { ok, fail, created, noContent };
