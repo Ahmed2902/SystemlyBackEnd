@@ -11,10 +11,9 @@ type StoredSession = {
   id: string;
   user_id: string;
   family_id: string;
-  revoked: boolean;
   revoked_at: Date | null;
-  replaced_by_token_id: string | null;
-  expires_at: Date | null;
+  replaced_by_session_id: string | null;
+  expires_at: Date;
 };
 
 type RotationOutcome =
@@ -22,6 +21,8 @@ type RotationOutcome =
   | { type: "invalid" }
   | { type: "already_rotated" }
   | { type: "reuse_detected" };
+
+type AuthSessionClient = Pick<Prisma.TransactionClient, "authSession">;
 
 function tokenHash(token: string) {
   return hashOpaqueToken(token, "refresh-token");
@@ -42,96 +43,66 @@ async function insertSession(
     expiresAt: Date;
   },
 ) {
-  const id = crypto.randomUUID();
-  await tx.$executeRaw(Prisma.sql`
-    INSERT INTO refresh_tokens (
-      id,
-      user_id,
-      token,
-      family_id,
-      "expiresAt",
-      revoked
-    ) VALUES (
-      ${id}::uuid,
-      ${input.userId}::uuid,
-      ${input.tokenHash},
-      ${input.familyId}::uuid,
-      ${input.expiresAt},
-      false
-    )
-  `);
-  return id;
+  const session = await tx.authSession.create({
+    data: input,
+    select: { id: true },
+  });
+  return session.id;
 }
 
 export class AuthSessionService {
   async create(userId: string): Promise<string> {
     const token = createOpaqueToken();
-    const familyId = crypto.randomUUID();
-
-    await prisma.$transaction(async (tx) => {
-      const id = await insertSession(tx, {
+    await prisma.authSession.create({
+      data: {
         userId,
         tokenHash: tokenHash(token),
-        familyId,
+        familyId: crypto.randomUUID(),
         expiresAt: expiryDate(),
-      });
-      await tx.businessUser.update({
-        where: { id: userId },
-        data: { currentRefreshTokenId: id },
-      });
+      },
     });
-
     return token;
   }
 
   async rotate(token: string): Promise<{ token: string; userId: string }> {
     const hash = tokenHash(token);
     const outcome = await prisma.$transaction<RotationOutcome>(async (tx) => {
+      // Prisma does not expose SELECT ... FOR UPDATE. The row lock is the one
+      // intentional raw-SQL boundary in the session service.
       const rows = await tx.$queryRaw<StoredSession[]>(Prisma.sql`
         SELECT
           id,
           user_id,
           family_id,
-          revoked,
           revoked_at,
-          replaced_by_token_id,
-          "expiresAt" AS expires_at
-        FROM refresh_tokens
-        WHERE token = ${hash}
+          replaced_by_session_id,
+          expires_at
+        FROM auth_sessions
+        WHERE token_hash = ${hash}
         FOR UPDATE
       `);
       const stored = rows[0];
       if (!stored) return { type: "invalid" };
 
-      const expired =
-        stored.expires_at != null && stored.expires_at.getTime() <= Date.now();
-      if (expired) {
-        await tx.$executeRaw(Prisma.sql`
-          UPDATE refresh_tokens
-          SET revoked = true,
-              revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
-          WHERE id = ${stored.id}::uuid
-        `);
+      const now = new Date();
+      if (stored.expires_at.getTime() <= now.getTime()) {
+        await tx.authSession.update({
+          where: { id: stored.id },
+          data: { revokedAt: stored.revoked_at ?? now },
+        });
         return { type: "invalid" };
       }
 
-      if (stored.revoked) {
+      if (stored.revoked_at) {
         const recentlyRotated =
-          stored.replaced_by_token_id != null &&
-          stored.revoked_at != null &&
-          Date.now() - stored.revoked_at.getTime() <=
+          stored.replaced_by_session_id != null &&
+          now.getTime() - stored.revoked_at.getTime() <=
             CONCURRENT_ROTATION_GRACE_MS;
         if (recentlyRotated) return { type: "already_rotated" };
 
-        await tx.$executeRaw(Prisma.sql`
-          UPDATE refresh_tokens
-          SET revoked = true,
-              revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
-          WHERE family_id = ${stored.family_id}::uuid
-        `);
-        await tx.businessUser.update({
-          where: { id: stored.user_id },
-          data: { currentRefreshTokenId: null },
+        await tx.authSession.updateMany({
+          where: { familyId: stored.family_id },
+          data: { revokedAt: now },
         });
         return { type: "reuse_detected" };
       }
@@ -144,16 +115,12 @@ export class AuthSessionService {
         expiresAt: expiryDate(),
       });
 
-      await tx.$executeRaw(Prisma.sql`
-        UPDATE refresh_tokens
-        SET revoked = true,
-            revoked_at = CURRENT_TIMESTAMP,
-            replaced_by_token_id = ${replacementId}::uuid
-        WHERE id = ${stored.id}::uuid
-      `);
-      await tx.businessUser.update({
-        where: { id: stored.user_id },
-        data: { currentRefreshTokenId: replacementId },
+      await tx.authSession.update({
+        where: { id: stored.id },
+        data: {
+          revokedAt: now,
+          replacedBySessionId: replacementId,
+        },
       });
 
       return {
@@ -185,37 +152,24 @@ export class AuthSessionService {
   }
 
   async revoke(token: string): Promise<boolean> {
-    const hash = tokenHash(token);
-    const rows = await prisma.$queryRaw<Array<{ id: string; user_id: string }>>(
-      Prisma.sql`
-        UPDATE refresh_tokens
-        SET revoked = true,
-            revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
-        WHERE token = ${hash}
-        RETURNING id, user_id
-      `,
-    );
-    const row = rows[0];
-    if (!row) return false;
-
-    await prisma.businessUser.updateMany({
-      where: { id: row.user_id, currentRefreshTokenId: row.id },
-      data: { currentRefreshTokenId: null },
+    const stored = await prisma.authSession.findUnique({
+      where: { tokenHash: tokenHash(token) },
+      select: { id: true, revokedAt: true },
     });
+    if (!stored) return false;
+    if (!stored.revokedAt) {
+      await prisma.authSession.update({
+        where: { id: stored.id },
+        data: { revokedAt: new Date() },
+      });
+    }
     return true;
   }
 
-  async revokeAll(userId: string, tx: Prisma.TransactionClient = prisma) {
-    await tx.$executeRaw(Prisma.sql`
-      UPDATE refresh_tokens
-      SET revoked = true,
-          revoked_at = COALESCE(revoked_at, CURRENT_TIMESTAMP)
-      WHERE user_id = ${userId}::uuid
-        AND revoked = false
-    `);
-    await tx.businessUser.update({
-      where: { id: userId },
-      data: { currentRefreshTokenId: null },
+  async revokeAll(userId: string, client: AuthSessionClient = prisma) {
+    await client.authSession.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
     });
   }
 }
