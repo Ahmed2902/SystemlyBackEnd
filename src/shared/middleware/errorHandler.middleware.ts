@@ -1,20 +1,32 @@
 import type { NextFunction, Request, Response } from "express";
 import { ZodError } from "zod";
 import {
+  ApplicationError,
+  isApplicationError,
+} from "../errors/application-error";
+import logger from "../observability/logger";
+import {
   captureException,
   shouldCaptureHttpError,
 } from "../observability/sentry";
 
-type AppError = Error & {
+type LegacyApplicationError = Error & {
   code?: string;
   details?: unknown;
   fieldErrors?: Record<string, string>;
   statusCode?: number;
 };
 
-const isPrismaKnownRequestError = (
+interface ErrorResponse {
+  statusCode: number;
+  code: string;
+  message: string;
+  details?: unknown;
+}
+
+function isPrismaKnownRequestError(
   error: unknown,
-): error is { code: string; message: string } => {
+): error is { code: string; message: string } {
   return (
     typeof error === "object" &&
     error !== null &&
@@ -22,14 +34,14 @@ const isPrismaKnownRequestError = (
     typeof (error as { code: unknown }).code === "string" &&
     error.constructor?.name === "PrismaClientKnownRequestError"
   );
-};
+}
 
-const getPrismaErrorResponse = (error: { code: string }) => {
+function mapPrismaError(error: { code: string }): ErrorResponse {
   switch (error.code) {
     case "P2002":
       return {
         code: "UNIQUE_CONSTRAINT",
-        message: "A record with the same unique field already exists.",
+        message: "A record with the same unique value already exists.",
         statusCode: 409,
       };
     case "P2025":
@@ -38,87 +50,115 @@ const getPrismaErrorResponse = (error: { code: string }) => {
         message: "The requested record was not found.",
         statusCode: 404,
       };
+    case "P2034":
+      return {
+        code: "TRANSACTION_CONFLICT",
+        message: "The operation conflicted with another request. Please retry.",
+        statusCode: 409,
+      };
     default:
       return {
         code: "DATABASE_ERROR",
-        message: "A database error occurred.",
-        statusCode: 400,
+        message: "An unexpected database error occurred.",
+        statusCode: 500,
       };
   }
-};
+}
 
-export const errorHandler = (
-  error: AppError,
+function normalizeError(error: unknown): ErrorResponse {
+  if (error instanceof ZodError) {
+    return {
+      code: "VALIDATION_ERROR",
+      message: "Validation failed.",
+      statusCode: 422,
+      details: error.flatten(),
+    };
+  }
+
+  if (isPrismaKnownRequestError(error)) return mapPrismaError(error);
+
+  if (error instanceof SyntaxError && "body" in error) {
+    return {
+      code: "INVALID_JSON",
+      message: "Invalid JSON payload.",
+      statusCode: 400,
+    };
+  }
+
+  if (isApplicationError(error)) {
+    return {
+      code: error.code,
+      message:
+        error.expose || process.env.NODE_ENV !== "production"
+          ? error.message
+          : "An unexpected server error occurred.",
+      statusCode: error.statusCode,
+      details: error.details,
+    };
+  }
+
+  const legacy = error as LegacyApplicationError;
+  const statusCode = Number(legacy?.statusCode) || 500;
+  return {
+    code: legacy?.code || "INTERNAL_ERROR",
+    message:
+      statusCode < 500 || process.env.NODE_ENV !== "production"
+        ? legacy?.message || "An unexpected server error occurred."
+        : "An unexpected server error occurred.",
+    statusCode,
+    details: legacy?.details,
+  };
+}
+
+export function errorHandler(
+  error: unknown,
   req: Request,
   res: Response,
   _next: NextFunction,
-) => {
-  if (process.env.NODE_ENV !== "test") {
-    console.error(error);
-  }
+) {
+  const normalized = normalizeError(error);
+  const requestId = req.requestId || null;
 
-  if (error instanceof ZodError) {
-    const flattened = error.flatten();
-    res.status(422).json({
-      ok: false,
-      success: false,
-      fieldErrors: flattened.fieldErrors,
-      message: "Validation failed",
-      error: "Validation failed",
-      code: "VALIDATION_ERROR",
-      details: flattened,
-    });
-    return;
-  }
+  logger.error("request_failed", {
+    requestId,
+    method: req.method,
+    path: req.route?.path || req.path,
+    statusCode: normalized.statusCode,
+    errorCode: normalized.code,
+    errorName: error instanceof Error ? error.name : typeof error,
+  });
 
-  if (isPrismaKnownRequestError(error)) {
-    const prismaError = getPrismaErrorResponse(error);
-
-    res.status(prismaError.statusCode).json({
-      ok: false,
-      success: false,
-      message: prismaError.message,
-      error: prismaError.message,
-      code: prismaError.code,
-    });
-    return;
-  }
-
-  if (error instanceof SyntaxError && "body" in error) {
-    res.status(400).json({
-      ok: false,
-      success: false,
-      message: "Invalid JSON payload.",
-      error: "Invalid JSON payload.",
-      code: "INVALID_JSON",
-    });
-    return;
-  }
-
-  if (error.code === "PUBLIC_SITE_UNAVAILABLE") {
+  if (normalized.code === "PUBLIC_SITE_UNAVAILABLE") {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Retry-After", "3600");
   }
 
-  const statusCode = Number(error.statusCode) || 500;
-  if (shouldCaptureHttpError(statusCode)) {
+  if (shouldCaptureHttpError(normalized.statusCode)) {
     captureException(error, "api", {
-      error_code: error.code || "INTERNAL_ERROR",
+      error_code: normalized.code,
       http_method: req.method,
       http_route: req.route?.path || req.path,
-      http_status: String(statusCode),
+      http_status: String(normalized.statusCode),
+      request_id: requestId || "missing",
     });
   }
 
-  res.status(statusCode).json({
-    ok: false,
+  const legacy = error as LegacyApplicationError;
+  return res.status(normalized.statusCode).json({
     success: false,
-    message: error.message || "Internal server error",
-    error: error.message || "Internal server error",
-    code: error.code || "INTERNAL_ERROR",
-    ...(error.fieldErrors ? { fieldErrors: error.fieldErrors } : {}),
-    ...(process.env.NODE_ENV === "development"
-      ? { details: error.details || error.stack }
-      : {}),
+    error: {
+      code: normalized.code,
+      message: normalized.message,
+      requestId,
+      ...(legacy.fieldErrors ? { fieldErrors: legacy.fieldErrors } : {}),
+      ...(normalized.details && normalized.statusCode < 500
+        ? { details: normalized.details }
+        : {}),
+      ...(process.env.NODE_ENV === "development" && error instanceof Error
+        ? { stack: error.stack }
+        : {}),
+    },
   });
-};
+}
+
+export { ApplicationError };
