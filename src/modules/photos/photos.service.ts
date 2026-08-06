@@ -1,75 +1,178 @@
 import { prisma } from "../../shared/db/prisma";
-import Supabase from "../../shared/services/Supabase.Service";
+import {
+  confirmPublicImageUpload,
+  createPublicImageUploadTicket,
+  deletePublicMediaQuietly,
+  getPublicMediaUrl,
+  PUBLIC_MEDIA_LIMITS,
+} from "../../shared/services/public-media.service";
 
-export const uploadLogo = async (businessId: string, file: any) => {
-  const res = await Supabase.uploadFile(file.path);
-  const updated = await prisma.business.update({
-    where: { id: businessId },
-    data: { logoUrl: res.url },
-  });
-  return updated;
+export type BusinessMediaKind = "logo" | "cover" | "gallery";
+
+const buildError = (message: string, statusCode: number, code: string) => {
+  const error = new Error(message) as Error & {
+    statusCode: number;
+    code: string;
+  };
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
 };
 
-export const uploadCover = async (businessId: string, file: any) => {
-  const res = await Supabase.uploadFile(file.path);
-  const updated = await prisma.business.update({
-    where: { id: businessId },
-    data: { coverUrl: res.url },
+function mediaFolder(businessId: string, kind: BusinessMediaKind) {
+  return `businesses/${businessId}/${kind}`;
+}
+
+function sizeLimit(kind: BusinessMediaKind) {
+  return kind === "gallery"
+    ? PUBLIC_MEDIA_LIMITS.galleryBytes
+    : PUBLIC_MEDIA_LIMITS.brandingBytes;
+}
+
+export async function createUploadTicket(
+  businessId: string,
+  kind: BusinessMediaKind,
+  contentType: string,
+) {
+  const ticket = await createPublicImageUploadTicket({
+    folder: mediaFolder(businessId, kind),
+    contentType,
+    maxBytes: sizeLimit(kind),
   });
-  return updated;
-};
+  return {
+    ...ticket,
+    publicId: ticket.objectPath,
+    publicUrl: getPublicMediaUrl(ticket.objectPath),
+  };
+}
 
-// Gallery endpoints require a Photo model to persist items. For now return TODO.
-export const uploadGallery = async (_businessId: string, _file: any) => {
-  const businessId = _businessId;
-  const file = _file;
-  const upload = await Supabase.uploadFile(file.path || file.buffer || file);
-
-  // compute position as next available
-  const count = await prisma.photo.count({ where: { businessId } });
-
-  const created = await prisma.photo.create({
-    data: {
-      businessId,
-      url: upload.url,
-      kind: "gallery",
-      position: count + 1,
-      // store public id if available (schema may include publicId)
-      ...(upload.publicId ? { publicId: upload.publicId } : {}),
-    },
+export async function confirmUpload(input: {
+  businessId: string;
+  kind: BusinessMediaKind;
+  objectPath: string;
+}) {
+  const { businessId, kind, objectPath } = input;
+  const uploaded = await confirmPublicImageUpload({
+    folder: mediaFolder(businessId, kind),
+    objectPath,
+    maxBytes: sizeLimit(kind),
   });
 
-  return created;
-};
-
-export const deleteGallery = async (businessId: string, id: string) => {
-  const photo = await prisma.photo.findUnique({ where: { id } });
-  if (!photo) {
-    const err: any = new Error("Photo not found");
-    err.statusCode = 404;
-    err.code = "NOT_FOUND";
-    throw err;
-  }
-  if (photo.businessId !== businessId) {
-    const err: any = new Error("Photo does not belong to this business");
-    err.statusCode = 403;
-    err.code = "FORBIDDEN";
-    throw err;
-  }
-
-  // Attempt Cloudinary cleanup if publicId present
-  try {
-    if ((photo as any).publicId) {
-      await Supabase.deleteFile((photo as any).publicId);
+  if (kind === "gallery") {
+    const position = await prisma.photo.count({
+      where: { businessId, kind: "gallery" },
+    });
+    try {
+      return await prisma.photo.create({
+        data: {
+          businessId,
+          url: uploaded.publicUrl,
+          publicId: uploaded.objectPath,
+          kind: "gallery",
+          position,
+        },
+      });
+    } catch (error) {
+      await deletePublicMediaQuietly(uploaded.objectPath);
+      throw error;
     }
-  } catch (e) {
-    // log and continue — we still delete DB row
-    // eslint-disable-next-line no-console
-    console.log("[Photos] Supabase delete failed", e);
   }
 
-  await prisma.photo.delete({ where: { id } });
-  return { success: true };
-};
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { id: true },
+  });
+  if (!business) {
+    await deletePublicMediaQuietly(uploaded.objectPath);
+    throw buildError("Business not found", 404, "NOT_FOUND");
+  }
 
-export default { uploadLogo, uploadCover, uploadGallery, deleteGallery };
+  const previous = await prisma.photo.findMany({
+    where: { businessId, kind: "business_brand", type: kind },
+    select: { publicId: true },
+  });
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.photo.deleteMany({
+        where: { businessId, kind: "business_brand", type: kind },
+      });
+      const photo = await tx.photo.create({
+        data: {
+          businessId,
+          url: uploaded.publicUrl,
+          publicId: uploaded.objectPath,
+          kind: "business_brand",
+          type: kind,
+        },
+      });
+      const updatedBusiness = await tx.business.update({
+        where: { id: businessId },
+        data:
+          kind === "logo"
+            ? { logoUrl: uploaded.publicUrl }
+            : { coverUrl: uploaded.publicUrl },
+        select: { id: true, logoUrl: true, coverUrl: true },
+      });
+      return { photo, business: updatedBusiness };
+    });
+
+    await Promise.all(
+      previous
+        .map((photo) => photo.publicId)
+        .filter((value): value is string => Boolean(value))
+        .map(deletePublicMediaQuietly),
+    );
+    return result;
+  } catch (error) {
+    await deletePublicMediaQuietly(uploaded.objectPath);
+    throw error;
+  }
+}
+
+export async function removeBranding(
+  businessId: string,
+  kind: "logo" | "cover",
+) {
+  const photos = await prisma.photo.findMany({
+    where: { businessId, kind: "business_brand", type: kind },
+    select: { publicId: true },
+  });
+
+  const business = await prisma.$transaction(async (tx) => {
+    await tx.photo.deleteMany({
+      where: { businessId, kind: "business_brand", type: kind },
+    });
+    return tx.business.update({
+      where: { id: businessId },
+      data: kind === "logo" ? { logoUrl: null } : { coverUrl: null },
+      select: { id: true, logoUrl: true, coverUrl: true },
+    });
+  });
+
+  await Promise.all(
+    photos
+      .map((photo) => photo.publicId)
+      .filter((value): value is string => Boolean(value))
+      .map(deletePublicMediaQuietly),
+  );
+  return business;
+}
+
+export async function deleteGallery(businessId: string, id: string) {
+  const photo = await prisma.photo.findFirst({
+    where: { id, businessId, kind: "gallery" },
+  });
+  if (!photo) throw buildError("Photo not found", 404, "NOT_FOUND");
+
+  await prisma.photo.delete({ where: { id: photo.id } });
+  if (photo.publicId) await deletePublicMediaQuietly(photo.publicId);
+  return { success: true };
+}
+
+export default {
+  createUploadTicket,
+  confirmUpload,
+  removeBranding,
+  deleteGallery,
+};

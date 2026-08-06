@@ -1,7 +1,11 @@
-import crypto from "crypto";
-import path from "path";
 import { prisma } from "../../shared/db/prisma";
-import Supabase from "../../shared/services/Supabase.Service";
+import {
+  confirmPublicImageUpload,
+  createPublicImageUploadTicket,
+  deletePublicMediaQuietly,
+  getPublicMediaUrl,
+  PUBLIC_MEDIA_LIMITS,
+} from "../../shared/services/public-media.service";
 import type {
   AssignServiceInput,
   AvailabilityEntry,
@@ -19,20 +23,19 @@ import staffWorkspaceService from "./staff.workspace.service";
 
 type AuthUser = NonNullable<Express.Request["user"]>;
 
-const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-
 const buildError = (message: string, statusCode: number, code: string) => {
-  const error = new Error(message) as Error & { statusCode: number; code: string };
+  const error = new Error(message) as Error & {
+    statusCode: number;
+    code: string;
+  };
   error.statusCode = statusCode;
   error.code = code;
   return error;
 };
 
-const extensionFor = (contentType: string) => {
-  if (contentType === "image/png") return ".png";
-  if (contentType === "image/webp") return ".webp";
-  return ".jpg";
-};
+function staffPhotoFolder(businessId: string, staffId: string) {
+  return `businesses/${businessId}/staff/${staffId}`;
+}
 
 class StaffCommandService {
   createStaff(user: AuthUser, payload: StaffCreateInput) {
@@ -47,7 +50,11 @@ class StaffCommandService {
     return staffWorkspaceService.deactivateStaff(staffId, user);
   }
 
-  replaceAvailability(staffId: string, user: AuthUser, entries: AvailabilityEntry[]) {
+  replaceAvailability(
+    staffId: string,
+    user: AuthUser,
+    entries: AvailabilityEntry[],
+  ) {
     return staffWorkspaceService.replaceAvailability(staffId, user, entries);
   }
 
@@ -116,78 +123,84 @@ class StaffCommandService {
     return staffService.removeStaffBreak(businessId, breakId);
   }
 
-  async presignPhoto(staffId: string, businessId: string, contentType: string) {
-    if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
-      throw buildError(
-        "Only JPG, PNG, and WebP images are allowed",
-        400,
-        "INVALID_FILE_TYPE",
-      );
-    }
-
+  async presignPhoto(
+    staffId: string,
+    businessId: string,
+    contentType: string,
+  ) {
     const staff = await prisma.staff.findFirst({
       where: { id: staffId, businessId },
       select: { id: true },
     });
     if (!staff) throw buildError("Staff member not found", 404, "NOT_FOUND");
 
-    const filePath = path.posix.join(
-      "businesses",
-      businessId,
-      "staff",
-      staffId,
-      `${crypto.randomUUID()}${extensionFor(contentType)}`,
-    );
-    const ticket = await Supabase.getUploadUrl(filePath, contentType);
-    return { ...ticket, publicId: filePath };
+    const ticket = await createPublicImageUploadTicket({
+      folder: staffPhotoFolder(businessId, staffId),
+      contentType,
+      maxBytes: PUBLIC_MEDIA_LIMITS.staffBytes,
+    });
+    return {
+      ...ticket,
+      publicId: ticket.objectPath,
+      publicUrl: getPublicMediaUrl(ticket.objectPath),
+    };
   }
 
   async confirmPhoto(
     staffId: string,
     businessId: string,
-    publicId: string,
-    publicUrl: string,
+    objectPath: string,
+    _ignoredClientUrl?: string,
   ) {
-    if (!publicId || !publicUrl) {
-      throw buildError("publicId and publicUrl are required", 400, "BAD_REQUEST");
-    }
-    const expectedPrefix = `businesses/${businessId}/staff/${staffId}/`;
-    if (!publicId.startsWith(expectedPrefix)) {
-      throw buildError("Invalid staff photo path", 400, "INVALID_PHOTO_PATH");
-    }
-
     const staff = await prisma.staff.findFirst({
       where: { id: staffId, businessId },
       select: { id: true },
     });
     if (!staff) throw buildError("Staff member not found", 404, "NOT_FOUND");
 
+    const uploaded = await confirmPublicImageUpload({
+      folder: staffPhotoFolder(businessId, staffId),
+      objectPath,
+      maxBytes: PUBLIC_MEDIA_LIMITS.staffBytes,
+    });
     const previous = await prisma.photo.findMany({
       where: { businessId, kind: "staff", type: staffId },
       select: { publicId: true },
     });
 
-    const result = await prisma.$transaction(async (tx) => {
-      await tx.photo.deleteMany({ where: { businessId, kind: "staff", type: staffId } });
-      const photo = await tx.photo.create({
-        data: { businessId, url: publicUrl, publicId, kind: "staff", type: staffId },
+    try {
+      const result = await prisma.$transaction(async (tx) => {
+        await tx.photo.deleteMany({
+          where: { businessId, kind: "staff", type: staffId },
+        });
+        const photo = await tx.photo.create({
+          data: {
+            businessId,
+            url: uploaded.publicUrl,
+            publicId: uploaded.objectPath,
+            kind: "staff",
+            type: staffId,
+          },
+        });
+        const updated = await tx.staff.update({
+          where: { id: staffId },
+          data: { photoUrl: uploaded.publicUrl },
+          select: { id: true, photoUrl: true },
+        });
+        return { photo, staff: updated };
       });
-      const updated = await tx.staff.update({
-        where: { id: staffId },
-        data: { photoUrl: publicUrl },
-        select: { id: true, photoUrl: true },
-      });
-      return { photo, staff: updated };
-    });
 
-    await Promise.all(
-      previous
-        .map((photo) => photo.publicId)
-        .filter((value): value is string => Boolean(value))
-        .map((value) => Supabase.deleteFile(value)),
-    );
-
-    return result;
+      await Promise.all(
+        previous
+          .map((photo) => photo.publicId)
+          .filter((value): value is string => Boolean(value))
+          .map(deletePublicMediaQuietly),
+      );
+      return result;
+    } catch (error) {
+      await deletePublicMediaQuietly(uploaded.objectPath);
+      throw error;
+    }
   }
 
   async removePhoto(staffId: string, businessId: string) {
@@ -203,15 +216,20 @@ class StaffCommandService {
     });
 
     await prisma.$transaction([
-      prisma.staff.update({ where: { id: staffId }, data: { photoUrl: null } }),
-      prisma.photo.deleteMany({ where: { businessId, kind: "staff", type: staffId } }),
+      prisma.staff.update({
+        where: { id: staffId },
+        data: { photoUrl: null },
+      }),
+      prisma.photo.deleteMany({
+        where: { businessId, kind: "staff", type: staffId },
+      }),
     ]);
 
     await Promise.all(
       photos
         .map((photo) => photo.publicId)
         .filter((value): value is string => Boolean(value))
-        .map((value) => Supabase.deleteFile(value)),
+        .map(deletePublicMediaQuietly),
     );
 
     return { id: staffId, photoUrl: null };

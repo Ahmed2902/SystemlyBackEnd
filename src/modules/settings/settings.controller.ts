@@ -64,8 +64,8 @@ class SettingsController {
       const businessId = businessIdFrom(req);
       if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       const params = brandingKindParamsSchema.safeParse(req.params);
-      if (!params.success) return next(params.error);
       const body = brandingPresignSchema.safeParse(req.body);
+      if (!params.success) return next(params.error);
       if (!body.success) return next(body.error);
       return ok(
         res,
@@ -85,16 +85,17 @@ class SettingsController {
       const businessId = businessIdFrom(req);
       if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       const params = brandingKindParamsSchema.safeParse(req.params);
-      if (!params.success) return next(params.error);
       const body = brandingConfirmSchema.safeParse(req.body);
+      if (!params.success) return next(params.error);
       if (!body.success) return next(body.error);
+      const objectPath = body.data.objectPath ?? body.data.publicId;
+      if (!objectPath) return fail(res, "objectPath is required", 400, "BAD_REQUEST");
       return ok(
         res,
         await settingsService.confirmBranding(
           businessId,
           params.data.kind,
-          body.data.publicId,
-          body.data.publicUrl,
+          objectPath,
         ),
       );
     } catch (error) {

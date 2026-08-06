@@ -40,10 +40,15 @@ export const brandingPresignSchema = z.object({
   contentType: z.enum(["image/jpeg", "image/png", "image/webp"]),
 });
 
-export const brandingConfirmSchema = z.object({
-  publicId: z.string().min(1),
-  publicUrl: z.string().url(),
-});
+export const brandingConfirmSchema = z
+  .object({
+    objectPath: z.string().min(1).optional(),
+    publicId: z.string().min(1).optional(),
+    publicUrl: z.string().url().optional(),
+  })
+  .refine((value) => Boolean(value.objectPath ?? value.publicId), {
+    message: "objectPath is required",
+  });
 
 export type UpdateBusinessSettingsInput = z.infer<
   typeof updateBusinessSettingsSchema

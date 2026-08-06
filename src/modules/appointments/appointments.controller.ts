@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import { fail, ok } from "../../shared/utils/response.util";
 import { invalidateAnalyticsCache } from "../analytics/analytics.service";
+import appointmentPhotoService from "./appointment-photo.service";
 import appointmentsCommandService from "./appointments.command.service";
 import appointmentsQueryService from "./appointments.query.service";
 import {
@@ -94,7 +95,7 @@ class AppointmentsController {
       if (!businessId) return;
       return ok(
         res,
-        await appointmentsQueryService.listAppointmentPhotos(
+        await appointmentPhotoService.list(
           params.data.appointmentId,
           businessId,
         ),
@@ -275,12 +276,12 @@ class AppointmentsController {
       if (!photoType) return fail(res, "Invalid photo type", 400, "BAD_REQUEST");
       return ok(
         res,
-        await appointmentsCommandService.createProgressPhotoUploadTicket(
-          params.data.appointmentId,
+        await appointmentPhotoService.createUploadTicket({
+          appointmentId: params.data.appointmentId,
           businessId,
           contentType,
-          photoType,
-        ),
+          type: photoType,
+        }),
       );
     } catch (error) {
       return next(error);
@@ -293,20 +294,20 @@ class AppointmentsController {
       if (!params.success) return next(params.error);
       const businessId = requireBusinessContext(req, res);
       if (!businessId) return;
-      const publicId = req.body?.publicId;
+      const objectPath = req.body?.objectPath ?? req.body?.publicId;
       const photoType = parsePhotoType(req.body?.type);
-      if (typeof publicId !== "string" || !publicId) {
-        return fail(res, "publicId is required", 400, "BAD_REQUEST");
+      if (typeof objectPath !== "string" || !objectPath) {
+        return fail(res, "objectPath is required", 400, "BAD_REQUEST");
       }
       if (!photoType) return fail(res, "Invalid photo type", 400, "BAD_REQUEST");
       return ok(
         res,
-        await appointmentsCommandService.confirmProgressPhotoUpload(
-          params.data.appointmentId,
+        await appointmentPhotoService.confirm({
+          appointmentId: params.data.appointmentId,
           businessId,
-          publicId,
-          photoType,
-        ),
+          objectPath,
+          type: photoType,
+        }),
         201,
       );
     } catch (error) {
@@ -324,15 +325,17 @@ class AppointmentsController {
       if (!params.success) return next(params.error);
       const businessId = requireBusinessContext(req, res);
       if (!businessId) return;
-      const photoId = req.params.photoId;
-      if (!photoId) return fail(res, "Photo id is required", 400, "BAD_REQUEST");
+      const appointmentPhotoId = req.params.photoId;
+      if (!appointmentPhotoId) {
+        return fail(res, "Photo id is required", 400, "BAD_REQUEST");
+      }
       return ok(
         res,
-        await appointmentsCommandService.deleteAppointmentPhoto(
-          params.data.appointmentId,
+        await appointmentPhotoService.delete({
+          appointmentId: params.data.appointmentId,
           businessId,
-          String(photoId),
-        ),
+          appointmentPhotoId: String(appointmentPhotoId),
+        }),
       );
     } catch (error) {
       return next(error);
