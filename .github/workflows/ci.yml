@@ -95,6 +95,7 @@ jobs:
       JWT_REFRESH_SECRET: ci-refresh-secret
       CSRF_SECRET: ci-csrf-secret
       FRONTEND_URL: http://localhost:3000
+      EMAIL_TEST_MODE: "true"
 
     steps:
       - name: Checkout repository
@@ -128,3 +129,102 @@ jobs:
           path: tests.log
           if-no-files-found: ignore
           retention-days: 3
+
+  container-smoke:
+    name: Smoke-test production container
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hgezli_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d hgezli_smoke"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hgezli_smoke?schema=public
+      NODE_ENV: test
+      JWT_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      CSRF_SECRET: ci-csrf-secret
+      FRONTEND_URL: http://localhost:3000
+      EMAIL_TEST_MODE: "true"
+      LOG_IN_TESTS: "true"
+      PORT: "3000"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build --tag systemly-backend:smoke .
+
+      - name: Apply application and worker migrations with production image
+        run: |
+          set -euo pipefail
+          docker run --rm --network host \
+            -e NODE_ENV \
+            -e DATABASE_URL \
+            systemly-backend:smoke \
+            npm run prisma:migrate:deploy
+          docker run --rm --network host \
+            -e NODE_ENV \
+            -e DATABASE_URL \
+            systemly-backend:smoke \
+            npm run graphile:migrate
+
+      - name: Start production image
+        run: >-
+          docker run --detach --name systemly-smoke --network host
+          -e NODE_ENV
+          -e DATABASE_URL
+          -e JWT_SECRET
+          -e JWT_REFRESH_SECRET
+          -e CSRF_SECRET
+          -e FRONTEND_URL
+          -e EMAIL_TEST_MODE
+          -e LOG_IN_TESTS
+          -e PORT
+          systemly-backend:smoke
+
+      - name: Verify non-root runtime and health probes
+        run: |
+          set -euo pipefail
+          test "$(docker exec systemly-smoke id -u)" != "0"
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:3000/health/live >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:3000/health/live >/dev/null
+
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:3000/health/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs systemly-smoke
+          exit 1
+
+      - name: Print container diagnostics
+        if: failure()
+        run: |
+          docker inspect systemly-smoke || true
+          docker logs systemly-smoke || true
+
+      - name: Stop production image
+        if: always()
+        run: docker rm --force systemly-smoke || true

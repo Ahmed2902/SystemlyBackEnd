@@ -1,7 +1,5 @@
-import crypto from "crypto";
-import path from "path";
 import { prisma } from "../../shared/db/prisma";
-import Supabase from "../../shared/services/Supabase.Service";
+import * as photosService from "../photos/photos.service";
 import type {
   UpdateBusinessSettingsInput,
   UpdateWebsiteSettingsInput,
@@ -15,12 +13,6 @@ const buildError = (message: string, statusCode: number, code: string) => {
   error.statusCode = statusCode;
   error.code = code;
   return error;
-};
-
-const extensionFor = (contentType: string) => {
-  if (contentType === "image/png") return ".png";
-  if (contentType === "image/webp") return ".webp";
-  return ".jpg";
 };
 
 const cleanNullable = (value: string | null | undefined) => {
@@ -114,94 +106,24 @@ class SettingsService {
     });
   }
 
-  async createBrandingUploadTicket(
+  createBrandingUploadTicket(
     businessId: string,
     kind: "logo" | "cover",
     contentType: string,
   ) {
-    const filePath = path.posix.join(
-      "businesses",
-      businessId,
-      "branding",
-      kind,
-      `${crypto.randomUUID()}${extensionFor(contentType)}`,
-    );
-    const ticket = await Supabase.getUploadUrl(filePath, contentType);
-    return { ...ticket, publicId: filePath };
+    return photosService.createUploadTicket(businessId, kind, contentType);
   }
 
-  async confirmBranding(
+  confirmBranding(
     businessId: string,
     kind: "logo" | "cover",
-    publicId: string,
-    publicUrl: string,
+    objectPath: string,
   ) {
-    const expectedPrefix = `businesses/${businessId}/branding/${kind}/`;
-    if (!publicId.startsWith(expectedPrefix)) {
-      throw buildError("Invalid branding image path", 400, "INVALID_IMAGE_PATH");
-    }
-
-    const previous = await prisma.photo.findMany({
-      where: { businessId, kind: "business_brand", type: kind },
-      select: { publicId: true },
-    });
-
-    const result = await prisma.$transaction(async (tx) => {
-      await tx.photo.deleteMany({
-        where: { businessId, kind: "business_brand", type: kind },
-      });
-      const photo = await tx.photo.create({
-        data: {
-          businessId,
-          url: publicUrl,
-          publicId,
-          kind: "business_brand",
-          type: kind,
-        },
-      });
-      const business = await tx.business.update({
-        where: { id: businessId },
-        data: kind === "logo" ? { logoUrl: publicUrl } : { coverUrl: publicUrl },
-        select: { id: true, logoUrl: true, coverUrl: true },
-      });
-      return { photo, business };
-    });
-
-    await Promise.all(
-      previous
-        .map((photo) => photo.publicId)
-        .filter((value): value is string => Boolean(value))
-        .map((value) => Supabase.deleteFile(value)),
-    );
-
-    return result;
+    return photosService.confirmUpload({ businessId, kind, objectPath });
   }
 
-  async removeBranding(businessId: string, kind: "logo" | "cover") {
-    const photos = await prisma.photo.findMany({
-      where: { businessId, kind: "business_brand", type: kind },
-      select: { publicId: true },
-    });
-
-    const business = await prisma.$transaction(async (tx) => {
-      await tx.photo.deleteMany({
-        where: { businessId, kind: "business_brand", type: kind },
-      });
-      return tx.business.update({
-        where: { id: businessId },
-        data: kind === "logo" ? { logoUrl: null } : { coverUrl: null },
-        select: { id: true, logoUrl: true, coverUrl: true },
-      });
-    });
-
-    await Promise.all(
-      photos
-        .map((photo) => photo.publicId)
-        .filter((value): value is string => Boolean(value))
-        .map((value) => Supabase.deleteFile(value)),
-    );
-
-    return business;
+  removeBranding(businessId: string, kind: "logo" | "cover") {
+    return photosService.removeBranding(businessId, kind);
   }
 }
 

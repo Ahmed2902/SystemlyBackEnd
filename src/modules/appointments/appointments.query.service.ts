@@ -2,8 +2,8 @@ import { Prisma, Roles } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
 import { getBusinessDayRange } from "../../shared/utils/timezone";
 import { getCachedBusinessTimezone } from "../calendar/calendar.query.service";
+import appointmentPhotoService from "./appointment-photo.service";
 import type { ListAppointmentsQuery } from "./appointments.schema";
-import { getOwnedAppointmentOrThrow } from "./appointments.helper";
 
 type ListAppointmentsInput = ListAppointmentsQuery & {
   user: NonNullable<Express.Request["user"]>;
@@ -126,16 +126,14 @@ class AppointmentsQueryService {
       where: { id, businessId },
       include: APPOINTMENT_DETAIL_INCLUDE,
     });
-    return appointment ? withCurrentInvoice(appointment) : null;
+    if (!appointment) return null;
+    return appointmentPhotoService.presentAppointment(
+      withCurrentInvoice(appointment),
+    );
   }
 
-  async listAppointmentPhotos(appointmentId: string, businessId: string) {
-    await getOwnedAppointmentOrThrow(prisma, appointmentId, businessId);
-    return prisma.appointmentPhoto.findMany({
-      where: { appointmentId, appointment: { businessId } },
-      include: { photo: true },
-      orderBy: { createdAt: "asc" },
-    });
+  listAppointmentPhotos(appointmentId: string, businessId: string) {
+    return appointmentPhotoService.list(appointmentId, businessId);
   }
 }
 

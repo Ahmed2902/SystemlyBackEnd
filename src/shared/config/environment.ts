@@ -17,7 +17,8 @@ const environmentSchema = z
     SENTRY_DSN: z.string().url().optional(),
     SUPABASE_URL: z.string().url().optional(),
     SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
-    SUPABASE_STORAGE_BUCKET: z.string().optional(),
+    SUPABASE_PUBLIC_MEDIA_BUCKET: z.string().optional(),
+    SUPABASE_PRIVATE_MEDIA_BUCKET: z.string().optional(),
   })
   .passthrough()
   .superRefine((environment, context) => {
@@ -34,7 +35,8 @@ const environmentSchema = z
       "SENTRY_DSN",
       "SUPABASE_URL",
       "SUPABASE_SERVICE_ROLE_KEY",
-      "SUPABASE_STORAGE_BUCKET",
+      "SUPABASE_PUBLIC_MEDIA_BUCKET",
+      "SUPABASE_PRIVATE_MEDIA_BUCKET",
     ] as const;
 
     for (const key of required) {

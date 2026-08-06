@@ -38,7 +38,8 @@ describe("validateEnvironment", () => {
       SENTRY_DSN: "https://public@example.ingest.sentry.io/1",
       SUPABASE_URL: "https://project.supabase.co",
       SUPABASE_SERVICE_ROLE_KEY: "service-role",
-      SUPABASE_STORAGE_BUCKET: "uploads",
+      SUPABASE_PUBLIC_MEDIA_BUCKET: "public-media",
+      SUPABASE_PRIVATE_MEDIA_BUCKET: "private-media",
     });
 
     expect(result.NODE_ENV).toBe("production");
