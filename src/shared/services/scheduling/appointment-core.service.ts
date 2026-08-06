@@ -68,7 +68,7 @@ export async function scheduleServiceSegments(
   }
 
   const serviceById = new Map(services.map((service) => [service.id, service]));
-  let segmentStart = /(?:Z|[+-]\d\d:\d\d)$/.test(startsAt)
+  let segmentStart: DateTime = /(?:Z|[+-]\d\d:\d\d)$/.test(startsAt)
     ? DateTime.fromJSDate(new Date(startsAt)).setZone(timezone)
     : DateTime.fromJSDate(toUtcFromBusinessTime(startsAt, timezone)).setZone(
         timezone,
@@ -114,7 +114,9 @@ export async function scheduleServiceSegments(
     const service = serviceById.get(selection.serviceId);
     if (!service) throw schedulingError("Service not found", 404);
 
-    const segmentEnd = segmentStart.plus({ minutes: service.durationMin });
+    const segmentEnd: DateTime = segmentStart.plus({
+      minutes: service.durationMin,
+    });
     const assignedStaff = eligibleBySelection[index].find((staffId) =>
       isStaffFreeFor(freeByStaff.get(staffId) ?? [], segmentStart, segmentEnd),
     );
