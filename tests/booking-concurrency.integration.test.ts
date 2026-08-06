@@ -86,6 +86,13 @@ async function deleteSchedulingFixture() {
   const id = businessId;
   businessId = null;
   if (!id) return;
+
+  await prisma.$transaction([
+    prisma.appointmentService.deleteMany({
+      where: { appointment: { businessId: id } },
+    }),
+    prisma.appointment.deleteMany({ where: { businessId: id } }),
+  ]);
   await prisma.business.delete({ where: { id } });
 }
 
