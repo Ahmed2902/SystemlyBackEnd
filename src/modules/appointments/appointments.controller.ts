@@ -19,14 +19,9 @@ import {
 const PHOTO_TYPES = ["before", "after", "progress"] as const;
 type PhotoType = (typeof PHOTO_TYPES)[number];
 
-function businessIdFrom(req: Request) {
-  return req.user?.businessId ?? null;
-}
-
 function requireBusinessContext(req: Request, res: Response) {
-  const businessId = businessIdFrom(req);
+  const businessId = req.user?.businessId;
   if (businessId) return businessId;
-
   fail(
     res,
     "No business associated with this account",
@@ -58,14 +53,14 @@ async function mutationResponse<T>(
 class AppointmentsController {
   async listAppointments(req: Request, res: Response, next: NextFunction) {
     try {
-      const parsed = listAppointmentsQuerySchema.safeParse(req.query);
-      if (!parsed.success) return next(parsed.error);
+      const query = listAppointmentsQuerySchema.safeParse(req.query);
+      if (!query.success) return next(query.error);
       if (!req.user) return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
       return ok(
         res,
         await appointmentsQueryService.listAppointments({
           user: req.user,
-          ...parsed.data,
+          ...query.data,
         }),
       );
     } catch (error) {
@@ -75,13 +70,12 @@ class AppointmentsController {
 
   async getAppointment(req: Request, res: Response, next: NextFunction) {
     try {
-      const parsed = appointmentIdParamsSchema.safeParse(req.params);
-      if (!parsed.success) return next(parsed.error);
+      const params = appointmentIdParamsSchema.safeParse(req.params);
+      if (!params.success) return next(params.error);
       const businessId = requireBusinessContext(req, res);
       if (!businessId) return;
-
       const appointment = await appointmentsQueryService.getAppointmentById(
-        parsed.data.appointmentId,
+        params.data.appointmentId,
         businessId,
       );
       return appointment
@@ -94,14 +88,14 @@ class AppointmentsController {
 
   async listAppointmentPhotos(req: Request, res: Response, next: NextFunction) {
     try {
-      const parsed = appointmentIdParamsSchema.safeParse(req.params);
-      if (!parsed.success) return next(parsed.error);
+      const params = appointmentIdParamsSchema.safeParse(req.params);
+      if (!params.success) return next(params.error);
       const businessId = requireBusinessContext(req, res);
       if (!businessId) return;
       return ok(
         res,
         await appointmentsQueryService.listAppointmentPhotos(
-          parsed.data.appointmentId,
+          params.data.appointmentId,
           businessId,
         ),
       );
@@ -160,12 +154,18 @@ class AppointmentsController {
       if (!body.success) return next(body.error);
       const businessId = requireBusinessContext(req, res);
       if (!businessId) return;
+
+      const appointment = await appointmentsQueryService.getAppointmentById(
+        params.data.appointmentId,
+        businessId,
+      );
+      if (!appointment) return fail(res, "Not found", 404, "NOT_FOUND");
+
       return mutationResponse(
         res,
         businessId,
         appointmentsCommandService.updateNotes(
           params.data.appointmentId,
-          businessId,
           body.data.notes,
         ),
       );
@@ -263,8 +263,8 @@ class AppointmentsController {
 
   async presignProgressPhoto(req: Request, res: Response, next: NextFunction) {
     try {
-      const parsed = appointmentIdParamsSchema.safeParse(req.params);
-      if (!parsed.success) return next(parsed.error);
+      const params = appointmentIdParamsSchema.safeParse(req.params);
+      if (!params.success) return next(params.error);
       const businessId = requireBusinessContext(req, res);
       if (!businessId) return;
       const contentType = req.body?.contentType;
@@ -276,7 +276,7 @@ class AppointmentsController {
       return ok(
         res,
         await appointmentsCommandService.createProgressPhotoUploadTicket(
-          parsed.data.appointmentId,
+          params.data.appointmentId,
           businessId,
           contentType,
           photoType,
@@ -289,8 +289,8 @@ class AppointmentsController {
 
   async confirmProgressPhoto(req: Request, res: Response, next: NextFunction) {
     try {
-      const parsed = appointmentIdParamsSchema.safeParse(req.params);
-      if (!parsed.success) return next(parsed.error);
+      const params = appointmentIdParamsSchema.safeParse(req.params);
+      if (!params.success) return next(params.error);
       const businessId = requireBusinessContext(req, res);
       if (!businessId) return;
       const publicId = req.body?.publicId;
@@ -302,7 +302,7 @@ class AppointmentsController {
       return ok(
         res,
         await appointmentsCommandService.confirmProgressPhotoUpload(
-          parsed.data.appointmentId,
+          params.data.appointmentId,
           businessId,
           publicId,
           photoType,
@@ -320,8 +320,8 @@ class AppointmentsController {
     next: NextFunction,
   ) {
     try {
-      const parsed = appointmentIdParamsSchema.safeParse(req.params);
-      if (!parsed.success) return next(parsed.error);
+      const params = appointmentIdParamsSchema.safeParse(req.params);
+      if (!params.success) return next(params.error);
       const businessId = requireBusinessContext(req, res);
       if (!businessId) return;
       const photoId = req.params.photoId;
@@ -329,7 +329,7 @@ class AppointmentsController {
       return ok(
         res,
         await appointmentsCommandService.deleteAppointmentPhoto(
-          parsed.data.appointmentId,
+          params.data.appointmentId,
           businessId,
           String(photoId),
         ),
@@ -341,15 +341,15 @@ class AppointmentsController {
 
   async deleteAppointment(req: Request, res: Response, next: NextFunction) {
     try {
-      const parsed = appointmentIdParamsSchema.safeParse(req.params);
-      if (!parsed.success) return next(parsed.error);
+      const params = appointmentIdParamsSchema.safeParse(req.params);
+      if (!params.success) return next(params.error);
       const businessId = requireBusinessContext(req, res);
       if (!businessId) return;
       return mutationResponse(
         res,
         businessId,
         appointmentsCommandService.deleteCancelledAppointment(
-          parsed.data.appointmentId,
+          params.data.appointmentId,
           businessId,
         ),
       );
