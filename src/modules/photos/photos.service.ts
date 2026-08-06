@@ -63,7 +63,7 @@ export async function confirmUpload(input: {
       where: { businessId, kind: "gallery" },
     });
     try {
-      const photo = await prisma.photo.create({
+      return await prisma.photo.create({
         data: {
           businessId,
           url: uploaded.publicUrl,
@@ -72,17 +72,15 @@ export async function confirmUpload(input: {
           position,
         },
       });
-      return { photo };
     } catch (error) {
       await deletePublicMediaQuietly(uploaded.objectPath);
       throw error;
     }
   }
 
-  const field = kind === "logo" ? "logoUrl" : "coverUrl";
   const business = await prisma.business.findUnique({
     where: { id: businessId },
-    select: { id: true, logoUrl: true, coverUrl: true },
+    select: { id: true },
   });
   if (!business) {
     await deletePublicMediaQuietly(uploaded.objectPath);
@@ -110,7 +108,10 @@ export async function confirmUpload(input: {
       });
       const updatedBusiness = await tx.business.update({
         where: { id: businessId },
-        data: { [field]: uploaded.publicUrl },
+        data:
+          kind === "logo"
+            ? { logoUrl: uploaded.publicUrl }
+            : { coverUrl: uploaded.publicUrl },
         select: { id: true, logoUrl: true, coverUrl: true },
       });
       return { photo, business: updatedBusiness };

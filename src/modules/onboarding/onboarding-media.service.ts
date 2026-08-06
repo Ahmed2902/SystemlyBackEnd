@@ -1,6 +1,7 @@
 import {
   confirmPublicImageUpload,
   createPublicImageUploadTicket,
+  getPublicMediaUrl,
   PUBLIC_MEDIA_LIMITS,
 } from "../../shared/services/public-media.service";
 
@@ -16,28 +17,40 @@ function onboardingFolder(userId: string, kind: OnboardingMediaKind) {
 }
 
 class OnboardingMediaService {
-  createUploadTicket(
+  async createUploadTicket(
     userId: string,
     kind: OnboardingMediaKind,
     contentType: string,
   ) {
-    return createPublicImageUploadTicket({
+    const ticket = await createPublicImageUploadTicket({
       folder: onboardingFolder(userId, kind),
       contentType,
       maxBytes: PUBLIC_MEDIA_LIMITS.onboardingBytes,
     });
+    const publicUrl = getPublicMediaUrl(ticket.objectPath);
+    return {
+      ...ticket,
+      publicId: ticket.objectPath,
+      publicUrl,
+      url: publicUrl,
+    };
   }
 
-  confirm(
+  async confirm(
     userId: string,
     kind: OnboardingMediaKind,
     objectPath: string,
   ) {
-    return confirmPublicImageUpload({
+    const uploaded = await confirmPublicImageUpload({
       folder: onboardingFolder(userId, kind),
       objectPath,
       maxBytes: PUBLIC_MEDIA_LIMITS.onboardingBytes,
     });
+    return {
+      ...uploaded,
+      publicId: uploaded.objectPath,
+      url: uploaded.publicUrl,
+    };
   }
 }
 
