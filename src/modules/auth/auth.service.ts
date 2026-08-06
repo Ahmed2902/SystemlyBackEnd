@@ -33,6 +33,7 @@ const AUTH_USER_SELECT = {
   businessId: true,
   role: true,
   provider: true,
+  providerId: true,
   lastLoginAt: true,
   createdAt: true,
   updatedAt: true,
