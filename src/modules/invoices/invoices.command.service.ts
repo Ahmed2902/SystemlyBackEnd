@@ -255,7 +255,10 @@ class InvoicesCommandService {
     );
 
     const updatedAppointment =
-      await appointmentsQueryService.getAppointmentById(input.appointmentId);
+      await appointmentsQueryService.getAppointmentById(
+        input.appointmentId,
+        businessId,
+      );
     if (!updatedAppointment) {
       throw buildError("Appointment not found", 404, "NOT_FOUND");
     }

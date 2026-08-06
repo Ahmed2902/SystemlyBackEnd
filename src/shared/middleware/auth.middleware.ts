@@ -1,6 +1,5 @@
 import { Roles } from "@prisma/client";
 import type { NextFunction, Request, Response } from "express";
-import { prisma } from "../db/prisma";
 import { fail } from "../utils/response.util";
 import { verifyAccessToken } from "../utils/token.util";
 
@@ -30,9 +29,9 @@ export const requireAuth = (
       );
     }
 
-    const payload = verifyAccessToken(token) as Record<string, unknown>;
+    const payload = verifyAccessToken(token);
     const userId = payload.userId ?? payload.sub ?? payload.id;
-    if (!userId) {
+    if (typeof userId !== "string" || !userId) {
       return fail(
         res,
         "Invalid token",
@@ -43,10 +42,9 @@ export const requireAuth = (
     }
 
     req.user = {
-      id: String(userId),
-      businessId: payload.businessId
-        ? String(payload.businessId)
-        : undefined,
+      id: userId,
+      businessId:
+        typeof payload.businessId === "string" ? payload.businessId : undefined,
       role: typeof payload.role === "string" ? payload.role : undefined,
       email: typeof payload.email === "string" ? payload.email : undefined,
     };
@@ -68,7 +66,7 @@ export const requireRole = (roles: string | string[]) => {
     if (!req.user) {
       return fail(res, "Unauthorized", 401, "UNAUTHORIZED", req.requestId ?? null);
     }
-    if (req.user.role === Roles.SuperAdmin.toString()) return next();
+    if (req.user.role === Roles.SuperAdmin) return next();
     if (allowed.includes(req.user.role || "")) return next();
     return fail(res, "Forbidden", 403, "FORBIDDEN", req.requestId ?? null);
   };
@@ -82,87 +80,23 @@ export const requireBusinessAccess = (
   if (!req.user) {
     return fail(res, "Unauthorized", 401, "UNAUTHORIZED", req.requestId ?? null);
   }
-  if (req.user.role === Roles.SuperAdmin.toString()) return next();
-
-  const businessId =
-    (req.params && (req.params as Record<string, unknown>).businessId) ||
-    (req.body && (req.body as Record<string, unknown>).businessId) ||
-    (req.query && (req.query as Record<string, unknown>).businessId) ||
-    req.user.businessId;
-  if (!businessId) {
+  if (req.user.role === Roles.SuperAdmin) return next();
+  if (!req.user.businessId) {
     return fail(
       res,
-      "Business id missing",
-      400,
-      "BAD_REQUEST",
+      "Business context missing",
+      403,
+      "BUSINESS_CONTEXT_REQUIRED",
       req.requestId ?? null,
     );
   }
-  if (String(businessId) !== String(req.user.businessId)) {
-    return fail(res, "Forbidden", 403, "FORBIDDEN", req.requestId ?? null);
-  }
-  return next();
-};
 
-export const requireAppointmentOwnerOrAdmin = async (
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) => {
-  try {
-    if (!req.user) {
-      return fail(res, "Unauthorized", 401, "UNAUTHORIZED", req.requestId ?? null);
-    }
-    if (!req.user.businessId) {
-      return fail(
-        res,
-        "Business id missing",
-        400,
-        "BAD_REQUEST",
-        req.requestId ?? null,
-      );
-    }
-    const appointmentId = singleParameter(req.params.appointmentId);
-    if (!appointmentId) {
-      return fail(
-        res,
-        "Appointment id missing",
-        400,
-        "BAD_REQUEST",
-        req.requestId ?? null,
-      );
-    }
-    const appointment = await prisma.appointment.findUnique({
-      where: { id: appointmentId },
-    });
-    if (!appointment) {
-      return fail(
-        res,
-        "Appointment not found",
-        404,
-        "NOT_FOUND",
-        req.requestId ?? null,
-      );
-    }
-    if (req.user.role === Roles.SuperAdmin.toString()) return next();
-    if (
-      [Roles.BusinessAdmin.toString(), Roles.Receptionist.toString()].includes(
-        req.user.role || "",
-      ) &&
-      appointment.businessId === req.user.businessId
-    ) {
-      return next();
-    }
-    if (
-      req.user.role === Roles.Staff.toString() &&
-      appointment.staffId === req.user.id
-    ) {
-      return next();
-    }
+  const routeBusinessId = singleParameter(req.params?.businessId);
+  if (routeBusinessId && routeBusinessId !== req.user.businessId) {
     return fail(res, "Forbidden", 403, "FORBIDDEN", req.requestId ?? null);
-  } catch (error) {
-    return next(error);
   }
+
+  return next();
 };
 
 export const requireBusinessId = (
@@ -176,9 +110,9 @@ export const requireBusinessId = (
   if (!req.user.businessId) {
     return fail(
       res,
-      "Business id missing",
-      400,
-      "BAD_REQUEST",
+      "Business context missing",
+      403,
+      "BUSINESS_CONTEXT_REQUIRED",
       req.requestId ?? null,
     );
   }
@@ -189,6 +123,5 @@ export default {
   requireAuth,
   requireRole,
   requireBusinessAccess,
-  requireAppointmentOwnerOrAdmin,
   requireBusinessId,
 };

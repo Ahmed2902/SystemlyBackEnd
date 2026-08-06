@@ -1,33 +1,32 @@
-import { Prisma, AppointmentStatus, InvoiceStatus } from "@prisma/client";
+import { AppointmentStatus, InvoiceStatus, Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
+import { lockStaffSchedulingDay } from "../../shared/services/scheduling/scheduling-lock.service";
 import {
   computeStaffFreeIntervals,
   isStaffFreeFor,
 } from "../../shared/services/scheduling/staff-free-intervals.service";
 
 type TxClient = Prisma.TransactionClient;
+type AppointmentError = Error & { statusCode: number; code: string };
 
 const CANCELLED_STATUSES = [
   AppointmentStatus.cancelled_by_business,
   AppointmentStatus.cancelled_by_customer,
 ] as const;
 
-// ---- Error builders — same shape used everywhere, just named now ----
-
-export function notFoundError(message = "Appointment not found") {
-  const err: any = new Error(message);
-  err.statusCode = 404;
-  err.code = "NOT_FOUND";
-  return err;
+function appointmentError(
+  message: string,
+  statusCode: number,
+  code: string,
+): AppointmentError {
+  const error = new Error(message) as AppointmentError;
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
 }
 
-export function forbiddenError(
-  message = "Appointment does not belong to this business",
-) {
-  const err: any = new Error(message);
-  err.statusCode = 403;
-  err.code = "FORBIDDEN";
-  return err;
+export function notFoundError(message = "Appointment not found") {
+  return appointmentError(message, 404, "NOT_FOUND");
 }
 
 export function invalidStateError(
@@ -35,74 +34,54 @@ export function invalidStateError(
   code = "INVALID_STATE",
   statusCode = 400,
 ) {
-  const err: any = new Error(message);
-  err.statusCode = statusCode;
-  err.code = code;
-  return err;
+  return appointmentError(message, statusCode, code);
 }
-
-// ---- Status helpers ----
 
 export function isCancelled(status: AppointmentStatus): boolean {
   return (CANCELLED_STATUSES as readonly AppointmentStatus[]).includes(status);
 }
 
-/**
- * Locked = completed, or has a paid invoice. Matches the frontend's
- * isLocked derivation exactly — keep both in sync if this changes.
- */
-export function isLocked(appt: {
+export function isLocked(appointment: {
   status: AppointmentStatus;
   invoice?: { status: InvoiceStatus } | null;
   invoices?: Array<{ status: InvoiceStatus }>;
 }): boolean {
   return (
-    appt.status === AppointmentStatus.completed ||
-    appt.invoice?.status === InvoiceStatus.paid ||
-    appt.invoices?.some((invoice) => invoice.status === InvoiceStatus.paid) === true
+    appointment.status === AppointmentStatus.completed ||
+    appointment.invoice?.status === InvoiceStatus.paid ||
+    appointment.invoices?.some(
+      (invoice) => invoice.status === InvoiceStatus.paid,
+    ) === true
   );
 }
 
-// ---- Ownership guard ----
-
-/**
- * Fetches an appointment scoped to a business, or throws 404/403.
- * `include` defaults to just `customer` — pass a richer include when a
- * caller needs more (e.g. appointmentServices, invoice).
- */
 export async function getOwnedAppointmentOrThrow<
   T extends Prisma.AppointmentInclude,
 >(tx: TxClient, id: string, businessId: string, include?: T) {
-  const appt = await tx.appointment.findUnique({
-    where: { id },
+  const appointment = await tx.appointment.findFirst({
+    where: { id, businessId },
     include: include ?? ({ customer: true } as T),
   });
-  if (!appt) throw notFoundError();
-  if (appt.businessId !== businessId) throw forbiddenError();
-  return appt as Prisma.AppointmentGetPayload<{ include: T }>;
+  if (!appointment) throw notFoundError();
+  return appointment as Prisma.AppointmentGetPayload<{ include: T }>;
 }
 
-// ---- Editability guards ----
-
-export function assertEditable(appt: {
+export function assertEditable(appointment: {
   status: AppointmentStatus;
   invoice?: { status: InvoiceStatus } | null;
   invoices?: Array<{ status: InvoiceStatus }>;
 }) {
-  if (isLocked(appt)) {
+  if (isLocked(appointment)) {
     throw invalidStateError(
       "Cannot edit a completed or paid appointment",
       "LOCKED",
     );
   }
-  if (isCancelled(appt.status)) {
+  if (isCancelled(appointment.status)) {
     throw invalidStateError("Cannot edit a cancelled appointment");
   }
 }
 
-// ---- Invoice void ----
-
-/** Voids a paid invoice tied to this appointment, if one exists. No-op otherwise. */
 export async function voidInvoiceIfPaid(tx: TxClient, appointmentId: string) {
   const existingInvoice = await tx.invoice.findFirst({
     where: { appointmentId, status: { not: InvoiceStatus.voided } },
@@ -117,13 +96,6 @@ export async function voidInvoiceIfPaid(tx: TxClient, appointmentId: string) {
   return existingInvoice;
 }
 
-// ---- Staff availability / conflict check ----
-
-/**
- * Throws SLOT_TAKEN if `staffId` has any overlapping segment on another,
- * non-cancelled appointment. Excludes the appointment being edited so its
- * own existing segments don't conflict with themselves.
- */
 export async function assertStaffAvailableBatch(
   tx: TxClient,
   segments: Array<{ staffId: string; startsAt: Date; endsAt: Date }>,
@@ -134,16 +106,16 @@ export async function assertStaffAvailableBatch(
   const conflicts = await tx.appointmentService.findMany({
     where: {
       appointmentId: { not: excludeAppointmentId },
-      appointment: { status: { notIn: CANCELLED_STATUSES as any } },
-      OR: segments.map((seg) => ({
-        staffId: seg.staffId,
+      appointment: { status: { notIn: [...CANCELLED_STATUSES] } },
+      OR: segments.map((segment) => ({
+        staffId: segment.staffId,
         AND: [
-          { startsAt: { lt: seg.endsAt } },
-          { endsAt: { gt: seg.startsAt } },
+          { startsAt: { lt: segment.endsAt } },
+          { endsAt: { gt: segment.startsAt } },
         ],
       })),
     },
-    select: { id: true, staffId: true, startsAt: true, endsAt: true },
+    select: { id: true },
   });
 
   if (conflicts.length > 0) {
@@ -162,9 +134,9 @@ export function assertSegmentsDoNotOverlap(
     .slice()
     .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
 
-  for (let i = 1; i < ordered.length; i++) {
-    const previous = ordered[i - 1];
-    const current = ordered[i];
+  for (let index = 1; index < ordered.length; index += 1) {
+    const previous = ordered[index - 1];
+    const current = ordered[index];
     if (current.startsAt < previous.endsAt) {
       throw invalidStateError(
         "Appointment services cannot overlap",
@@ -176,7 +148,7 @@ export function assertSegmentsDoNotOverlap(
 
 export async function assertSegmentsAssignable(
   tx: TxClient,
-  opts: {
+  options: {
     businessId: string;
     businessTimezone: string;
     excludeAppointmentId: string;
@@ -189,7 +161,12 @@ export async function assertSegmentsAssignable(
     }>;
   },
 ) {
-  const { businessId, businessTimezone, excludeAppointmentId, segments } = opts;
+  const {
+    businessId,
+    businessTimezone,
+    excludeAppointmentId,
+    segments,
+  } = options;
   if (segments.length === 0) return;
 
   const segmentsRequiringEligibility = segments.filter(
@@ -233,6 +210,9 @@ export async function assertSegmentsAssignable(
   const date = DateTime.fromJSDate(segments[0].startsAt)
     .setZone(businessTimezone)
     .toFormat("yyyy-MM-dd");
+
+  await lockStaffSchedulingDay(tx, { businessId, date, staffIds });
+
   const freeByStaff = await computeStaffFreeIntervals(
     staffIds,
     businessId,

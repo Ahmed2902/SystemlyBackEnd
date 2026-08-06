@@ -4,6 +4,7 @@ import { ENTITLEMENTS } from "../src/modules/subscriptions/subscription.catalog"
 import { prisma } from "../src/shared/db/prisma";
 
 const makeTx = (conflict = false) => ({
+  $executeRaw: async () => 1,
   service: {
     findMany: async () => [
       {
