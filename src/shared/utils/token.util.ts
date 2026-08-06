@@ -1,49 +1,105 @@
+import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
-import crypto from "crypto";
 import { v4 as uuidv4 } from "uuid";
+import { JWT } from "../config/config";
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev_jwt_secret";
-const JWT_REFRESH_SECRET =
-  process.env.JWT_REFRESH_SECRET || "dev_jwt_refresh_secret";
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "15m";
-const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || "30d";
+type JwtSignOptions = Readonly<{
+  algorithm: "HS256";
+  expiresIn: string;
+  issuer: string;
+  audience: string;
+}>;
 
-export const generateEmailToken = (): string => {
-  return crypto.randomBytes(32).toString("hex");
+type JwtVerifyOptions = Readonly<{
+  algorithms: readonly ["HS256"];
+  issuer: string;
+  audience: string;
+}>;
+
+export type VerifiedTokenPayload = Readonly<
+  Record<string, unknown> & {
+    sub?: string;
+    iat?: number;
+    exp?: number;
+    iss?: string;
+    aud?: string | string[];
+  }
+>;
+
+const ACCESS_OPTIONS: JwtSignOptions = {
+  algorithm: "HS256",
+  expiresIn: JWT.EXPIRES_IN,
+  issuer: JWT.ISSUER,
+  audience: JWT.AUDIENCE,
 };
 
-export const generateCancelToken = (): string => {
-  return uuidv4();
+const REFRESH_OPTIONS: JwtSignOptions = {
+  algorithm: "HS256",
+  expiresIn: JWT.REFRESH_EXPIRES_IN,
+  issuer: JWT.ISSUER,
+  audience: `${JWT.AUDIENCE}:refresh`,
 };
 
-export const signAccessToken = (payload: object) => {
-  return jwt.sign(payload as string | object | Buffer, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN,
-  });
+const ACCESS_VERIFY_OPTIONS: JwtVerifyOptions = {
+  algorithms: ["HS256"],
+  issuer: JWT.ISSUER,
+  audience: JWT.AUDIENCE,
 };
 
-export const verifyAccessToken = (token: string) => {
-  return jwt.verify(token, JWT_SECRET) as any;
+const REFRESH_VERIFY_OPTIONS: JwtVerifyOptions = {
+  algorithms: ["HS256"],
+  issuer: JWT.ISSUER,
+  audience: `${JWT.AUDIENCE}:refresh`,
 };
 
-export const signRefreshToken = (payload: object) => {
-  return jwt.sign(payload as string | object | Buffer, JWT_REFRESH_SECRET, {
-    expiresIn: JWT_REFRESH_EXPIRES_IN,
-  });
-};
+function asVerifiedPayload(value: unknown): VerifiedTokenPayload {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("JWT payload must be an object.");
+  }
+  return value as VerifiedTokenPayload;
+}
 
-export const verifyRefreshToken = (token: string) => {
-  return jwt.verify(token, JWT_REFRESH_SECRET) as any;
-};
+export function generateOpaqueToken(): string {
+  return crypto.randomBytes(32).toString("base64url");
+}
 
-export const generateTokens = (payload: object) => {
+export function hashOpaqueToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+export const generateEmailToken = generateOpaqueToken;
+
+export const generateCancelToken = (): string => uuidv4();
+
+export function signAccessToken(payload: object): string {
+  return jwt.sign(payload, JWT.SECRET, ACCESS_OPTIONS);
+}
+
+export function verifyAccessToken(token: string): VerifiedTokenPayload {
+  return asVerifiedPayload(jwt.verify(token, JWT.SECRET, ACCESS_VERIFY_OPTIONS));
+}
+
+/** Retained only for compatibility with non-browser integrations. */
+export function signRefreshToken(payload: object): string {
+  return jwt.sign(payload, JWT.REFRESH_SECRET, REFRESH_OPTIONS);
+}
+
+export function verifyRefreshToken(token: string): VerifiedTokenPayload {
+  return asVerifiedPayload(
+    jwt.verify(token, JWT.REFRESH_SECRET, REFRESH_VERIFY_OPTIONS),
+  );
+}
+
+export function generateTokens(payload: object) {
   return {
     accessToken: signAccessToken(payload),
     refreshToken: signRefreshToken(payload),
   };
-};
+}
 
 export default {
+  generateOpaqueToken,
+  hashOpaqueToken,
   generateEmailToken,
   generateCancelToken,
   signAccessToken,

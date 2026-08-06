@@ -77,6 +77,15 @@ export async function get(key: string): Promise<string | null> {
   return (await getClient()).get(key);
 }
 
+export async function getDel(key: string): Promise<string | null> {
+  if (process.env.NODE_ENV === "test") {
+    const value = readTestValue(key);
+    testStore.delete(key);
+    return value;
+  }
+  return (await getClient()).getdel(key);
+}
+
 export async function set(
   key: string,
   value: string,
@@ -130,4 +139,12 @@ export function isConfigured(): boolean {
   return Boolean(REDIS.URL) || process.env.NODE_ENV === "test";
 }
 
-export default { get, set, del, increment, disconnect, isConfigured };
+export default {
+  get,
+  getDel,
+  set,
+  del,
+  increment,
+  disconnect,
+  isConfigured,
+};
