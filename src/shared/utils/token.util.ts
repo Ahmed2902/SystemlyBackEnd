@@ -59,8 +59,15 @@ function asVerifiedPayload(value: unknown): VerifiedTokenPayload {
   return value as VerifiedTokenPayload;
 }
 
-export const generateEmailToken = (): string =>
-  crypto.randomBytes(32).toString("hex");
+export function generateOpaqueToken(): string {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+export function hashOpaqueToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+export const generateEmailToken = generateOpaqueToken;
 
 export const generateCancelToken = (): string => uuidv4();
 
@@ -91,6 +98,8 @@ export function generateTokens(payload: object) {
 }
 
 export default {
+  generateOpaqueToken,
+  hashOpaqueToken,
   generateEmailToken,
   generateCancelToken,
   signAccessToken,

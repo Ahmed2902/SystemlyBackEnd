@@ -168,35 +168,6 @@ model BusinessUser {
   @@map("business_users")
 }
 
-model AuthSession {
-  id                  String   @id @default(uuid()) @db.Uuid
-  userId              String   @map("user_id") @db.Uuid
-  familyId            String   @map("family_id") @db.Uuid
-  tokenHash           String   @unique @map("token_hash") @db.VarChar(64)
-  replacedBySessionId String?  @map("replaced_by_session_id") @db.Uuid
-  revokedAt           DateTime? @map("revoked_at") @db.Timestamptz(6)
-  expiresAt           DateTime @map("expires_at") @db.Timestamptz(6)
-  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  @@index([userId, familyId])
-  @@index([familyId, revokedAt])
-  @@map("auth_sessions")
-}
-
-model AuthActionToken {
-  id        String    @id @default(uuid()) @db.Uuid
-  userId    String    @map("user_id") @db.Uuid
-  purpose   String    @db.VarChar(40)
-  tokenHash String    @unique @map("token_hash") @db.VarChar(64)
-  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
-  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  @@index([userId, purpose, usedAt])
-  @@index([expiresAt])
-  @@map("auth_action_tokens")
-}
-
 model Staff {
   id                    String                 @id @default(uuid()) @db.Uuid
   businessId            String                 @map("business_id") @db.Uuid

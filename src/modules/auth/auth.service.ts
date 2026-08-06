@@ -1,14 +1,16 @@
 import bcrypt from "bcryptjs";
 import { Prisma, Roles } from "@prisma/client";
+import { AUTH_CONSTANTS } from "../../shared/config/config";
+import * as redis from "../../shared/config/redis";
 import { prisma } from "../../shared/db/prisma";
 import { Errors } from "../../shared/errors/application-error";
 import * as emailService from "../../shared/services/email.service";
-import { signAccessToken } from "../../shared/utils/token.util";
 import {
-  AUTH_TOKEN_PURPOSES,
-  authActionTokens,
-} from "./auth-action-token.repository";
-import { authSessions } from "./auth-session.service";
+  generateOpaqueToken,
+  hashOpaqueToken,
+  signAccessToken,
+} from "../../shared/utils/token.util";
+import { refreshTokens } from "./refresh-token.service";
 import type {
   EmailBody,
   GetMeInput,
@@ -41,6 +43,8 @@ type AuthUser = Prisma.BusinessUserGetPayload<{
   select: typeof AUTH_USER_SELECT;
 }>;
 
+type ActionTokenKind = "email_verify" | "pwd_reset";
+
 function publicUser(user: AuthUser) {
   return {
     id: user.id,
@@ -67,6 +71,20 @@ function accessTokenFor(user: Pick<AuthUser, "id" | "businessId" | "role">) {
     businessId: user.businessId,
     role: user.role,
   });
+}
+
+function actionTokenKey(kind: ActionTokenKind, rawToken: string): string {
+  return `${kind}:${hashOpaqueToken(rawToken)}`;
+}
+
+async function issueActionToken(
+  kind: ActionTokenKind,
+  value: string,
+  ttlSeconds: number,
+): Promise<string> {
+  const rawToken = generateOpaqueToken();
+  await redis.set(actionTokenKey(kind, rawToken), value, ttlSeconds);
+  return rawToken;
 }
 
 class AuthService {
@@ -99,43 +117,44 @@ class AuthService {
       },
     });
 
-    const token = await authActionTokens.issue(
-      user.id,
-      AUTH_TOKEN_PURPOSES.EMAIL_VERIFICATION,
+    const token = await issueActionToken(
+      "email_verify",
+      user.email,
+      AUTH_CONSTANTS.EMAIL_TOKEN_TTL_SECONDS,
     );
     await emailService.enqueueVerificationEmail(user, token, {
-      idempotencyKey: `verification:${user.id}:${token}`,
+      idempotencyKey: `verification:${user.id}:${hashOpaqueToken(token)}`,
     });
 
     return { userId: user.id };
   }
 
   async verifyEmail({ token }: VerifyEmailQuery) {
-    const user = await prisma.$transaction(async (tx) => {
-      const userId = await authActionTokens.consume(
-        tx,
-        AUTH_TOKEN_PURPOSES.EMAIL_VERIFICATION,
-        token,
+    const email = await redis.getDel(actionTokenKey("email_verify", token));
+    if (!email) {
+      throw Errors.badRequest(
+        "This verification link is invalid or has expired. Please request a new one.",
+        "INVALID_TOKEN",
       );
-      if (!userId) {
-        throw Errors.badRequest(
-          "This verification link is invalid or has expired. Please request a new one.",
-          "INVALID_TOKEN",
-        );
-      }
+    }
 
-      return tx.businessUser.update({
-        where: { id: userId },
-        data: { emailVerified: true },
-        select: AUTH_USER_SELECT,
-      });
+    const existing = await prisma.businessUser.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+    if (!existing) throw Errors.notFound("User not found.");
+
+    const user = await prisma.businessUser.update({
+      where: { id: existing.id },
+      data: { emailVerified: true },
+      select: AUTH_USER_SELECT,
     });
 
     await emailService.enqueueWelcomeEmail(user, {
       idempotencyKey: `welcome:${user.id}`,
     });
-    const refreshToken = await authSessions.create(user.id);
 
+    const refreshToken = await refreshTokens.create(user.id);
     return {
       accessToken: accessTokenFor(user),
       refreshToken,
@@ -148,6 +167,7 @@ class AuthService {
       where: { email: payload.email },
       select: { ...AUTH_USER_SELECT, passwordHash: true },
     });
+
     if (
       !userWithPassword ||
       !userWithPassword.passwordHash ||
@@ -158,6 +178,7 @@ class AuthService {
         "INVALID_CREDENTIALS",
       );
     }
+
     if (!userWithPassword.emailVerified) {
       const error = Errors.forbidden(
         "Please verify your email before logging in. Check your inbox for the verification link.",
@@ -172,7 +193,7 @@ class AuthService {
       data: { lastLoginAt: new Date() },
       select: AUTH_USER_SELECT,
     });
-    const refreshToken = await authSessions.create(user.id);
+    const refreshToken = await refreshTokens.create(user.id);
 
     return {
       accessToken: accessTokenFor(user),
@@ -182,19 +203,19 @@ class AuthService {
   }
 
   createRefreshToken(userId: string) {
-    return authSessions.create(userId);
+    return refreshTokens.create(userId);
   }
 
   revokeRefreshToken(token: string) {
-    return authSessions.revoke(token);
+    return refreshTokens.revoke(token);
   }
 
   async rotateRefreshToken(token: string) {
-    return (await authSessions.rotate(token)).token;
+    return (await refreshTokens.rotate(token)).token;
   }
 
   async refreshToken({ refreshToken }: RefreshTokenInput) {
-    const rotated = await authSessions.rotate(refreshToken);
+    const rotated = await refreshTokens.rotate(refreshToken);
     const user = await prisma.businessUser.findUnique({
       where: { id: rotated.userId },
       select: AUTH_USER_SELECT,
@@ -223,6 +244,7 @@ class AuthService {
         preferredLanguage: true,
       },
     });
+
     if (user?.emailVerified) {
       throw Errors.badRequest(
         "This email is already verified.",
@@ -231,12 +253,13 @@ class AuthService {
     }
 
     if (user) {
-      const token = await authActionTokens.issue(
-        user.id,
-        AUTH_TOKEN_PURPOSES.EMAIL_VERIFICATION,
+      const token = await issueActionToken(
+        "email_verify",
+        user.email,
+        AUTH_CONSTANTS.EMAIL_TOKEN_TTL_SECONDS,
       );
       await emailService.enqueueVerificationEmail(user, token, {
-        idempotencyKey: `verification:${user.id}:${token}`,
+        idempotencyKey: `verification:${user.id}:${hashOpaqueToken(token)}`,
       });
     }
 
@@ -253,37 +276,40 @@ class AuthService {
         preferredLanguage: true,
       },
     });
+
     if (user) {
-      const token = await authActionTokens.issue(
+      const token = await issueActionToken(
+        "pwd_reset",
         user.id,
-        AUTH_TOKEN_PURPOSES.PASSWORD_RESET,
+        AUTH_CONSTANTS.PWD_RESET_TTL_SECONDS,
       );
       await emailService.enqueuePasswordResetEmail(user, token, {
-        idempotencyKey: `password-reset:${user.id}:${token}`,
+        idempotencyKey: `password-reset:${user.id}:${hashOpaqueToken(token)}`,
       });
     }
+
     return { sent: true };
   }
 
   async resetPassword({ token, password }: ResetPasswordBody) {
-    await prisma.$transaction(async (tx) => {
-      const userId = await authActionTokens.consume(
-        tx,
-        AUTH_TOKEN_PURPOSES.PASSWORD_RESET,
-        token,
+    const userId = await redis.getDel(actionTokenKey("pwd_reset", token));
+    if (!userId) {
+      throw Errors.badRequest(
+        "This password reset link is invalid or has expired.",
+        "INVALID_TOKEN",
       );
-      if (!userId) {
-        throw Errors.badRequest(
-          "This password reset link is invalid or has expired.",
-          "INVALID_TOKEN",
-        );
-      }
+    }
 
-      await tx.businessUser.update({
+    const passwordHash = await bcrypt.hash(password, 12);
+    await prisma.$transaction(async (tx) => {
+      const updated = await tx.businessUser.updateMany({
         where: { id: userId },
-        data: { passwordHash: await bcrypt.hash(password, 12) },
+        data: { passwordHash },
       });
-      await authSessions.revokeAll(userId, tx);
+      if (updated.count !== 1) {
+        throw Errors.badRequest("Invalid token user.", "INVALID_TOKEN");
+      }
+      await refreshTokens.revokeAll(userId, tx);
     });
 
     return { success: true };
@@ -316,22 +342,31 @@ class AuthService {
         "NO_EMAIL",
       );
     }
+    if (!input.emailVerified) {
+      throw Errors.forbidden(
+        "OAuth provider did not verify this email address.",
+        "OAUTH_EMAIL_NOT_VERIFIED",
+      );
+    }
 
     const providerIdentity = await prisma.businessUser.findFirst({
-      where: { provider: input.provider, providerId: input.providerId },
+      where: {
+        provider: input.provider,
+        providerId: input.providerId,
+      },
       select: AUTH_USER_SELECT,
     });
-    let user: AuthUser;
 
+    let user: AuthUser;
     if (providerIdentity) {
       user = await prisma.businessUser.update({
         where: { id: providerIdentity.id },
         data: {
           ...(input.name ? { name: input.name } : {}),
-          ...(input.emailVerified ? { emailVerified: true } : {}),
           ...(input.preferredLanguage
             ? { preferredLanguage: input.preferredLanguage }
             : {}),
+          emailVerified: true,
           lastLoginAt: new Date(),
         },
         select: AUTH_USER_SELECT,
@@ -339,32 +374,56 @@ class AuthService {
     } else {
       const emailOwner = await prisma.businessUser.findUnique({
         where: { email: input.email },
-        select: { id: true },
-      });
-      if (emailOwner) {
-        throw Errors.conflict(
-          "An account already uses this email. Sign in first to link the OAuth provider.",
-          "OAUTH_ACCOUNT_LINK_REQUIRED",
-        );
-      }
-
-      user = await prisma.businessUser.create({
-        data: {
-          name: input.name || input.email.split("@")[0],
-          email: input.email,
-          provider: input.provider,
-          providerId: input.providerId,
-          passwordHash: "",
-          emailVerified: Boolean(input.emailVerified),
-          preferredLanguage: input.preferredLanguage ?? "en",
-          role: Roles.User,
-          lastLoginAt: new Date(),
-        },
         select: AUTH_USER_SELECT,
       });
+
+      if (emailOwner) {
+        const belongsToAnotherProvider =
+          emailOwner.provider != null &&
+          (emailOwner.provider !== input.provider ||
+            emailOwner.providerId !== input.providerId);
+        if (belongsToAnotherProvider) {
+          throw Errors.conflict(
+            "This account is already linked to another OAuth provider.",
+            "OAUTH_ACCOUNT_LINK_REQUIRED",
+          );
+        }
+
+        // The provider verified ownership of the exact same email, so it is
+        // safe to add OAuth as a second login method. The password is preserved.
+        user = await prisma.businessUser.update({
+          where: { id: emailOwner.id },
+          data: {
+            provider: input.provider,
+            providerId: input.providerId,
+            emailVerified: true,
+            ...(input.name ? { name: input.name } : {}),
+            ...(input.preferredLanguage
+              ? { preferredLanguage: input.preferredLanguage }
+              : {}),
+            lastLoginAt: new Date(),
+          },
+          select: AUTH_USER_SELECT,
+        });
+      } else {
+        user = await prisma.businessUser.create({
+          data: {
+            name: input.name || input.email.split("@")[0],
+            email: input.email,
+            provider: input.provider,
+            providerId: input.providerId,
+            passwordHash: "",
+            emailVerified: true,
+            preferredLanguage: input.preferredLanguage ?? "en",
+            role: Roles.User,
+            lastLoginAt: new Date(),
+          },
+          select: AUTH_USER_SELECT,
+        });
+      }
     }
 
-    const refreshToken = await authSessions.create(user.id);
+    const refreshToken = await refreshTokens.create(user.id);
     return {
       accessToken: accessTokenFor(user),
       refreshToken,
@@ -373,5 +432,4 @@ class AuthService {
   }
 }
 
-const authService = new AuthService();
-export default authService;
+export default new AuthService();
