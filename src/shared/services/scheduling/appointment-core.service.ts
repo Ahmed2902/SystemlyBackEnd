@@ -1,16 +1,16 @@
-import { DateTime } from "luxon";
 import { BookingChannel, Prisma } from "@prisma/client";
-import { toUtcFromBusinessTime } from "../../utils/timezone";
+import { DateTime } from "luxon";
 import { generateCancelToken } from "../../utils/token.util";
+import { toUtcFromBusinessTime } from "../../utils/timezone";
+import { resolveEligibleStaffBySelection } from "./eligibility.service";
+import { lockStaffSchedulingDay } from "./scheduling-lock.service";
 import {
   computeStaffFreeIntervals,
   isStaffFreeFor,
 } from "./staff-free-intervals.service";
-import { resolveEligibleStaffBySelection } from "./eligibility.service";
 import type { ScheduledSegment, ServiceSelection } from "./types";
 
 type TxClient = Prisma.TransactionClient;
-
 type SchedulingError = Error & { statusCode?: number; code?: string };
 
 function schedulingError(message: string, statusCode: number, code?: string) {
@@ -52,8 +52,9 @@ export async function scheduleServiceSegments(
     throw schedulingError("At least one service is required", 400);
   }
 
-  const serviceIds = selections.map((selection) => selection.serviceId);
-  const uniqueServiceIds = [...new Set(serviceIds)];
+  const uniqueServiceIds = [
+    ...new Set(selections.map((selection) => selection.serviceId)),
+  ];
   const services = await tx.service.findMany({
     where: {
       id: { in: uniqueServiceIds },
@@ -67,12 +68,15 @@ export async function scheduleServiceSegments(
   }
 
   const serviceById = new Map(services.map((service) => [service.id, service]));
-
   let segmentStart = /(?:Z|[+-]\d\d:\d\d)$/.test(startsAt)
     ? DateTime.fromJSDate(new Date(startsAt)).setZone(timezone)
     : DateTime.fromJSDate(toUtcFromBusinessTime(startsAt, timezone)).setZone(
         timezone,
       );
+
+  if (!segmentStart.isValid) {
+    throw schedulingError("Invalid appointment start time", 400, "INVALID_DATE");
+  }
 
   const eligibleBySelection = await resolveEligibleStaffBySelection(
     tx,
@@ -80,8 +84,21 @@ export async function scheduleServiceSegments(
     businessId,
   );
   const allCandidateStaffIds = [...new Set(eligibleBySelection.flat())];
+  if (allCandidateStaffIds.length === 0) {
+    throw schedulingError(
+      "No eligible staff member is available for the selected services.",
+      409,
+      "SLOT_TAKEN",
+    );
+  }
 
   const date = segmentStart.toFormat("yyyy-MM-dd");
+  await lockStaffSchedulingDay(tx, {
+    businessId,
+    date,
+    staffIds: allCandidateStaffIds,
+  });
+
   const freeByStaff = await computeStaffFreeIntervals(
     allCandidateStaffIds,
     businessId,
@@ -92,13 +109,10 @@ export async function scheduleServiceSegments(
   );
 
   const segments: ScheduledSegment[] = [];
-
   for (let index = 0; index < selections.length; index += 1) {
     const selection = selections[index];
     const service = serviceById.get(selection.serviceId);
-    if (!service) {
-      throw schedulingError("Service not found", 404);
-    }
+    if (!service) throw schedulingError("Service not found", 404);
 
     const segmentEnd = segmentStart.plus({ minutes: service.durationMin });
     const assignedStaff = eligibleBySelection[index].find((staffId) =>
@@ -121,7 +135,6 @@ export async function scheduleServiceSegments(
       durationMin: service.durationMin,
       priceEgp: Number(service.priceEgp),
     });
-
     segmentStart = segmentEnd;
   }
 
@@ -134,7 +147,6 @@ export async function createAppointmentCore(
   params: CreateAppointmentCoreParams,
 ) {
   const timezone = params.timezone || business.timezone || "UTC";
-
   const segments = await scheduleServiceSegments(
     tx,
     params.selections,
@@ -185,7 +197,6 @@ export async function upsertCustomer(
   params: UpsertCustomerParams,
 ) {
   const { businessId, phone, name, acquisitionSource } = params;
-
   const existing = await tx.customer.findUnique({
     where: { businessId_phone: { businessId, phone } },
   });
