@@ -1,6 +1,6 @@
+import { Roles } from "@prisma/client";
 import { Router } from "express";
 import {
-  requireAppointmentOwnerOrAdmin,
   requireAuth,
   requireBusinessAccess,
   requireBusinessId,
@@ -18,15 +18,20 @@ import {
   listAppointmentsQuerySchema,
   rescheduleAppointmentSchema,
   revertAppointmentParamsSchema,
-  revertAppointmentSchema,
   updateAppointmentNotesSchema,
   updateAppointmentSchema,
   updateAppointmentStatusSchema,
 } from "./appointments.schema";
 
 const router = Router();
+const OPERATIONS_ROLES = [Roles.BusinessAdmin, Roles.Receptionist];
 
-router.use(requireAuth, requireBusinessAccess, requireSubscriptionAccess);
+router.use(
+  requireAuth,
+  requireBusinessAccess,
+  requireSubscriptionAccess,
+  requireRole(OPERATIONS_ROLES),
+);
 
 router.get(
   "/",
@@ -35,112 +40,92 @@ router.get(
 );
 router.post(
   "/",
-  requireRole(["BusinessAdmin", "Receptionist"]),
   requireBusinessId,
   validate.validateBody(createManualAppointmentSchema),
   appointmentsController.CreateManualAppointment,
 );
 router.patch(
   "/:appointmentId/reschedule",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(rescheduleAppointmentSchema),
   appointmentsController.rescheduleAppointment,
 );
 router.get(
   "/:appointmentId",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   appointmentsController.getAppointment,
 );
 router.patch(
   "/:appointmentId/status",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(updateAppointmentStatusSchema),
   appointmentsController.updateStatus,
 );
 router.patch(
   "/:appointmentId/notes",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(updateAppointmentNotesSchema),
   appointmentsController.updateNotes,
 );
-
 router.post(
   "/:appointmentId/cancel",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(cancelAppointmentSchema),
   appointmentsController.cancelAppointment,
 );
-
 router.post(
   "/:appointmentId/photos/presign",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   appointmentsController.presignProgressPhoto,
 );
 router.post(
   "/:appointmentId/photos/confirm",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   appointmentsController.confirmProgressPhoto,
 );
 router.get(
   "/:appointmentId/photos",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   appointmentsController.listAppointmentPhotos,
 );
 router.delete(
   "/:appointmentId/photos/:photoId",
-  requireAppointmentOwnerOrAdmin,
+  validate.validateParams(appointmentIdParamsSchema),
   appointmentsController.deleteAppointmentPhoto,
 );
-
 router.put(
   "/:appointmentId/custom-items",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   appointmentCustomItemsController.replace,
 );
-
 router.delete(
   "/:appointmentId",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   appointmentsController.deleteAppointment,
 );
 router.post(
   "/:appointmentId/revert",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(revertAppointmentParamsSchema),
-  validate.validateBody(revertAppointmentSchema),
   appointmentsController.revertAppointment,
 );
 router.patch(
   "/:appointmentId",
-  requireAppointmentOwnerOrAdmin,
+  validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(updateAppointmentSchema),
   appointmentsController.update,
 );
 router.post(
   "/:appointmentId/uncancel",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(revertAppointmentParamsSchema),
   appointmentsController.uncancel,
 );
 router.post(
   "/:appointmentId/mark-no-show",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(revertAppointmentParamsSchema),
   appointmentsController.markNoShow,
 );
 router.post(
   "/:appointmentId/finish",
-  requireAppointmentOwnerOrAdmin,
   validate.validateParams(appointmentIdParamsSchema),
   validate.validateBody(finishAppointmentSchema),
   appointmentsController.finishAppointment,
