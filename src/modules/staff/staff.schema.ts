@@ -54,7 +54,7 @@ export const staffPaginationSchema = z.object({
 
 export const createStaffSchema = z.object({
   name: z.string().trim().min(1).max(255).openapi({ example: "Dr. Mona Ahmed" }),
-  role: roleEnum.optional().default(Roles.Staff).openapi({ example: Roles.Staff }),
+  role: z.literal(Roles.Staff).optional().default(Roles.Staff),
   jobTitle: optionalText(120).openapi({ example: "Lead Therapist" }),
   yearsExperience: z.number().int().min(0).max(80).nullable().optional(),
   bio: optionalText(4000).openapi({
@@ -70,7 +70,7 @@ export const createStaffSchema = z.object({
 export const updateStaffSchema = z
   .object({
     name: z.string().trim().min(1).max(255).optional(),
-    role: roleEnum.optional(),
+    role: z.literal(Roles.Staff).optional(),
     jobTitle: optionalText(120).nullable(),
     yearsExperience: z.number().int().min(0).max(80).nullable().optional(),
     bio: optionalText(4000).nullable(),
