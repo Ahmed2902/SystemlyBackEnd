@@ -4,7 +4,6 @@ import { z } from "zod";
 const commissionTypeEnum = z.nativeEnum(CommissionType);
 const roleEnum = z.nativeEnum(Roles);
 const timeOffTypeEnum = z.nativeEnum(StaffTimeOffType);
-const inviteRoleSchema = z.enum([Roles.Staff, Roles.Receptionist]);
 
 const optionalText = (max: number) =>
   z.string().trim().max(max).optional().or(z.literal(""));
@@ -35,7 +34,6 @@ const validateCommission = (data: {
   return data.commissionAmount >= 0;
 };
 
-// #region Queries
 export const staffDirectoryQuerySchema = z.object({
   search: z.string().trim().optional(),
   status: z.enum(["all", "active", "inactive"]).default("all"),
@@ -53,9 +51,7 @@ export const staffPaginationSchema = z.object({
   page: z.number().int().positive(),
   perPage: z.number().int().positive(),
 });
-// #endregion
 
-// #region Commands
 export const createStaffSchema = z.object({
   name: z.string().trim().min(1).max(255).openapi({ example: "Dr. Mona Ahmed" }),
   role: roleEnum.optional().default(Roles.Staff).openapi({ example: Roles.Staff }),
@@ -172,13 +168,11 @@ export const createTimeOffSchema = z
 export const createInviteSchema = z
   .object({
     email: z.string().trim().email(),
-    role: inviteRoleSchema,
     expiresInDays: z.number().int().min(1).max(30).optional(),
   })
   .strict();
 
 export const acceptInviteSchema = z.object({ token: z.string().min(1) }).strict();
-// #endregion
 
 export type StaffCreateInput = z.infer<typeof createStaffSchema>;
 export type StaffUpdateInput = z.infer<typeof updateStaffSchema>;
