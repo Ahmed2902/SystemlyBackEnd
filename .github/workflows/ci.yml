@@ -37,6 +37,9 @@ jobs:
       - name: Generate Prisma client
         run: npm run prisma:generate
 
+      - name: Validate Prisma schema
+        run: npx prisma validate --schema=prisma/schema.prisma
+
       - name: Build TypeScript
         run: |
           set -o pipefail
@@ -115,6 +118,20 @@ jobs:
 
       - name: Apply database migrations
         run: npm run prisma:migrate:deploy
+
+      - name: Verify migration history matches Prisma schema
+        env:
+          PGPASSWORD: postgres
+          SHADOW_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hgezli_shadow?schema=public
+        run: |
+          set -euo pipefail
+          dropdb --if-exists --host=localhost --username=postgres hgezli_shadow
+          createdb --host=localhost --username=postgres hgezli_shadow
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema prisma/schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --exit-code
 
       - name: Run tests
         run: |
