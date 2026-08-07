@@ -13,23 +13,18 @@ const router = Router();
 router.get(
   "/availability",
   validate.validateQuery(availabilityQuerySchema),
-  bookingsController.getAvailability
+  bookingsController.getAvailability,
 );
 router.post(
   "/",
   publicBookingRateLimit,
   validate.validateBody(createBookingSchema),
-  bookingsController.createBooking
-);
-router.get(
-  "/confirm/:token",
-  validate.validateParams(bookingTokenParamsSchema),
-  bookingsController.confirmBooking
+  bookingsController.createBooking,
 );
 router.post(
   "/cancel/:token",
   validate.validateParams(bookingTokenParamsSchema),
-  bookingsController.cancelBooking
+  bookingsController.cancelBooking,
 );
 
 export default router;
