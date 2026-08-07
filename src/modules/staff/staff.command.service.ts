@@ -1,5 +1,4 @@
 import { prisma } from "../../shared/db/prisma";
-import { timeOfDayToDate } from "../../shared/utils/timezone";
 import {
   confirmPublicImageUpload,
   createPublicImageUploadTicket,
@@ -19,19 +18,10 @@ import type {
   UpdateServiceStaffInput,
 } from "./staff.schema";
 import staffInviteService from "./staff-invite.service";
+import staffService from "./staff.service";
 import staffWorkspaceService from "./staff.workspace.service";
 
 type AuthUser = NonNullable<Express.Request["user"]>;
-
-const buildError = (message: string, statusCode: number, code: string) => {
-  const error = new Error(message) as Error & {
-    statusCode: number;
-    code: string;
-  };
-  error.statusCode = statusCode;
-  error.code = code;
-  return error;
-};
 
 function staffPhotoFolder(businessId: string, staffId: string) {
   return `businesses/${businessId}/staff/${staffId}`;
@@ -74,91 +64,28 @@ class StaffCommandService {
     return staffWorkspaceService.deleteTimeOff(staffId, timeOffId, user);
   }
 
-  async assignService(
-    staffId: string,
-    businessId: string,
-    payload: AssignServiceInput,
-  ) {
-    await Promise.all([
-      this.assertOwnedStaff(staffId, businessId),
-      this.assertOwnedService(payload.serviceId, businessId),
-    ]);
-
-    return prisma.serviceStaff.create({
-      data: {
-        staffId,
-        serviceId: payload.serviceId,
-        commissionType: payload.commissionType,
-        commissionAmount: payload.commissionAmount,
-      },
-      include: {
-        service: { select: { id: true, name: true, priceEgp: true } },
-        staff: { select: { id: true, name: true } },
-      },
-    });
+  assignService(staffId: string, payload: AssignServiceInput) {
+    return staffService.assignService(staffId, payload);
   }
 
-  async updateServiceStaff(
+  updateServiceStaff(
     staffId: string,
     serviceId: string,
-    businessId: string,
     payload: UpdateServiceStaffInput,
   ) {
-    await this.assertOwnedServiceStaff(staffId, serviceId, businessId);
-
-    return prisma.serviceStaff.update({
-      where: { serviceId_staffId: { serviceId, staffId } },
-      data: {
-        commissionType: payload.commissionType,
-        commissionAmount: payload.commissionAmount,
-      },
-      include: {
-        service: { select: { id: true, name: true, priceEgp: true } },
-        staff: { select: { id: true, name: true } },
-      },
-    });
+    return staffService.updateServiceStaff(staffId, serviceId, payload);
   }
 
-  async unassignService(
-    staffId: string,
-    serviceId: string,
-    businessId: string,
-  ) {
-    await this.assertOwnedServiceStaff(staffId, serviceId, businessId);
-    return prisma.serviceStaff.delete({
-      where: { serviceId_staffId: { serviceId, staffId } },
-    });
+  unassignService(staffId: string, serviceId: string) {
+    return staffService.unassignService(staffId, serviceId);
   }
 
-  async addOverride(
-    staffId: string,
-    businessId: string,
-    payload: AvailabilityOverrideInput,
-  ) {
-    await this.assertOwnedStaff(staffId, businessId);
-    return prisma.availabilityOverride.create({
-      data: {
-        staffId,
-        overrideDate: new Date(payload.overrideDate),
-        isDayOff: payload.isDayOff ?? false,
-        startTime: payload.startTime
-          ? timeOfDayToDate(payload.startTime)
-          : null,
-        endTime: payload.endTime ? timeOfDayToDate(payload.endTime) : null,
-      },
-    });
+  addOverride(staffId: string, payload: AvailabilityOverrideInput) {
+    return staffService.addOverride(staffId, payload);
   }
 
-  async deleteOverride(overrideId: string, businessId: string) {
-    const override = await prisma.availabilityOverride.findFirst({
-      where: { id: overrideId, staff: { businessId } },
-      select: { id: true },
-    });
-    if (!override) {
-      throw buildError("Availability override not found", 404, "NOT_FOUND");
-    }
-    await prisma.availabilityOverride.delete({ where: { id: override.id } });
-    return { success: true };
+  deleteOverride(overrideId: string) {
+    return staffService.deleteOverride(overrideId);
   }
 
   createInvite(businessId: string, input: CreateInviteInput) {
@@ -169,7 +96,7 @@ class StaffCommandService {
     return staffInviteService.accept(token, userId);
   }
 
-  async createStaffBreak(
+  createStaffBreak(
     businessId: string,
     payload: {
       staffId: string;
@@ -179,27 +106,11 @@ class StaffCommandService {
       label?: string;
     },
   ) {
-    await this.assertOwnedStaff(payload.staffId, businessId);
-    return prisma.staffBreak.create({
-      data: {
-        businessId,
-        staffId: payload.staffId,
-        breakDate: new Date(`${payload.breakDate}T00:00:00.000Z`),
-        startTime: timeOfDayToDate(payload.startTime),
-        endTime: timeOfDayToDate(payload.endTime),
-        label: payload.label,
-      },
-    });
+    return staffService.createStaffBreak(businessId, payload);
   }
 
-  async removeStaffBreak(businessId: string, breakId: string) {
-    const deleted = await prisma.staffBreak.deleteMany({
-      where: { id: breakId, businessId },
-    });
-    if (deleted.count !== 1) {
-      throw buildError("Break not found", 404, "NOT_FOUND");
-    }
-    return { success: true };
+  removeStaffBreak(businessId: string, breakId: string) {
+    return staffService.removeStaffBreak(businessId, breakId);
   }
 
   async presignPhoto(
@@ -207,8 +118,6 @@ class StaffCommandService {
     businessId: string,
     contentType: string,
   ) {
-    await this.assertOwnedStaff(staffId, businessId);
-
     const ticket = await createPublicImageUploadTicket({
       folder: staffPhotoFolder(businessId, staffId),
       contentType,
@@ -227,8 +136,6 @@ class StaffCommandService {
     objectPath: string,
     _ignoredClientUrl?: string,
   ) {
-    await this.assertOwnedStaff(staffId, businessId);
-
     const uploaded = await confirmPublicImageUpload({
       folder: staffPhotoFolder(businessId, staffId),
       objectPath,
@@ -275,8 +182,6 @@ class StaffCommandService {
   }
 
   async removePhoto(staffId: string, businessId: string) {
-    await this.assertOwnedStaff(staffId, businessId);
-
     const photos = await prisma.photo.findMany({
       where: { businessId, kind: "staff", type: staffId },
       select: { publicId: true },
@@ -300,41 +205,6 @@ class StaffCommandService {
     );
 
     return { id: staffId, photoUrl: null };
-  }
-
-  private async assertOwnedStaff(staffId: string, businessId: string) {
-    const staff = await prisma.staff.findFirst({
-      where: { id: staffId, businessId },
-      select: { id: true },
-    });
-    if (!staff) throw buildError("Staff member not found", 404, "NOT_FOUND");
-  }
-
-  private async assertOwnedService(serviceId: string, businessId: string) {
-    const service = await prisma.service.findFirst({
-      where: { id: serviceId, businessId },
-      select: { id: true },
-    });
-    if (!service) throw buildError("Service not found", 404, "NOT_FOUND");
-  }
-
-  private async assertOwnedServiceStaff(
-    staffId: string,
-    serviceId: string,
-    businessId: string,
-  ) {
-    const relation = await prisma.serviceStaff.findFirst({
-      where: {
-        staffId,
-        serviceId,
-        staff: { businessId },
-        service: { businessId },
-      },
-      select: { staffId: true },
-    });
-    if (!relation) {
-      throw buildError("Service-staff relation not found", 404, "NOT_FOUND");
-    }
   }
 }
 
