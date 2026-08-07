@@ -1,22 +1,30 @@
 import type { NextFunction, Request, Response } from "express";
 import businessService from "./business.service";
-import { ok } from "../../shared/utils/response.util";
+import { fail, ok } from "../../shared/utils/response.util";
 import {
   createBusinessSchema,
   updateBusinessSchema,
   publishBusinessSchema,
 } from "./business.schema";
 
+function requireActor(req: Request, res: Response) {
+  if (!req.user) {
+    fail(res, "Unauthorized", 401, "UNAUTHORIZED");
+    return null;
+  }
+  return {
+    businessId: req.user.businessId,
+    role: req.user.role,
+  };
+}
+
 class BusinessController {
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const userId = (req as any).user?.id;
-      const userRole = (req as any).user?.role;
+      const userId = req.user?.id;
+      const userRole = req.user?.role;
       if (!userId) {
-        const err: any = new Error("Unauthorized");
-        err.statusCode = 401;
-        err.code = "UNAUTHORIZED";
-        throw err;
+        return fail(res, "Unauthorized", 401, "UNAUTHORIZED");
       }
 
       const parsed = createBusinessSchema.safeParse(req.body);
@@ -41,6 +49,7 @@ class BusinessController {
       return next(err);
     }
   }
+
   async getPublicBySlug(req: Request, res: Response, next: NextFunction) {
     try {
       const slug = String(req.params?.slug);
@@ -53,10 +62,12 @@ class BusinessController {
 
   async update(req: Request, res: Response, next: NextFunction) {
     try {
+      const actor = requireActor(req, res);
+      if (!actor) return;
       const id = String(req.params?.id);
       const parsed = updateBusinessSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
-      const updated = await businessService.updateBusiness(id, parsed.data);
+      const updated = await businessService.updateBusiness(id, actor, parsed.data);
       return ok(res, updated);
     } catch (err) {
       return next(err);
@@ -65,11 +76,14 @@ class BusinessController {
 
   async publish(req: Request, res: Response, next: NextFunction) {
     try {
+      const actor = requireActor(req, res);
+      if (!actor) return;
       const id = String(req.params?.id);
       const parsed = publishBusinessSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
       const updated = await businessService.publishBusiness(
         id,
+        actor,
         parsed.data.isActive,
       );
       return ok(res, updated);
@@ -77,16 +91,6 @@ class BusinessController {
       return next(err);
     }
   }
-
-  // async stats(req: Request, res: Response, next: NextFunction) {
-  //   try {
-  //     const id = String(req.params?.id);
-  //     const data = await businessService.getStats(id);
-  //     return ok(res, data);
-  //   } catch (err) {
-  //     return next(err);
-  //   }
-  // }
 }
 
 export default new BusinessController();
