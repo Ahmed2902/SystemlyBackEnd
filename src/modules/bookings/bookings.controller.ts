@@ -31,18 +31,6 @@ class BookingsController {
     }
   }
 
-  async confirmBooking(req: Request, res: Response, next: NextFunction) {
-    try {
-      const parsed = bookingTokenParamsSchema.safeParse(req.params);
-      if (!parsed.success) return next(parsed.error);
-      const data = await bookingsService.getByCancelToken(parsed.data.token);
-      if (!data) return fail(res, "Not found", 404);
-      return ok(res, data);
-    } catch (err) {
-      return next(err);
-    }
-  }
-
   async cancelBooking(req: Request, res: Response, next: NextFunction) {
     try {
       const parsed = bookingTokenParamsSchema.safeParse(req.params);
