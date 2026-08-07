@@ -58,10 +58,7 @@ function requestFor(
 }
 
 function responseDouble() {
-  const res: any = {
-    statusCode: 200,
-    body: undefined,
-  };
+  const res: any = { statusCode: 200, body: undefined };
   res.status = jest.fn((statusCode: number) => {
     res.statusCode = statusCode;
     return res;
@@ -205,7 +202,6 @@ describe("tenant authorization middleware", () => {
       requireBusinessAccessFor("id"),
       requestFor(businessAId, { id: businessBId }),
     );
-
     expect(res.statusCode).toBe(403);
     expect(next).not.toHaveBeenCalled();
   });
@@ -215,7 +211,6 @@ describe("tenant authorization middleware", () => {
       requireBusinessAccessFor("id"),
       requestFor(businessAId, { id: businessAId }),
     );
-
     expect(next).toHaveBeenCalledTimes(1);
   });
 
@@ -307,9 +302,7 @@ describe("public business projection", () => {
     const business = await businessService.getPublicBySlug(businessASlug);
     expect(business).not.toBeNull();
     expect(business?.photos).toEqual([
-      expect.objectContaining({
-        url: "https://example.com/gallery.jpg",
-      }),
+      expect.objectContaining({ url: "https://example.com/gallery.jpg" }),
     ]);
 
     const staff = business?.staff[0];
@@ -318,7 +311,6 @@ describe("public business projection", () => {
     expect(staff).not.toHaveProperty("email");
     expect(staff).not.toHaveProperty("businessId");
     expect(staff).not.toHaveProperty("role");
-
     expect(
       business?.photos.some((photo) => photo.url.includes("appointments/")),
     ).toBe(false);
