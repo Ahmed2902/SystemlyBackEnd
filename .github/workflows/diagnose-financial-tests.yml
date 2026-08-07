@@ -1,4 +1,4 @@
-name: Diagnose financial tests
+name: Diagnose Jest handles
 
 on:
   push:
@@ -45,5 +45,5 @@ jobs:
       - run: npm ci
       - run: npm run prisma:generate
       - run: npm run prisma:migrate:deploy
-      - name: Run isolated financial tests with diagnostics
-        run: timeout 120s npx jest tests/financial-runtime-cleanup.integration.test.ts --runInBand --detectOpenHandles --verbose
+      - name: Run full Jest suite with handle diagnostics
+        run: timeout 180s npx jest --runInBand --detectOpenHandles --verbose
