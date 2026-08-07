@@ -161,11 +161,27 @@ model BusinessUser {
   business              Business?     @relation(fields: [businessId], references: [id], onDelete: Cascade)
   currentRefreshToken   RefreshToken? @relation("CurrentRefreshToken", fields: [currentRefreshTokenId], references: [id])
   refreshTokens         RefreshToken[]
+  authActionTokens      AuthActionToken[]
   paidInvoices          Invoice[]     @relation("InvoicePaidBy")
   voidedInvoices        Invoice[]     @relation("InvoiceVoidedBy")
 
   @@index([businessId])
   @@map("business_users")
+}
+
+model AuthActionToken {
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @map("user_id") @db.Uuid
+  purpose   String       @db.VarChar(32)
+  tokenHash String       @unique @map("token_hash") @db.VarChar(128)
+  expiresAt DateTime     @map("expires_at")
+  usedAt    DateTime?    @map("used_at")
+  createdAt DateTime     @default(now()) @map("created_at")
+  user      BusinessUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, createdAt])
+  @@index([expiresAt])
+  @@map("auth_action_tokens")
 }
 
 model Staff {
