@@ -31,11 +31,6 @@ function clearRefreshCookie(res: Response) {
   res.clearCookie(REFRESH_COOKIE_NAME, REFRESH_COOKIE_OPTIONS);
 }
 
-function errorCode(error: unknown) {
-  if (!error || typeof error !== "object" || !("code" in error)) return null;
-  return typeof error.code === "string" ? error.code : null;
-}
-
 async function withSubscriptionAccess<T extends {
   businessId?: string | null;
   role?: string | null;
@@ -118,9 +113,9 @@ class AuthController {
       setRefreshCookie(res, result.refreshToken);
       return ok(res, { accessToken: result.accessToken });
     } catch (error) {
-      if (errorCode(error) === "INVALID_REFRESH_TOKEN") {
-        clearRefreshCookie(res);
-      }
+      // Do not clear the cookie on a failed rotation. A second legitimate
+      // refresh request may have already rotated the same old token and set a
+      // newer cookie; clearing here would race with that successful response.
       return next(error);
     }
   }
