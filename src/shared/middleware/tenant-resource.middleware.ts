@@ -3,8 +3,7 @@ import type { Request, RequestHandler, Response } from "express";
 import { prisma } from "../db/prisma";
 import { fail } from "../utils/response.util";
 
-function businessId(req: Request, res: Response): string | null {
-  if (req.user?.role === Roles.SuperAdmin) return null;
+function tenantId(req: Request, res: Response): string | null {
   if (req.user?.businessId) return req.user.businessId;
   fail(
     res,
@@ -28,11 +27,11 @@ function notFound(res: Response, req: Request, resource: string) {
 
 export const requireFaqAccess: RequestHandler = async (req, res, next) => {
   if (req.user?.role === Roles.SuperAdmin) return next();
-  const tenantId = businessId(req, res);
-  if (!tenantId) return;
+  const businessId = tenantId(req, res);
+  if (!businessId) return;
 
   const faq = await prisma.faq.findFirst({
-    where: { id: String(req.params.id), businessId: tenantId },
+    where: { id: String(req.params.id), businessId },
     select: { id: true },
   });
   if (!faq) return notFound(res, req, "FAQ");
@@ -41,8 +40,8 @@ export const requireFaqAccess: RequestHandler = async (req, res, next) => {
 
 export const requireFaqReorderAccess: RequestHandler = async (req, res, next) => {
   if (req.user?.role === Roles.SuperAdmin) return next();
-  const tenantId = businessId(req, res);
-  if (!tenantId) return;
+  const businessId = tenantId(req, res);
+  if (!businessId) return;
 
   const ids = [
     ...new Set(
@@ -52,7 +51,7 @@ export const requireFaqReorderAccess: RequestHandler = async (req, res, next) =>
     ),
   ];
   const count = await prisma.faq.count({
-    where: { businessId: tenantId, id: { in: ids } },
+    where: { businessId, id: { in: ids } },
   });
   if (count !== ids.length) return notFound(res, req, "FAQ");
   return next();
@@ -60,11 +59,11 @@ export const requireFaqReorderAccess: RequestHandler = async (req, res, next) =>
 
 export const requireStaffAccess: RequestHandler = async (req, res, next) => {
   if (req.user?.role === Roles.SuperAdmin) return next();
-  const tenantId = businessId(req, res);
-  if (!tenantId) return;
+  const businessId = tenantId(req, res);
+  if (!businessId) return;
 
   const staff = await prisma.staff.findFirst({
-    where: { id: String(req.params.id), businessId: tenantId },
+    where: { id: String(req.params.id), businessId },
     select: { id: true },
   });
   if (!staff) return notFound(res, req, "Staff member");
@@ -92,11 +91,11 @@ export const requireServiceParamAccess = (
   paramName = "serviceId",
 ): RequestHandler => async (req, res, next) => {
   if (req.user?.role === Roles.SuperAdmin) return next();
-  const tenantId = businessId(req, res);
-  if (!tenantId) return;
+  const businessId = tenantId(req, res);
+  if (!businessId) return;
 
   const service = await prisma.service.findFirst({
-    where: { id: String(req.params[paramName]), businessId: tenantId },
+    where: { id: String(req.params[paramName]), businessId },
     select: { id: true },
   });
   if (!service) return notFound(res, req, "Service");
@@ -107,11 +106,11 @@ export const requireServiceBodyAccess = (
   fieldName = "serviceId",
 ): RequestHandler => async (req, res, next) => {
   if (req.user?.role === Roles.SuperAdmin) return next();
-  const tenantId = businessId(req, res);
-  if (!tenantId) return;
+  const businessId = tenantId(req, res);
+  if (!businessId) return;
 
   const service = await prisma.service.findFirst({
-    where: { id: String(req.body?.[fieldName]), businessId: tenantId },
+    where: { id: String(req.body?.[fieldName]), businessId },
     select: { id: true },
   });
   if (!service) return notFound(res, req, "Service");
@@ -122,8 +121,8 @@ export const requireServiceIdsBodyAccess = (
   fieldName = "serviceIds",
 ): RequestHandler => async (req, res, next) => {
   if (req.user?.role === Roles.SuperAdmin) return next();
-  const tenantId = businessId(req, res);
-  if (!tenantId) return;
+  const businessId = tenantId(req, res);
+  if (!businessId) return;
 
   const ids = [
     ...new Set(
@@ -135,7 +134,7 @@ export const requireServiceIdsBodyAccess = (
   if (ids.length === 0) return next();
 
   const count = await prisma.service.count({
-    where: { businessId: tenantId, id: { in: ids } },
+    where: { businessId, id: { in: ids } },
   });
   if (count !== ids.length) return notFound(res, req, "Service");
   return next();
@@ -147,14 +146,14 @@ export const requireAvailabilityOverrideAccess: RequestHandler = async (
   next,
 ) => {
   if (req.user?.role === Roles.SuperAdmin) return next();
-  const tenantId = businessId(req, res);
-  if (!tenantId) return;
+  const businessId = tenantId(req, res);
+  if (!businessId) return;
 
   const override = await prisma.availabilityOverride.findFirst({
     where: {
       id: String(req.params.overrideId),
       staffId: String(req.params.id),
-      staff: { businessId: tenantId },
+      staff: { businessId },
     },
     select: { id: true },
   });
@@ -164,14 +163,14 @@ export const requireAvailabilityOverrideAccess: RequestHandler = async (
 
 export const requireStaffBreakAccess: RequestHandler = async (req, res, next) => {
   if (req.user?.role === Roles.SuperAdmin) return next();
-  const tenantId = businessId(req, res);
-  if (!tenantId) return;
+  const businessId = tenantId(req, res);
+  if (!businessId) return;
 
   const item = await prisma.staffBreak.findFirst({
     where: {
       id: String(req.params.breakId),
       staffId: String(req.params.id),
-      businessId: tenantId,
+      businessId,
     },
     select: { id: true },
   });
@@ -185,14 +184,14 @@ export const requireStaffTimeOffAccess: RequestHandler = async (
   next,
 ) => {
   if (req.user?.role === Roles.SuperAdmin) return next();
-  const tenantId = businessId(req, res);
-  if (!tenantId) return;
+  const businessId = tenantId(req, res);
+  if (!businessId) return;
 
   const item = await prisma.staffTimeOff.findFirst({
     where: {
       id: String(req.params.timeOffId),
       staffId: String(req.params.id),
-      businessId: tenantId,
+      businessId,
     },
     select: { id: true },
   });
@@ -202,11 +201,11 @@ export const requireStaffTimeOffAccess: RequestHandler = async (
 
 export const requireLegacyBreakAccess: RequestHandler = async (req, res, next) => {
   if (req.user?.role === Roles.SuperAdmin) return next();
-  const tenantId = businessId(req, res);
-  if (!tenantId) return;
+  const businessId = tenantId(req, res);
+  if (!businessId) return;
 
   const item = await prisma.staffBreak.findFirst({
-    where: { id: String(req.params.id), businessId: tenantId },
+    where: { id: String(req.params.id), businessId },
     select: { id: true },
   });
   if (!item) return notFound(res, req, "Break");
@@ -217,11 +216,11 @@ export const requireStaffBodyAccess = (
   fieldName = "staffId",
 ): RequestHandler => async (req, res, next) => {
   if (req.user?.role === Roles.SuperAdmin) return next();
-  const tenantId = businessId(req, res);
-  if (!tenantId) return;
+  const businessId = tenantId(req, res);
+  if (!businessId) return;
 
   const staff = await prisma.staff.findFirst({
-    where: { id: String(req.body?.[fieldName]), businessId: tenantId },
+    where: { id: String(req.body?.[fieldName]), businessId },
     select: { id: true },
   });
   if (!staff) return notFound(res, req, "Staff member");
