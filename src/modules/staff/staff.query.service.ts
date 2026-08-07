@@ -73,9 +73,7 @@ class StaffQueryService {
           name: true,
           role: true,
           photoUrl: true,
-          serviceStaff: {
-            select: { serviceId: true },
-          },
+          serviceStaff: { select: { serviceId: true } },
         },
       });
 
@@ -94,7 +92,6 @@ class StaffQueryService {
       id: user.businessId,
       timezone: await getCachedBusinessTimezone(user.businessId),
     };
-
     const ownerView = canManageMoney(user.role);
     const todayLocal = DateTime.now().setZone(business.timezone);
     const todayDate = new Date(`${todayLocal.toISODate()}T00:00:00.000Z`);
@@ -136,14 +133,22 @@ class StaffQueryService {
             where: { startsOn: { lte: todayDate }, endsOn: { gte: todayDate } },
             orderBy: { endsOn: "desc" },
             take: 1,
-            select: { id: true, type: true, label: true, startsOn: true, endsOn: true },
+            select: {
+              id: true,
+              type: true,
+              label: true,
+              startsOn: true,
+              endsOn: true,
+            },
           },
           serviceStaff: {
             orderBy: { service: { name: "asc" } },
             select: {
               commissionType: true,
               commissionAmount: true,
-              service: { select: { id: true, name: true, category: true, isActive: true } },
+              service: {
+                select: { id: true, name: true, category: true, isActive: true },
+              },
             },
           },
         },
@@ -191,7 +196,9 @@ class StaffQueryService {
     const metrics = metricRows[0];
     const items = members.map((member) => {
       const currentTimeOff = member.timeOff[0] ?? null;
-      const worksToday = member.availability.some((entry) => entry.dayOfWeek === dayOfWeek);
+      const worksToday = member.availability.some(
+        (entry) => entry.dayOfWeek === dayOfWeek,
+      );
       return {
         id: member.id,
         name: member.name,
@@ -270,12 +277,15 @@ class StaffQueryService {
     return staffService.listStaffBreaksForDate(businessId, date);
   }
 
-  async countUpcomingForStaff(staffId: string, businessId: string) {
+  countUpcomingForStaff(staffId: string, businessId: string) {
     return prisma.appointmentService.count({
       where: {
         staffId,
         endsAt: { gt: new Date() },
-        appointment: { businessId, status: { in: ACTIVE_APPOINTMENT_STATUSES } },
+        appointment: {
+          businessId,
+          status: { in: ACTIVE_APPOINTMENT_STATUSES },
+        },
       },
     });
   }
