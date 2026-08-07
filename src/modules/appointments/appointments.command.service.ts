@@ -12,7 +12,10 @@ import type {
   FinishAppointmentInput,
   UpdateAppointmentInput,
 } from "./appointments.schema";
-import { getBusinessDayRange } from "../../shared/utils/timezone";
+import {
+  getBusinessDayRange,
+  toUtcFromBusinessTime,
+} from "../../shared/utils/timezone";
 import { isModuleEnabled } from "../../shared/config/verticals.config";
 import { createAppointmentCore } from "../../shared/services/scheduling/appointment-core.service";
 import {
@@ -389,7 +392,10 @@ class AppointmentsCommandService {
         throw notFoundError("Appointment has no services");
       }
 
-      let segmentStart = new Date(startsAt);
+      let segmentStart = toUtcFromBusinessTime(
+        startsAt,
+        appt.business.timezone,
+      );
       const newSegments: {
         id: string;
         staffId: string;
