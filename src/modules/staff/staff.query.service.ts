@@ -73,9 +73,7 @@ class StaffQueryService {
           name: true,
           role: true,
           photoUrl: true,
-          serviceStaff: {
-            select: { serviceId: true },
-          },
+          serviceStaff: { select: { serviceId: true } },
         },
       });
 
@@ -250,16 +248,51 @@ class StaffQueryService {
     return staffService.listByBusiness(businessId, page, perPage);
   }
 
-  getServiceStaff(staffId: string, serviceId: string) {
-    return staffService.getServiceStaff(staffId, serviceId);
+  async getServiceStaff(
+    staffId: string,
+    serviceId: string,
+    businessId: string,
+  ) {
+    return prisma.serviceStaff.findFirst({
+      where: {
+        staffId,
+        serviceId,
+        staff: { businessId },
+        service: { businessId },
+      },
+      include: {
+        service: { select: { id: true, name: true, priceEgp: true } },
+        staff: { select: { id: true, name: true } },
+      },
+    });
   }
 
-  getAvailability(staffId: string) {
-    return staffService.getAvailability(staffId);
+  async getAvailability(staffId: string, businessId: string) {
+    const staff = await prisma.staff.findFirst({
+      where: { id: staffId, businessId },
+      select: { id: true },
+    });
+    if (!staff) throw buildError("Staff member not found", 404, "NOT_FOUND");
+    return prisma.availability.findMany({
+      where: { staffId },
+      orderBy: { dayOfWeek: "asc" },
+    });
   }
 
-  listAvailabilityOverridesForDate(staffId: string, date: string) {
-    return staffService.listAvailabilityOverridesForDate(staffId, date);
+  async listAvailabilityOverridesForDate(
+    staffId: string,
+    businessId: string,
+    date: string,
+  ) {
+    const staff = await prisma.staff.findFirst({
+      where: { id: staffId, businessId },
+      select: { id: true },
+    });
+    if (!staff) throw buildError("Staff member not found", 404, "NOT_FOUND");
+    return prisma.availabilityOverride.findMany({
+      where: { staffId, overrideDate: new Date(date) },
+      orderBy: { updatedAt: "desc" },
+    });
   }
 
   getCommission(staffId: string, businessId: string, from?: string, to?: string) {
@@ -267,7 +300,10 @@ class StaffQueryService {
   }
 
   listStaffBreaksForDate(businessId: string, date: string) {
-    return staffService.listStaffBreaksForDate(businessId, date);
+    return prisma.staffBreak.findMany({
+      where: { businessId, breakDate: new Date(date) },
+      orderBy: { startTime: "asc" },
+    });
   }
 
   async countUpcomingForStaff(staffId: string, businessId: string) {
