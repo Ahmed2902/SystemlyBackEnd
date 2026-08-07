@@ -216,6 +216,82 @@ describe("booking lifecycle correctness", () => {
     );
   });
 
+  test("concurrent completion and revert adjust visitCount exactly once", async () => {
+  const { business, customer, appointment } =
+    await createAppointmentFixture(AppointmentStatus.confirmed);
+
+  await Promise.all([
+    appointmentsCommandService.finishAppointment(
+      appointment.id,
+      business.id,
+      {},
+    ),
+    appointmentsCommandService.finishAppointment(
+      appointment.id,
+      business.id,
+      {},
+    ),
+  ]);
+
+  let reloadedCustomer = await prisma.customer.findUniqueOrThrow({
+    where: { id: customer.id },
+  });
+  expect(reloadedCustomer.visitCount).toBe(4);
+
+  await Promise.all([
+    appointmentsCommandService.revertAppointment(
+      appointment.id,
+      business.id,
+    ),
+    appointmentsCommandService.revertAppointment(
+      appointment.id,
+      business.id,
+    ),
+  ]);
+
+  reloadedCustomer = await prisma.customer.findUniqueOrThrow({
+    where: { id: customer.id },
+  });
+  const reloadedAppointment = await prisma.appointment.findUniqueOrThrow({
+    where: { id: appointment.id },
+  });
+  expect(reloadedCustomer.visitCount).toBe(3);
+  expect(reloadedAppointment.status).toBe(AppointmentStatus.confirmed);
+});
+
+test("completion cannot race into a cancelled state with a counted visit", async () => {
+  const { business, customer, appointment } =
+    await createAppointmentFixture(AppointmentStatus.confirmed);
+
+  const results = await Promise.allSettled([
+    appointmentsCommandService.finishAppointment(
+      appointment.id,
+      business.id,
+      {},
+    ),
+    appointmentsCommandService.cancelAppointment(
+      appointment.id,
+      business.id,
+      {},
+    ),
+  ]);
+
+  expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  const [reloadedAppointment, reloadedCustomer] = await Promise.all([
+    prisma.appointment.findUniqueOrThrow({ where: { id: appointment.id } }),
+    prisma.customer.findUniqueOrThrow({ where: { id: customer.id } }),
+  ]);
+
+  if (reloadedAppointment.status === AppointmentStatus.completed) {
+    expect(reloadedCustomer.visitCount).toBe(4);
+  } else {
+    expect(reloadedAppointment.status).toBe(
+      AppointmentStatus.cancelled_by_business,
+    );
+    expect(reloadedCustomer.visitCount).toBe(3);
+  }
+});
+
   test("uncancelling does not count a visit", async () => {
     const { business, customer, appointment } = await createAppointmentFixture(
       AppointmentStatus.cancelled_by_business,
