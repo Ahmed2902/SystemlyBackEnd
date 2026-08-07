@@ -20,7 +20,6 @@ const requireUser = (req: Request) => req.user ?? null;
 const requireBusinessId = (req: Request) => req.user?.businessId ?? null;
 
 class StaffController {
-  // #region Queries
   async list(req: Request, res: Response, next: NextFunction) {
     try {
       const user = requireUser(req);
@@ -45,9 +44,12 @@ class StaffController {
 
   async getServiceStaff(req: Request, res: Response, next: NextFunction) {
     try {
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       const row = await staffQueryService.getServiceStaff(
         String(req.params.id),
         String(req.params.serviceId),
+        businessId,
       );
       if (!row) return fail(res, "Service-staff relation not found", 404, "NOT_FOUND");
       return ok(res, row);
@@ -58,7 +60,12 @@ class StaffController {
 
   async getAvailability(req: Request, res: Response, next: NextFunction) {
     try {
-      return ok(res, await staffQueryService.getAvailability(String(req.params.id)));
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
+      return ok(
+        res,
+        await staffQueryService.getAvailability(String(req.params.id), businessId),
+      );
     } catch (error) {
       return next(error);
     }
@@ -70,10 +77,13 @@ class StaffController {
     next: NextFunction,
   ) {
     try {
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       return ok(
         res,
         await staffQueryService.listAvailabilityOverridesForDate(
           String(req.params.id),
+          businessId,
           String(req.query.date ?? ""),
         ),
       );
@@ -115,9 +125,7 @@ class StaffController {
       return next(error);
     }
   }
-  // #endregion
 
-  // #region Commands
   async create(req: Request, res: Response, next: NextFunction) {
     try {
       const user = requireUser(req);
@@ -157,11 +165,17 @@ class StaffController {
 
   async assignServices(req: Request, res: Response, next: NextFunction) {
     try {
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       const parsed = assignServiceSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
       return ok(
         res,
-        await staffCommandService.assignService(String(req.params.id), parsed.data),
+        await staffCommandService.assignService(
+          String(req.params.id),
+          businessId,
+          parsed.data,
+        ),
       );
     } catch (error) {
       return next(error);
@@ -170,6 +184,8 @@ class StaffController {
 
   async updateServiceCommission(req: Request, res: Response, next: NextFunction) {
     try {
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       const parsed = updateServiceStaffSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
       return ok(
@@ -177,6 +193,7 @@ class StaffController {
         await staffCommandService.updateServiceStaff(
           String(req.params.id),
           String(req.params.serviceId),
+          businessId,
           parsed.data,
         ),
       );
@@ -187,11 +204,14 @@ class StaffController {
 
   async unassignService(req: Request, res: Response, next: NextFunction) {
     try {
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       return ok(
         res,
         await staffCommandService.unassignService(
           String(req.params.id),
           String(req.params.serviceId),
+          businessId,
         ),
       );
     } catch (error) {
@@ -220,11 +240,17 @@ class StaffController {
 
   async addOverride(req: Request, res: Response, next: NextFunction) {
     try {
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       const parsed = overridesSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
       return ok(
         res,
-        await staffCommandService.addOverride(String(req.params.id), parsed.data),
+        await staffCommandService.addOverride(
+          String(req.params.id),
+          businessId,
+          parsed.data,
+        ),
         201,
       );
     } catch (error) {
@@ -234,9 +260,14 @@ class StaffController {
 
   async deleteOverride(req: Request, res: Response, next: NextFunction) {
     try {
+      const businessId = requireBusinessId(req);
+      if (!businessId) return fail(res, "Business id missing", 403, "FORBIDDEN");
       return ok(
         res,
-        await staffCommandService.deleteOverride(String(req.params.overrideId)),
+        await staffCommandService.deleteOverride(
+          String(req.params.overrideId),
+          businessId,
+        ),
       );
     } catch (error) {
       return next(error);
@@ -403,7 +434,6 @@ class StaffController {
       return next(error);
     }
   }
-  // #endregion
 }
 
 export default new StaffController();
