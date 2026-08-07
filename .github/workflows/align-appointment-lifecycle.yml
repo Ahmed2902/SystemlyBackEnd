@@ -1,0 +1,33 @@
+name: Align appointment lifecycle
+
+on:
+  push:
+    branches:
+      - agent/financial-runtime-cleanup
+    paths:
+      - .github/workflows/align-appointment-lifecycle.yml
+
+permissions:
+  contents: write
+
+jobs:
+  align:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout financial branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/financial-runtime-cleanup
+          fetch-depth: 0
+      - name: Copy shared appointment command implementation
+        run: |
+          git fetch origin agent/booking-onboarding-correctness
+          git checkout origin/agent/booking-onboarding-correctness -- src/modules/appointments/appointments.command.service.ts
+      - name: Commit alignment
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/modules/appointments/appointments.command.service.ts
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: align appointment lifecycle transitions"
+          git push origin HEAD:agent/financial-runtime-cleanup
