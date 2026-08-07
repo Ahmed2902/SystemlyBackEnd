@@ -39,6 +39,63 @@ const commissionEarnedCents = (
   return 0;
 };
 
+async function completeAppointmentForPayment(
+  tx: Prisma.TransactionClient,
+  input: {
+    appointmentId: string;
+    businessId: string;
+    currentStatus: AppointmentStatus;
+    discountCents: number;
+  },
+) {
+  if (input.currentStatus === AppointmentStatus.completed) {
+    const keptCompleted = await tx.appointment.updateMany({
+      where: {
+        id: input.appointmentId,
+        businessId: input.businessId,
+        status: AppointmentStatus.completed,
+      },
+      data: { discountCents: input.discountCents },
+    });
+    if (keptCompleted.count === 1) return false;
+  } else {
+    const transitioned = await tx.appointment.updateMany({
+      where: {
+        id: input.appointmentId,
+        businessId: input.businessId,
+        status: input.currentStatus,
+      },
+      data: {
+        status: AppointmentStatus.completed,
+        discountCents: input.discountCents,
+      },
+    });
+    if (transitioned.count === 1) return true;
+  }
+
+  const current = await tx.appointment.findFirst({
+    where: { id: input.appointmentId, businessId: input.businessId },
+    select: { status: true },
+  });
+  if (current?.status === AppointmentStatus.completed) {
+    await tx.appointment.updateMany({
+      where: {
+        id: input.appointmentId,
+        businessId: input.businessId,
+        status: AppointmentStatus.completed,
+      },
+      data: { discountCents: input.discountCents },
+    });
+    return false;
+  }
+
+  throw buildError(
+    "Appointment state changed while collecting payment",
+    409,
+    "APPOINTMENT_STATE_CHANGED",
+  );
+}
+
 class InvoicesCommandService {
   async collectPayment(
     businessId: string,
@@ -216,8 +273,6 @@ class InvoicesCommandService {
               counter.lastNumber,
             ).padStart(4, "0")}`;
 
-            const wasCompleted =
-              appointment.status === AppointmentStatus.completed;
             const created = await tx.invoice.create({
               data: {
                 businessId,
@@ -241,15 +296,14 @@ class InvoicesCommandService {
               include: invoiceDetailInclude,
             });
 
-            await tx.appointment.update({
-              where: { id: appointment.id },
-              data: {
-                status: AppointmentStatus.completed,
-                discountCents,
-              },
+            const completedByPayment = await completeAppointmentForPayment(tx, {
+              appointmentId: appointment.id,
+              businessId,
+              currentStatus: appointment.status,
+              discountCents,
             });
 
-            if (!wasCompleted) {
+            if (completedByPayment) {
               await tx.customer.update({
                 where: { id: appointment.customerId },
                 data: {
@@ -335,8 +389,12 @@ class InvoicesCommandService {
             );
           }
 
-          await tx.invoice.update({
-            where: { id: invoice.id },
+          const invoiceTransition = await tx.invoice.updateMany({
+            where: {
+              id: invoice.id,
+              businessId,
+              status: InvoiceStatus.paid,
+            },
             data: {
               status: InvoiceStatus.voided,
               voidedAt: new Date(),
@@ -344,16 +402,30 @@ class InvoicesCommandService {
               voidReason: input.reason,
             },
           });
+          if (invoiceTransition.count === 0) {
+            const current = await tx.invoice.findFirst({
+              where: { id: invoice.id, businessId },
+              include: invoiceDetailInclude,
+            });
+            if (current?.status === InvoiceStatus.voided) return current;
+            throw buildError(
+              "Invoice state changed while voiding it",
+              409,
+              "INVOICE_STATE_CHANGED",
+            );
+          }
 
           if (invoice.appointmentId && invoice.appointment) {
-            const wasCompleted =
-              invoice.appointment.status === AppointmentStatus.completed;
-            await tx.appointment.update({
-              where: { id: invoice.appointmentId },
+            const appointmentTransition = await tx.appointment.updateMany({
+              where: {
+                id: invoice.appointmentId,
+                businessId,
+                status: AppointmentStatus.completed,
+              },
               data: { status: AppointmentStatus.in_progress },
             });
 
-            if (wasCompleted) {
+            if (appointmentTransition.count === 1) {
               const [latestCompleted, customer] = await Promise.all([
                 tx.appointment.findFirst({
                   where: {
