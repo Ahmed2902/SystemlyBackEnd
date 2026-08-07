@@ -2,16 +2,14 @@ import { Roles, SubscriptionStatus } from "@prisma/client";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import businessService from "../src/modules/business/business.service";
 import { ensureCorePlan } from "../src/modules/subscriptions/subscription.seed";
-import {
-  requireBusinessAccessFor,
-} from "../src/shared/middleware/auth.middleware";
+import { prisma } from "../src/shared/db/prisma";
+import { requireBusinessAccessFor } from "../src/shared/middleware/auth.middleware";
 import {
   requireAvailabilityOverrideAccess,
   requireFaqAccess,
   requireServiceBodyAccess,
   requireStaffAccess,
 } from "../src/shared/middleware/tenant-resource.middleware";
-import { prisma } from "../src/shared/db/prisma";
 
 let businessAId: string;
 let businessBId: string;
@@ -56,21 +54,19 @@ function requestFor(
 }
 
 function responseDouble() {
-  const res = {
+  const res: any = {
     statusCode: 200,
-    body: undefined as unknown,
-  } as Response & { statusCode: number; body: unknown };
-
+    body: undefined,
+  };
   res.status = jest.fn((statusCode: number) => {
     res.statusCode = statusCode;
     return res;
-  }) as Response["status"];
+  });
   res.json = jest.fn((body: unknown) => {
     res.body = body;
     return res;
-  }) as Response["json"];
-
-  return res;
+  });
+  return res as Response & { statusCode: number; body: unknown };
 }
 
 async function runMiddleware(handler: RequestHandler, req: Request) {
