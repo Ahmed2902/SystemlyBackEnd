@@ -21,13 +21,6 @@ const ACTIVE_APPOINTMENT_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.in_progress,
 ];
 
-const buildError = (message: string, statusCode: number, code: string) => {
-  const error = new Error(message) as Error & { statusCode: number; code: string };
-  error.statusCode = statusCode;
-  error.code = code;
-  return error;
-};
-
 const canManageMoney = (role?: string) =>
   role === Roles.BusinessAdmin || role === Roles.SuperAdmin;
 
@@ -58,9 +51,8 @@ function applyDirectoryFilters(
 
 class StaffQueryService {
   async listDirectory(user: AuthUser, query: StaffDirectoryQuery) {
-    if (!user.businessId) throw buildError("Business id missing", 400, "BAD_REQUEST");
-
-    const baseWhere: Prisma.StaffWhereInput = { businessId: user.businessId };
+    const businessId = user.businessId!;
+    const baseWhere: Prisma.StaffWhereInput = { businessId };
     applyDirectoryFilters(baseWhere, query);
 
     if (query.view === "roster") {
@@ -89,8 +81,8 @@ class StaffQueryService {
     }
 
     const business = {
-      id: user.businessId,
-      timezone: await getCachedBusinessTimezone(user.businessId),
+      id: businessId,
+      timezone: await getCachedBusinessTimezone(businessId),
     };
     const ownerView = canManageMoney(user.role);
     const todayLocal = DateTime.now().setZone(business.timezone);
