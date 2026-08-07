@@ -1,7 +1,9 @@
+import { Roles } from "@prisma/client";
 import { Router } from "express";
 import {
   requireAuth,
   requireBusinessAccess,
+  requireRole,
 } from "../../shared/middleware/auth.middleware";
 import { requireSubscriptionAccess } from "../../shared/middleware/subscription-access.middleware";
 import validate from "../../shared/middleware/validate.middleware";
@@ -15,6 +17,7 @@ import {
 import businessService from "./business.service";
 
 const router = Router();
+const BUSINESS_MANAGERS = [Roles.BusinessAdmin, Roles.SuperAdmin];
 
 // Business creation remains outside subscription enforcement because it is the
 // action that creates the business and its lifetime trial in one transaction.
@@ -41,13 +44,13 @@ router.get(
   },
 );
 
-// Public subscription gating is added separately in the public-access PR.
 router.get("/public/:slug", businessController.getPublicBySlug);
 
 router.patch(
   "/:id",
   requireAuth,
   requireBusinessAccess,
+  requireRole(BUSINESS_MANAGERS),
   requireSubscriptionAccess,
   validate.validateBody(updateBusinessSchema),
   businessController.update,
@@ -57,6 +60,7 @@ router.patch(
   "/:id/publish",
   requireAuth,
   requireBusinessAccess,
+  requireRole(BUSINESS_MANAGERS),
   requireSubscriptionAccess,
   validate.validateBody(publishBusinessSchema),
   businessController.publish,
