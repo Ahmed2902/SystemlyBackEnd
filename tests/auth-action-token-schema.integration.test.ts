@@ -31,10 +31,10 @@ describe("auth_action_tokens schema contract", () => {
 
     const columns = await prisma.$queryRaw<ColumnRow[]>`
       SELECT
-        column_name AS "columnName",
-        data_type AS "dataType",
-        character_maximum_length AS "maxLength",
-        is_nullable AS "nullable"
+        column_name::text AS "columnName",
+        data_type::text AS "dataType",
+        character_maximum_length::int AS "maxLength",
+        is_nullable::text AS "nullable"
       FROM information_schema.columns
       WHERE table_schema = 'public'
         AND table_name = 'auth_action_tokens'
@@ -52,7 +52,7 @@ describe("auth_action_tokens schema contract", () => {
     ]);
 
     const indexes = await prisma.$queryRaw<IndexRow[]>`
-      SELECT indexname AS "indexName", indexdef AS "indexDef"
+      SELECT indexname::text AS "indexName", indexdef::text AS "indexDef"
       FROM pg_indexes
       WHERE schemaname = 'public'
         AND tablename = 'auth_action_tokens'
@@ -65,7 +65,7 @@ describe("auth_action_tokens schema contract", () => {
     expect(indexDefinitions).toContain("auth_action_tokens_expires_at_idx");
 
     const foreignKeys = await prisma.$queryRaw<ConstraintRow[]>`
-      SELECT pg_get_constraintdef(c.oid) AS definition
+      SELECT pg_get_constraintdef(c.oid)::text AS definition
       FROM pg_constraint c
       JOIN pg_class t ON t.oid = c.conrelid
       JOIN pg_namespace n ON n.oid = t.relnamespace
