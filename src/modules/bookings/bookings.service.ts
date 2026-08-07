@@ -92,12 +92,7 @@ class BookingsService {
 
   async createBooking(payload: CreateBookingBody) {
     const { businessId, services: selections, startsAt } = payload;
-    await requireBookableBusiness(businessId);
-
-    const business = await prisma.business.findUnique({
-      where: { id: businessId },
-    });
-    if (!business) throw notFoundError("Business not found");
+    const business = await requireBookableBusiness(businessId);
 
     return prisma.$transaction((tx) =>
       createAppointmentCore(tx, business, {
