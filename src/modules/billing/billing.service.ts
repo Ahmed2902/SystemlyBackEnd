@@ -139,6 +139,7 @@ export class BillingService {
       entitlements: plan.entitlements,
     }));
   }
+
   async listPayments(businessId: string, page = 1, perPage = 20) {
     const where: Prisma.SubscriptionPaymentWhereInput = {
       subscription: { businessId },
@@ -177,6 +178,48 @@ export class BillingService {
       );
     }
     return paymentView(payment);
+  }
+
+  async extendPilotTrial(businessId: string, days: number, now = new Date()) {
+    const subscription = await this.db.subscription.findUnique({
+      where: { businessId },
+    });
+    if (!subscription) {
+      throw billingError(
+        "Subscription not found for this business.",
+        404,
+        "SUBSCRIPTION_NOT_FOUND",
+      );
+    }
+    if (subscription.status === SubscriptionStatus.ACTIVE) {
+      throw billingError(
+        "Active paid subscriptions cannot be converted back to a pilot trial.",
+        409,
+        "PAID_SUBSCRIPTION_ACTIVE",
+      );
+    }
+
+    const currentEnd = subscription.trialEndsAt;
+    const base = currentEnd && currentEnd > now ? currentEnd : now;
+    const trialEndsAt = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+
+    return this.db.subscription.update({
+      where: { id: subscription.id },
+      data: {
+        status: SubscriptionStatus.TRIALING,
+        trialStartedAt: subscription.trialStartedAt ?? now,
+        trialEndsAt,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
+        graceEndsAt: null,
+        cancelAtPeriodEnd: false,
+        canceledAt: null,
+        endedAt: null,
+        expiredHandled: false,
+        trialNotified3Days: false,
+        trialNotified1Day: false,
+      },
+    });
   }
 
   async cancelAtPeriodEnd(businessId: string, now = new Date()) {
