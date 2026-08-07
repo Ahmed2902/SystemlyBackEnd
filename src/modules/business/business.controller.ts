@@ -8,12 +8,12 @@ import {
 } from "./business.schema";
 
 function requireActor(req: Request, res: Response) {
-  if (!req.user) {
+  if (!req.user?.role) {
     fail(res, "Unauthorized", 401, "UNAUTHORIZED");
     return null;
   }
   return {
-    businessId: req.user.businessId,
+    businessId: req.user.businessId ?? null,
     role: req.user.role,
   };
 }
