@@ -68,7 +68,9 @@ export async function scheduleServiceSegments(
 
   const serviceById = new Map(services.map((service) => [service.id, service]));
   const startInstant = toUtcFromBusinessTime(startsAt, timezone);
-  let segmentStart = DateTime.fromJSDate(startInstant).setZone(timezone);
+  let segmentStart: DateTime<boolean> = DateTime.fromJSDate(startInstant).setZone(
+    timezone,
+  );
 
   if (!segmentStart.isValid) {
     throw schedulingError("Invalid appointment start time", 400, "INVALID_DATE");
@@ -110,7 +112,7 @@ export async function scheduleServiceSegments(
     const service = serviceById.get(selection.serviceId);
     if (!service) throw schedulingError("Service not found", 404);
 
-    const segmentEnd: DateTime = segmentStart.plus({
+    const segmentEnd: DateTime<boolean> = segmentStart.plus({
       minutes: service.durationMin,
     });
     const assignedStaff = eligibleBySelection[index].find((staffId) =>
