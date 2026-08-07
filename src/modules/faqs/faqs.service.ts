@@ -5,6 +5,16 @@ import type {
   UpdateFaqBody,
 } from "./faqs.schema";
 
+function notFound() {
+  const error = new Error("FAQ not found") as Error & {
+    statusCode?: number;
+    code?: string;
+  };
+  error.statusCode = 404;
+  error.code = "NOT_FOUND";
+  return error;
+}
+
 class FaqsService {
   async listByBusiness(businessId: string) {
     return prisma.faq.findMany({
@@ -17,22 +27,42 @@ class FaqsService {
     return prisma.faq.create({ data: { businessId, ...payload } });
   }
 
-  async updateFaq(id: string, payload: UpdateFaqBody) {
-    return prisma.faq.update({ where: { id }, data: payload });
+  async updateFaq(
+    businessId: string,
+    id: string,
+    payload: UpdateFaqBody,
+  ) {
+    const updated = await prisma.faq.updateMany({
+      where: { id, businessId },
+      data: payload,
+    });
+    if (updated.count !== 1) throw notFound();
+    return prisma.faq.findFirstOrThrow({ where: { id, businessId } });
   }
 
-  async deleteFaq(id: string) {
-    return prisma.faq.delete({ where: { id } });
+  async deleteFaq(businessId: string, id: string) {
+    const deleted = await prisma.faq.deleteMany({ where: { id, businessId } });
+    if (deleted.count !== 1) throw notFound();
+    return { id, deleted: true };
   }
 
-  async reorderFaqs(items: ReorderFaqsBody) {
-    const ops = items.map((it) =>
-      prisma.faq.update({
-        where: { id: it.id },
-        data: { displayOrder: it.display_order },
-      })
+  async reorderFaqs(businessId: string, items: ReorderFaqsBody) {
+    const ids = [...new Set(items.map((item) => item.id))];
+    const ownedCount = await prisma.faq.count({
+      where: { businessId, id: { in: ids } },
+    });
+    if (ownedCount !== ids.length) throw notFound();
+
+    await prisma.$transaction(
+      items.map((item) =>
+        prisma.faq.updateMany({
+          where: { id: item.id, businessId },
+          data: { displayOrder: item.display_order },
+        }),
+      ),
     );
-    return prisma.$transaction(ops);
+
+    return this.listByBusiness(businessId);
   }
 }
 
