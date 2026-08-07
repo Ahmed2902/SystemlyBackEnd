@@ -76,7 +76,6 @@ function booking(startsAt: string, customerPhone: string) {
     businessId,
     services: [{ serviceId, staffId }],
     startsAt,
-    timezone: BUSINESS_TIMEZONE,
     customerName: customerPhone,
     customerPhone,
   });
