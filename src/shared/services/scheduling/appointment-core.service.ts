@@ -24,7 +24,6 @@ export interface CreateAppointmentCoreParams {
   businessId: string;
   selections: ServiceSelection[];
   startsAt: string;
-  timezone?: string;
   customerName: string;
   customerPhone: string;
   notes?: string;
@@ -132,8 +131,8 @@ export async function scheduleServiceSegments(
     segments.push({
       serviceId: selection.serviceId,
       staffId: assignedStaff,
-      start: segmentStart.toJSDate(),
-      end: segmentEnd.toJSDate(),
+      start: segmentStart.toUTC().toJSDate(),
+      end: segmentEnd.toUTC().toJSDate(),
       durationMin: service.durationMin,
       priceEgp: Number(service.priceEgp),
     });
@@ -148,7 +147,7 @@ export async function createAppointmentCore(
   business: { id: string; timezone?: string | null },
   params: CreateAppointmentCoreParams,
 ) {
-  const timezone = params.timezone || business.timezone || "UTC";
+  const timezone = business.timezone || "UTC";
   const segments = await scheduleServiceSegments(
     tx,
     params.selections,
@@ -158,7 +157,7 @@ export async function createAppointmentCore(
   );
 
   const customer = await upsertCustomer(tx, {
-    businessId: params.businessId,
+    businessId: business.id,
     phone: params.customerPhone,
     name: params.customerName,
     acquisitionSource: params.acquisitionSource,
@@ -166,7 +165,7 @@ export async function createAppointmentCore(
 
   const appointment = await tx.appointment.create({
     data: {
-      businessId: params.businessId,
+      businessId: business.id,
       staffId: segments[0].staffId,
       customerId: customer.id,
       startsAt: segments[0].start,
