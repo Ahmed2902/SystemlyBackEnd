@@ -1,5 +1,5 @@
 import { Roles } from "@prisma/client";
-import type { NextFunction, Request, Response } from "express";
+import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { fail } from "../utils/response.util";
 import { verifyAccessToken } from "../utils/token.util";
 
@@ -72,11 +72,12 @@ export const requireRole = (roles: string | string[]) => {
   };
 };
 
-export const requireBusinessAccess = (
+function checkBusinessAccess(
   req: Request,
   res: Response,
   next: NextFunction,
-) => {
+  routeParamName?: string,
+) {
   if (!req.user) {
     return fail(res, "Unauthorized", 401, "UNAUTHORIZED", req.requestId ?? null);
   }
@@ -91,13 +92,20 @@ export const requireBusinessAccess = (
     );
   }
 
-  const routeBusinessId = singleParameter(req.params?.businessId);
+  const parameterName = routeParamName ?? "businessId";
+  const routeBusinessId = singleParameter(req.params?.[parameterName]);
   if (routeBusinessId && routeBusinessId !== req.user.businessId) {
     return fail(res, "Forbidden", 403, "FORBIDDEN", req.requestId ?? null);
   }
 
   return next();
-};
+}
+
+export const requireBusinessAccess: RequestHandler = (req, res, next) =>
+  checkBusinessAccess(req, res, next);
+
+export const requireBusinessAccessFor = (routeParamName: string): RequestHandler =>
+  (req, res, next) => checkBusinessAccess(req, res, next, routeParamName);
 
 export const requireBusinessId = (
   req: Request,
@@ -123,5 +131,6 @@ export default {
   requireAuth,
   requireRole,
   requireBusinessAccess,
+  requireBusinessAccessFor,
   requireBusinessId,
 };
