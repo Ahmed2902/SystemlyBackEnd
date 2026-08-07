@@ -1,15 +1,11 @@
 import bcrypt from "bcryptjs";
 import { Prisma, Roles } from "@prisma/client";
 import { AUTH_CONSTANTS } from "../../shared/config/config";
-import * as redis from "../../shared/config/redis";
 import { prisma } from "../../shared/db/prisma";
 import { Errors } from "../../shared/errors/application-error";
 import * as emailService from "../../shared/services/email.service";
-import {
-  generateOpaqueToken,
-  hashOpaqueToken,
-  signAccessToken,
-} from "../../shared/utils/token.util";
+import { hashOpaqueToken, signAccessToken } from "../../shared/utils/token.util";
+import { authActionTokens } from "./action-token.service";
 import { refreshTokens } from "./refresh-token.service";
 import type {
   EmailBody,
@@ -21,6 +17,8 @@ import type {
   ResetPasswordBody,
   VerifyEmailQuery,
 } from "./auth.schema";
+
+const EMAIL_ACTION_COOLDOWN_SECONDS = 60;
 
 const AUTH_USER_SELECT = {
   id: true,
@@ -43,8 +41,6 @@ const AUTH_USER_SELECT = {
 type AuthUser = Prisma.BusinessUserGetPayload<{
   select: typeof AUTH_USER_SELECT;
 }>;
-
-type ActionTokenKind = "email_verify" | "pwd_reset";
 
 function publicUser(user: AuthUser) {
   return {
@@ -72,20 +68,6 @@ function accessTokenFor(user: Pick<AuthUser, "id" | "businessId" | "role">) {
     businessId: user.businessId,
     role: user.role,
   });
-}
-
-function actionTokenKey(kind: ActionTokenKind, rawToken: string): string {
-  return `${kind}:${hashOpaqueToken(rawToken)}`;
-}
-
-async function issueActionToken(
-  kind: ActionTokenKind,
-  value: string,
-  ttlSeconds: number,
-): Promise<string> {
-  const rawToken = generateOpaqueToken();
-  await redis.set(actionTokenKey(kind, rawToken), value, ttlSeconds);
-  return rawToken;
 }
 
 class AuthService {
@@ -118,9 +100,9 @@ class AuthService {
       },
     });
 
-    const token = await issueActionToken(
+    const token = await authActionTokens.issue(
+      user.id,
       "email_verify",
-      user.email,
       AUTH_CONSTANTS.EMAIL_TOKEN_TTL_SECONDS,
     );
     await emailService.enqueueVerificationEmail(user, token, {
@@ -131,8 +113,8 @@ class AuthService {
   }
 
   async verifyEmail({ token }: VerifyEmailQuery) {
-    const email = await redis.getDel(actionTokenKey("email_verify", token));
-    if (!email) {
+    const userId = await authActionTokens.consume(token, "email_verify");
+    if (!userId) {
       throw Errors.badRequest(
         "This verification link is invalid or has expired. Please request a new one.",
         "INVALID_TOKEN",
@@ -140,7 +122,7 @@ class AuthService {
     }
 
     const existing = await prisma.businessUser.findUnique({
-      where: { email },
+      where: { id: userId },
       select: { id: true },
     });
     if (!existing) throw Errors.notFound("User not found.");
@@ -254,14 +236,21 @@ class AuthService {
     }
 
     if (user) {
-      const token = await issueActionToken(
+      const coolingDown = await authActionTokens.wasIssuedRecently(
+        user.id,
         "email_verify",
-        user.email,
-        AUTH_CONSTANTS.EMAIL_TOKEN_TTL_SECONDS,
+        EMAIL_ACTION_COOLDOWN_SECONDS,
       );
-      await emailService.enqueueVerificationEmail(user, token, {
-        idempotencyKey: `verification:${user.id}:${hashOpaqueToken(token)}`,
-      });
+      if (!coolingDown) {
+        const token = await authActionTokens.issue(
+          user.id,
+          "email_verify",
+          AUTH_CONSTANTS.EMAIL_TOKEN_TTL_SECONDS,
+        );
+        await emailService.enqueueVerificationEmail(user, token, {
+          idempotencyKey: `verification:${user.id}:${hashOpaqueToken(token)}`,
+        });
+      }
     }
 
     return { sent: true };
@@ -279,21 +268,28 @@ class AuthService {
     });
 
     if (user) {
-      const token = await issueActionToken(
-        "pwd_reset",
+      const coolingDown = await authActionTokens.wasIssuedRecently(
         user.id,
-        AUTH_CONSTANTS.PWD_RESET_TTL_SECONDS,
+        "pwd_reset",
+        EMAIL_ACTION_COOLDOWN_SECONDS,
       );
-      await emailService.enqueuePasswordResetEmail(user, token, {
-        idempotencyKey: `password-reset:${user.id}:${hashOpaqueToken(token)}`,
-      });
+      if (!coolingDown) {
+        const token = await authActionTokens.issue(
+          user.id,
+          "pwd_reset",
+          AUTH_CONSTANTS.PWD_RESET_TTL_SECONDS,
+        );
+        await emailService.enqueuePasswordResetEmail(user, token, {
+          idempotencyKey: `password-reset:${user.id}:${hashOpaqueToken(token)}`,
+        });
+      }
     }
 
     return { sent: true };
   }
 
   async resetPassword({ token, password }: ResetPasswordBody) {
-    const userId = await redis.getDel(actionTokenKey("pwd_reset", token));
+    const userId = await authActionTokens.consume(token, "pwd_reset");
     if (!userId) {
       throw Errors.badRequest(
         "This password reset link is invalid or has expired.",
@@ -390,8 +386,6 @@ class AuthService {
           );
         }
 
-        // The provider verified ownership of the exact same email, so it is
-        // safe to add OAuth as a second login method. The password is preserved.
         user = await prisma.businessUser.update({
           where: { id: emailOwner.id },
           data: {

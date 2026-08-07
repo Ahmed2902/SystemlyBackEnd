@@ -1,13 +1,13 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { Roles } from "@prisma/client";
+import { Prisma, Roles } from "@prisma/client";
+import { authActionTokens } from "../src/modules/auth/action-token.service";
 import authService from "../src/modules/auth/auth.service";
 import { refreshTokens } from "../src/modules/auth/refresh-token.service";
 import { JWT } from "../src/shared/config/config";
 import * as redis from "../src/shared/config/redis";
 import { prisma } from "../src/shared/db/prisma";
 import {
-  generateOpaqueToken,
   hashOpaqueToken,
   signAccessToken,
   verifyAccessToken,
@@ -30,6 +30,7 @@ async function createUser(emailVerified = true) {
 }
 
 afterEach(async () => {
+  jest.restoreAllMocks();
   if (createdUserIds.length === 0) return;
   const userIds = createdUserIds.splice(0);
 
@@ -91,17 +92,54 @@ describe("authentication security", () => {
     );
   });
 
+  test("auth action tokens are hashed, one-time, and remain usable if Redis fails", async () => {
+    const user = await createUser(false);
+    const rawToken = await authActionTokens.issue(user.id, "email_verify", 60);
+    const tokenHash = hashOpaqueToken(rawToken);
+
+    const rows = await prisma.$queryRaw<Array<{ tokenHash: string }>>(Prisma.sql`
+      SELECT token_hash AS "tokenHash"
+      FROM auth_action_tokens
+      WHERE user_id = CAST(${user.id} AS uuid)
+        AND purpose = 'email_verify'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `);
+    expect(rows[0]?.tokenHash).toBe(tokenHash);
+    expect(rows[0]?.tokenHash).not.toBe(rawToken);
+
+    jest.spyOn(redis, "getDel").mockRejectedValueOnce(new Error("redis down"));
+    jest.spyOn(redis, "del").mockRejectedValueOnce(new Error("redis down"));
+
+    await expect(
+      authActionTokens.consume(rawToken, "email_verify"),
+    ).resolves.toBe(user.id);
+    await expect(
+      authActionTokens.consume(rawToken, "email_verify"),
+    ).resolves.toBeNull();
+  });
+
+  test("expired auth action tokens cannot be consumed", async () => {
+    const user = await createUser(false);
+    const rawToken = await authActionTokens.issue(user.id, "email_verify", 60);
+
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE auth_action_tokens
+      SET expires_at = ${new Date(Date.now() - 1_000)}
+      WHERE token_hash = ${hashOpaqueToken(rawToken)}
+    `);
+
+    await expect(
+      authActionTokens.consume(rawToken, "email_verify"),
+    ).resolves.toBeNull();
+  });
+
   test("password reset is one-time and revokes all refresh tokens", async () => {
     const user = await createUser();
     const firstSession = await refreshTokens.create(user.id);
     await refreshTokens.create(user.id);
 
-    const resetToken = generateOpaqueToken();
-    await redis.set(
-      `pwd_reset:${hashOpaqueToken(resetToken)}`,
-      user.id,
-      60,
-    );
+    const resetToken = await authActionTokens.issue(user.id, "pwd_reset", 60);
 
     await authService.resetPassword({
       token: resetToken,

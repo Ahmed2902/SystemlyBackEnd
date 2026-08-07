@@ -32,14 +32,23 @@ export const globalRateLimit = createLimiter(
   "RATE_LIMITED",
 );
 
-// Only failed attempts consume this budget. Successful logins and password flows
-// should not lock a user out of the rest of the auth API.
+// Only failed login/register attempts consume this budget. Successful auth
+// should not lock a user out of unrelated authentication operations.
 export const authRateLimit = createLimiter(
   APP_CONFIG.rateLimit.authWindowMs,
   APP_CONFIG.rateLimit.authMax,
   "Too many authentication attempts. Please try again later.",
   "AUTH_RATE_LIMITED",
   { skipSuccessfulRequests: true },
+);
+
+// Email-triggering endpoints intentionally count successful requests as well.
+// The service adds a per-account cooldown; this limiter caps anonymous/IP abuse.
+export const emailActionRateLimit = createLimiter(
+  APP_CONFIG.rateLimit.authWindowMs,
+  Math.max(APP_CONFIG.rateLimit.authMax, 10),
+  "Too many email requests. Please try again later.",
+  "EMAIL_RATE_LIMITED",
 );
 
 // Refresh traffic is operational session maintenance, not a login attempt.

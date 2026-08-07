@@ -1,209 +1,169 @@
+import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import axios from "axios";
 import { OAuth2Client } from "google-auth-library";
 import authService from "./auth.service";
-import { ok, fail } from "../../shared/utils/response.util";
-import crypto from "crypto";
+import { fail } from "../../shared/utils/response.util";
+import { AUTH_CONSTANTS } from "../../shared/config/config";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const REFRESH_COOKIE_NAME = "refreshToken";
 const OAUTH_STATE_COOKIE_NAME = "oauth_state";
+const OAUTH_VERIFIER_COOKIE_NAME = "oauth_pkce_verifier";
+const OAUTH_TTL_MS = 10 * 60 * 1000;
 
-//WITHOUT COOKIES
-const oauthStateStore = new Map<string, number>(); // state -> expiry timestamp
-
-const STATE_TTL = 10 * 60 * 1000; // 10 minutes
-
-const storeState = (state: string) => {
-  oauthStateStore.set(state, Date.now() + STATE_TTL);
-};
-
-const verifyAndConsumeState = (state: string) => {
-  const expiry = oauthStateStore.get(state);
-  if (!expiry) return false;
-
-  if (Date.now() > expiry) {
-    oauthStateStore.delete(state);
-    return false;
-  }
-
-  oauthStateStore.delete(state); // one-time use
-  return true;
-};
-
-// cleanup expired states every minute
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, expiry] of oauthStateStore.entries()) {
-    if (expiry < now) oauthStateStore.delete(key);
-  }
-}, 60 * 1000);
-
-const getOauthStateCookieOptions = (req: Request) => ({
+const oauthCookieOptions = {
   httpOnly: true,
-  sameSite: "none" as const, // 🔥 CRITICAL
-  secure: true, // 🔥 REQUIRED with "none"
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
   path: "/",
-  maxAge: 10 * 60 * 1000,
-});
+  maxAge: OAUTH_TTL_MS,
+};
 
-const getGoogleRedirectUri = () => {
+const refreshCookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "none" as const,
+  maxAge: AUTH_CONSTANTS.REFRESH_TOKEN_TTL_SECONDS * 1000,
+  path: "/",
+};
+
+function getGoogleRedirectUri() {
   if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
   const appUrl = process.env.APP_URL || "http://localhost:3000";
   return `${appUrl.replace(/\/$/, "")}/api/auth/oauth/google/callback`;
+}
+
+function getRequiredGoogleConfig() {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error("Google OAuth is not configured");
+  }
+  return { clientId, clientSecret, redirectUri: getGoogleRedirectUri() };
+}
+
+function randomBase64Url(bytes = 32) {
+  return crypto.randomBytes(bytes).toString("base64url");
+}
+
+function pkceChallenge(verifier: string) {
+  return crypto.createHash("sha256").update(verifier).digest("base64url");
+}
+
+function sameSecret(left: string, right: string) {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function clearOauthCookies(res: Response) {
+  res.clearCookie(OAUTH_STATE_COOKIE_NAME, { path: "/" });
+  res.clearCookie(OAUTH_VERIFIER_COOKIE_NAME, { path: "/" });
+}
+
+export const googleRedirect = (_req: Request, res: Response) => {
+  const { clientId, redirectUri } = getRequiredGoogleConfig();
+  const state = randomBase64Url();
+  const verifier = randomBase64Url(48);
+
+  res.cookie(OAUTH_STATE_COOKIE_NAME, state, oauthCookieOptions);
+  res.cookie(OAUTH_VERIFIER_COOKIE_NAME, verifier, oauthCookieOptions);
+
+  const query = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "openid email profile",
+    state,
+    code_challenge: pkceChallenge(verifier),
+    code_challenge_method: "S256",
+    prompt: "select_account",
+  });
+
+  return res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${query}`);
 };
 
-const REFRESH_COOKIE_OPTIONS = {
-  httpOnly: true,
-  secure: true,
-  sameSite: "none" as const,
-  maxAge: 30 * 24 * 60 * 60 * 1000,
-  path: "/",
-};
-
-/* -------------------------
-   REDIRECT TO GOOGLE
--------------------------- */
-export const googleRedirect = (req: Request, res: Response) => {
-  const state = crypto.randomBytes(32).toString("hex");
-
-  res.cookie(OAUTH_STATE_COOKIE_NAME, state, getOauthStateCookieOptions(req));
-
-  // ✅ store state in memory (instead of cookies)
-  storeState(state);
-
-  const clientId = process.env.GOOGLE_CLIENT_ID || "";
-  const redirectUri = getGoogleRedirectUri();
-  const url =
-    `https://accounts.google.com/o/oauth2/v2/auth?` +
-    `client_id=${encodeURIComponent(clientId)}&` +
-    `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-    `response_type=code&` +
-    `scope=${encodeURIComponent("openid email profile")}&` +
-    `access_type=offline&` +
-    `prompt=consent&` + // <-- FIXED (& added)
-    `state=${state}`;
-
-  return res.redirect(url);
-};
-
-/* -------------------------
-   GOOGLE CALLBACK (SECURE)
--------------------------- */
 export const googleCallback = async (
   req: Request,
   res: Response,
   next: NextFunction,
 ) => {
   try {
-    /* -------------------------
-       HANDLE OAUTH ERROR FIRST
-    -------------------------- */
     if (req.query.error) {
+      clearOauthCookies(res);
       return fail(res, "OAuth error", 400, "OAUTH_ERROR");
     }
 
-    const code = req.query?.code ? String(req.query.code) : null;
+    const code = typeof req.query.code === "string" ? req.query.code : "";
+    const returnedState =
+      typeof req.query.state === "string" ? req.query.state : "";
+    const storedState = req.cookies?.[OAUTH_STATE_COOKIE_NAME];
+    const verifier = req.cookies?.[OAUTH_VERIFIER_COOKIE_NAME];
 
     if (!code) {
+      clearOauthCookies(res);
       return fail(res, "Missing authorization code", 400, "MISSING_CODE");
     }
 
-    /* -------------------------
-     VERIFY STATE (CSRF PROTECTION)
-  -------------------------- */
-    // const stateFromGoogle = req.query.state;
-    // const storedState = req.cookies?.[OAUTH_STATE_COOKIE_NAME];
-    // if (!stateFromGoogle || stateFromGoogle !== storedState) {
-    //   return fail(res, "Invalid state (CSRF DETECTED)", 400, "INVALID_STATE");
-    // }
-    const stateFromGoogle = req.query.state ? String(req.query.state) : null;
-
-    if (!stateFromGoogle || !verifyAndConsumeState(stateFromGoogle)) {
-      return fail(res, "Invalid state (CSRF DETECTED)", 400, "INVALID_STATE");
+    if (
+      typeof storedState !== "string" ||
+      typeof verifier !== "string" ||
+      !returnedState ||
+      !sameSecret(returnedState, storedState)
+    ) {
+      clearOauthCookies(res);
+      return fail(res, "Invalid OAuth state", 400, "INVALID_STATE");
     }
 
-    // clear state after validation
-    res.clearCookie(OAUTH_STATE_COOKIE_NAME, { path: "/" });
+    clearOauthCookies(res);
 
-    /* -------------------------
-       EXCHANGE CODE FOR TOKENS
-    -------------------------- */
+    const { clientId, clientSecret, redirectUri } = getRequiredGoogleConfig();
     const tokenRes = await axios.post(
       "https://oauth2.googleapis.com/token",
       new URLSearchParams({
         code,
-        client_id: process.env.GOOGLE_CLIENT_ID || "",
-        client_secret: process.env.GOOGLE_CLIENT_SECRET || "",
-        redirect_uri: getGoogleRedirectUri(),
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
         grant_type: "authorization_code",
+        code_verifier: verifier,
       }).toString(),
       {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        timeout: 5000,
+        timeout: 5_000,
       },
     );
 
     const idToken = tokenRes.data?.id_token;
-
     if (!idToken) {
       return fail(res, "No id_token returned", 400, "NO_ID_TOKEN");
     }
 
-    /* -------------------------
-       VERIFY GOOGLE TOKEN
-    -------------------------- */
     const ticket = await client.verifyIdToken({
       idToken,
-      audience: process.env.GOOGLE_CLIENT_ID,
+      audience: clientId,
     });
-
     const payload = ticket.getPayload();
-
-    if (!payload || !payload.email) {
+    if (!payload?.email || !payload.sub) {
       return fail(res, "Invalid Google token", 400, "INVALID_TOKEN");
     }
 
-    /* -------------------------
-       CREATE / LOGIN USER
-    -------------------------- */
     const result = await authService.oauthSignIn({
       provider: "google",
       providerId: payload.sub,
       email: payload.email,
       name: payload.name || null,
       picture: payload.picture || null,
-      emailVerified: !!payload.email_verified,
+      emailVerified: Boolean(payload.email_verified),
     });
 
-    /* -------------------------
-       SET REFRESH COOKIE
-    -------------------------- */
-    res.cookie(
-      REFRESH_COOKIE_NAME,
-      result.refreshToken,
-      REFRESH_COOKIE_OPTIONS,
-    );
-    res.cookie("accessToken", result.accessToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
-      maxAge: 15 * 60 * 1000, // match your actual access token expiry
-      path: "/",
-    });
-
-    /* -------------------------
-       RETURN RESPONSE
-    -------------------------- */
-    return res.redirect(
-      `${process.env.FRONTEND_URL}/oauth-callback?token=${result.accessToken}`,
-    );
-
-    // OPTIONAL (better UX):
-    // return res.redirect(`${process.env.FRONTEND_URL}/auth/success?token=${result.accessToken}`);
-  } catch (err) {
-    return next(err);
+    res.cookie(REFRESH_COOKIE_NAME, result.refreshToken, refreshCookieOptions);
+    return res.redirect(`${process.env.FRONTEND_URL}/oauth-callback`);
+  } catch (error) {
+    clearOauthCookies(res);
+    return next(error);
   }
 };
 

@@ -3,6 +3,7 @@ import authController from "./auth.controller";
 import * as googleOauth from "./google.oauth";
 import {
   authRateLimit,
+  emailActionRateLimit,
   refreshRateLimit,
 } from "../../shared/middleware/rateLimit.middleware";
 import { requireAuth } from "../../shared/middleware/auth.middleware";
@@ -65,7 +66,7 @@ router.get(
 
 router.post(
   "/resend-verification",
-  authRateLimit,
+  emailActionRateLimit,
   doc({
     summary: "Resend verification email",
     description:
@@ -156,7 +157,7 @@ router.post(
 
 router.post(
   "/forgot-password",
-  authRateLimit,
+  emailActionRateLimit,
   doc({
     summary: "Forgot password",
     description: "Request a password reset link sent to the user's email.",
