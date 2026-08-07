@@ -64,29 +64,29 @@ class BookingsService {
       }
 
       const transitioned = await tx.appointment.updateMany({
-      where: {
-        id: appointment.id,
-        status: appointment.status,
-      },
-      data: { status: AppointmentStatus.cancelled_by_customer },
-    });
-    if (transitioned.count === 1) {
-      return tx.appointment.findUniqueOrThrow({
+        where: {
+          id: appointment.id,
+          status: appointment.status,
+        },
+        data: { status: AppointmentStatus.cancelled_by_customer },
+      });
+      if (transitioned.count === 1) {
+        return tx.appointment.findUniqueOrThrow({
+          where: { id: appointment.id },
+        });
+      }
+
+      const current = await tx.appointment.findUniqueOrThrow({
         where: { id: appointment.id },
       });
-    }
-
-    const current = await tx.appointment.findUniqueOrThrow({
-      where: { id: appointment.id },
-    });
-    if (current.status === AppointmentStatus.cancelled_by_customer) {
-      return current;
-    }
-    throw invalidStateError(
-      "This appointment can no longer be cancelled by the customer",
-      "INVALID_APPOINTMENT_STATE",
-      409,
-    );
+      if (current.status === AppointmentStatus.cancelled_by_customer) {
+        return current;
+      }
+      throw invalidStateError(
+        "This appointment can no longer be cancelled by the customer",
+        "INVALID_APPOINTMENT_STATE",
+        409,
+      );
     });
   }
 
