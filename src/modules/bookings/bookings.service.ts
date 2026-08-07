@@ -64,9 +64,9 @@ class BookingsService {
       }
 
       return tx.appointment.update({
-                where: { id: appointment.id },
-                data: { status: AppointmentStatus.cancelled_by_customer },
-              });
+      where: { id: appointment.id },
+      data: { status: AppointmentStatus.cancelled_by_customer },
+    });
     });
   }
 
