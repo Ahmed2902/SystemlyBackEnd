@@ -1,5 +1,5 @@
 import { Roles } from "@prisma/client";
-import type { NextFunction, Request, RequestHandler, Response } from "express";
+import type { Request, RequestHandler, Response } from "express";
 import { prisma } from "../db/prisma";
 import { fail } from "../utils/response.util";
 
@@ -71,6 +71,23 @@ export const requireStaffAccess: RequestHandler = async (req, res, next) => {
   return next();
 };
 
+export const requireProtectedStaffFieldAccess: RequestHandler = (
+  req,
+  res,
+  next,
+) => {
+  const touchesProtectedField =
+    req.body?.role !== undefined || req.body?.isActive !== undefined;
+  if (!touchesProtectedField) return next();
+  if (
+    req.user?.role === Roles.BusinessAdmin ||
+    req.user?.role === Roles.SuperAdmin
+  ) {
+    return next();
+  }
+  return fail(res, "Forbidden", 403, "FORBIDDEN", req.requestId ?? null);
+};
+
 export const requireServiceParamAccess = (
   paramName = "serviceId",
 ): RequestHandler => async (req, res, next) => {
@@ -98,6 +115,29 @@ export const requireServiceBodyAccess = (
     select: { id: true },
   });
   if (!service) return notFound(res, req, "Service");
+  return next();
+};
+
+export const requireServiceIdsBodyAccess = (
+  fieldName = "serviceIds",
+): RequestHandler => async (req, res, next) => {
+  if (req.user?.role === Roles.SuperAdmin) return next();
+  const tenantId = businessId(req, res);
+  if (!tenantId) return;
+
+  const ids = [
+    ...new Set(
+      (Array.isArray(req.body?.[fieldName]) ? req.body[fieldName] : []).filter(
+        (id): id is string => typeof id === "string",
+      ),
+    ),
+  ];
+  if (ids.length === 0) return next();
+
+  const count = await prisma.service.count({
+    where: { businessId: tenantId, id: { in: ids } },
+  });
+  if (count !== ids.length) return notFound(res, req, "Service");
   return next();
 };
 
