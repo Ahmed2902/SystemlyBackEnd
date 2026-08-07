@@ -9,7 +9,9 @@ import { requireSubscriptionAccess } from "../../shared/middleware/subscription-
 import {
   requireAvailabilityOverrideAccess,
   requireLegacyBreakAccess,
+  requireProtectedStaffFieldAccess,
   requireServiceBodyAccess,
+  requireServiceIdsBodyAccess,
   requireServiceParamAccess,
   requireStaffAccess,
   requireStaffBodyAccess,
@@ -56,12 +58,19 @@ router.post(
 router.use(requireBusinessAccess, requireSubscriptionAccess);
 
 router.get("/", staffController.list);
-router.post("/", validate.validateBody(createStaffSchema), staffController.create);
+router.post(
+  "/",
+  validate.validateBody(createStaffSchema),
+  requireServiceIdsBodyAccess(),
+  staffController.create,
+);
 router.get("/:id/workspace", requireStaffAccess, staffController.workspace);
 router.patch(
   "/:id",
   requireStaffAccess,
   validate.validateBody(updateStaffSchema),
+  requireProtectedStaffFieldAccess,
+  requireServiceIdsBodyAccess(),
   staffController.update,
 );
 router.delete(
