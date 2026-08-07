@@ -10,11 +10,20 @@ import billingController from "./billing.controller";
 import {
   billingPaymentParamsSchema,
   billingPaymentsQuerySchema,
+  pilotExtensionBodySchema,
   subscriptionActionBodySchema,
 } from "./billing.schema";
 
 const router = Router();
 const OWNER_ROLES = [Roles.BusinessAdmin, Roles.SuperAdmin];
+
+router.post(
+  "/admin/pilot-extension",
+  requireAuth,
+  requireRole([Roles.SuperAdmin]),
+  validate.validateBody(pilotExtensionBodySchema),
+  billingController.extendPilotTrial,
+);
 
 router.use(requireAuth, requireBusinessAccess, requireRole(OWNER_ROLES));
 
