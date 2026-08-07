@@ -1,15 +1,24 @@
-import { CommissionType, Roles, SubscriptionStatus } from "@prisma/client";
+import { Roles, SubscriptionStatus } from "@prisma/client";
+import type { NextFunction, Request, RequestHandler, Response } from "express";
 import businessService from "../src/modules/business/business.service";
-import faqsService from "../src/modules/faqs/faqs.service";
-import staffCommandService from "../src/modules/staff/staff.command.service";
-import staffQueryService from "../src/modules/staff/staff.query.service";
 import { ensureCorePlan } from "../src/modules/subscriptions/subscription.seed";
+import {
+  requireBusinessAccessFor,
+} from "../src/shared/middleware/auth.middleware";
+import {
+  requireAvailabilityOverrideAccess,
+  requireFaqAccess,
+  requireServiceBodyAccess,
+  requireStaffAccess,
+} from "../src/shared/middleware/tenant-resource.middleware";
 import { prisma } from "../src/shared/db/prisma";
 
 let businessAId: string;
 let businessBId: string;
 let businessASlug: string;
+let faqAId: string;
 let faqBId: string;
+let staffAId: string;
 let staffBId: string;
 let serviceBId: string;
 let overrideBId: string;
@@ -27,6 +36,48 @@ async function createBusinessFixture(label: string) {
       trialUsedAt: new Date(),
     },
   });
+}
+
+function requestFor(
+  businessId: string,
+  params: Record<string, string> = {},
+  body: unknown = {},
+): Request {
+  return {
+    params,
+    body,
+    requestId: "tenant-boundary-test",
+    user: {
+      id: "00000000-0000-0000-0000-000000000001",
+      businessId,
+      role: Roles.BusinessAdmin,
+    },
+  } as unknown as Request;
+}
+
+function responseDouble() {
+  const res = {
+    statusCode: 200,
+    body: undefined as unknown,
+  } as Response & { statusCode: number; body: unknown };
+
+  res.status = jest.fn((statusCode: number) => {
+    res.statusCode = statusCode;
+    return res;
+  }) as Response["status"];
+  res.json = jest.fn((body: unknown) => {
+    res.body = body;
+    return res;
+  }) as Response["json"];
+
+  return res;
+}
+
+async function runMiddleware(handler: RequestHandler, req: Request) {
+  const res = responseDouble();
+  const next = jest.fn() as unknown as NextFunction;
+  await handler(req, res, next);
+  return { res, next };
 }
 
 beforeEach(async () => {
@@ -49,12 +100,29 @@ beforeEach(async () => {
     },
   });
 
-  const [faqB, staffB, serviceB] = await Promise.all([
+  const [faqA, faqB, staffA, staffB, serviceB] = await Promise.all([
+    prisma.faq.create({
+      data: {
+        businessId: businessA.id,
+        question: "Tenant A FAQ",
+        answer: "Tenant A only",
+      },
+    }),
     prisma.faq.create({
       data: {
         businessId: businessB.id,
         question: "Private tenant B FAQ",
         answer: "Tenant B only",
+      },
+    }),
+    prisma.staff.create({
+      data: {
+        businessId: businessA.id,
+        name: "Public Staff",
+        jobTitle: "Stylist",
+        phone: "+201222222222",
+        email: `private-a-${Date.now()}@example.com`,
+        isActive: true,
       },
     }),
     prisma.staff.create({
@@ -76,21 +144,17 @@ beforeEach(async () => {
       },
     }),
   ]);
+
+  faqAId = faqA.id;
   faqBId = faqB.id;
+  staffAId = staffA.id;
   staffBId = staffB.id;
   serviceBId = serviceB.id;
 
   await prisma.serviceStaff.create({
     data: { staffId: staffB.id, serviceId: serviceB.id },
   });
-  await prisma.availability.create({
-    data: {
-      staffId: staffB.id,
-      dayOfWeek: 1,
-      startTime: new Date("1970-01-01T09:00:00.000Z"),
-      endTime: new Date("1970-01-01T17:00:00.000Z"),
-    },
-  });
+
   const override = await prisma.availabilityOverride.create({
     data: {
       staffId: staffB.id,
@@ -100,16 +164,6 @@ beforeEach(async () => {
   });
   overrideBId = override.id;
 
-  await prisma.staff.create({
-    data: {
-      businessId: businessA.id,
-      name: "Public Staff",
-      jobTitle: "Stylist",
-      phone: "+201222222222",
-      email: `private-${Date.now()}@example.com`,
-      isActive: true,
-    },
-  });
   await prisma.photo.createMany({
     data: [
       {
@@ -135,51 +189,68 @@ afterEach(async () => {
   });
 });
 
-describe("tenant boundary", () => {
-  test("blocks cross-tenant business mutation", async () => {
-    await expect(
-      businessService.updateBusiness(
-        businessBId,
-        { businessId: businessAId, role: Roles.BusinessAdmin },
-        { name: "Compromised" },
-      ),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+describe("tenant authorization middleware", () => {
+  test("blocks a business route targeting another tenant", async () => {
+    const { res, next } = await runMiddleware(
+      requireBusinessAccessFor("id"),
+      requestFor(businessAId, { id: businessBId }),
+    );
 
-    expect(
-      await prisma.business.findUnique({ where: { id: businessBId } }),
-    ).toMatchObject({ name: "Tenant B" });
+    expect(res.statusCode).toBe(403);
+    expect(next).not.toHaveBeenCalled();
   });
 
-  test("blocks cross-tenant FAQ mutation", async () => {
-    await expect(
-      faqsService.updateFaq(businessAId, faqBId, { question: "Compromised" }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  test("allows a business route targeting the authenticated tenant", async () => {
+    const { next } = await runMiddleware(
+      requireBusinessAccessFor("id"),
+      requestFor(businessAId, { id: businessAId }),
+    );
 
-    expect(await prisma.faq.findUnique({ where: { id: faqBId } })).toMatchObject({
-      question: "Private tenant B FAQ",
-    });
+    expect(next).toHaveBeenCalledTimes(1);
   });
 
-  test("blocks cross-tenant staff configuration reads and writes", async () => {
-    await expect(
-      staffCommandService.assignService(staffBId, businessAId, {
-        serviceId: serviceBId,
-        commissionType: CommissionType.NONE,
-        commissionAmount: 0,
+  test("blocks cross-tenant FAQ access", async () => {
+    const blocked = await runMiddleware(
+      requireFaqAccess,
+      requestFor(businessAId, { id: faqBId }),
+    );
+    expect(blocked.res.statusCode).toBe(404);
+    expect(blocked.next).not.toHaveBeenCalled();
+
+    const allowed = await runMiddleware(
+      requireFaqAccess,
+      requestFor(businessAId, { id: faqAId }),
+    );
+    expect(allowed.next).toHaveBeenCalledTimes(1);
+  });
+
+  test("blocks cross-tenant staff, service and override access", async () => {
+    const staff = await runMiddleware(
+      requireStaffAccess,
+      requestFor(businessAId, { id: staffBId }),
+    );
+    expect(staff.res.statusCode).toBe(404);
+
+    const ownStaff = await runMiddleware(
+      requireStaffAccess,
+      requestFor(businessAId, { id: staffAId }),
+    );
+    expect(ownStaff.next).toHaveBeenCalledTimes(1);
+
+    const service = await runMiddleware(
+      requireServiceBodyAccess(),
+      requestFor(businessAId, { id: staffAId }, { serviceId: serviceBId }),
+    );
+    expect(service.res.statusCode).toBe(404);
+
+    const override = await runMiddleware(
+      requireAvailabilityOverrideAccess,
+      requestFor(businessAId, {
+        id: staffAId,
+        overrideId: overrideBId,
       }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-
-    await expect(
-      staffQueryService.getAvailability(staffBId, businessAId),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-
-    expect(
-      await staffQueryService.getServiceStaff(staffBId, serviceBId, businessAId),
-    ).toBeNull();
-
-    await expect(
-      staffCommandService.deleteOverride(overrideBId, businessAId),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    );
+    expect(override.res.statusCode).toBe(404);
   });
 });
 
