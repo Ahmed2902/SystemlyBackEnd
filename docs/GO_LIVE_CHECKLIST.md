@@ -171,12 +171,15 @@ Verify browser upload CORS from the production frontend origin.
 
 ## 10. Sentry
 
-A real production event has already been observed during pre-launch testing. Before opening clients, reconfirm:
+Repository verification only proves the Sentry integration can be initialized and exercised with test configuration. Before opening clients, verify a real production event from the deployed production revision and confirm:
 
+- the event is visible in the intended Sentry project
 - events show `environment=production`
 - release is `systemly-backend@<production SHA>`
 - authorization headers/cookies/request bodies are not exposed
 - at least one actionable error alert is enabled
+
+Do not mark this gate complete until the production event is visible in Sentry.
 
 ## 11. Frontend/backend production smoke
 
@@ -256,5 +259,6 @@ Real client data may be accepted only when:
 - OAuth production flow passes
 - public/private storage checks pass
 - backup restore has been rehearsed
+- a real production Sentry event and alerting configuration have been verified
 - the frontend/backend smoke passes
 - no unresolved critical/high launch blocker remains
