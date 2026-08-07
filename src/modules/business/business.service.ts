@@ -16,11 +16,6 @@ import type {
   CreateBusinessInput,
 } from "./business.schema";
 
-type BusinessMutationActor = {
-  businessId: string | null;
-  role: string;
-};
-
 const buildErr = (message: string, statusCode: number, code: string) => {
   const error = new Error(message) as Error & {
     statusCode?: number;
@@ -30,20 +25,6 @@ const buildErr = (message: string, statusCode: number, code: string) => {
   error.code = code;
   return error;
 };
-
-function assertCanMutateBusiness(
-  actor: BusinessMutationActor,
-  targetBusinessId: string,
-) {
-  if (actor.role === Roles.SuperAdmin) return;
-  if (
-    actor.role !== Roles.BusinessAdmin ||
-    !actor.businessId ||
-    actor.businessId !== targetBusinessId
-  ) {
-    throw buildErr("Business not found", 404, "NOT_FOUND");
-  }
-}
 
 class BusinessService {
   async isSlugTaken(slug: string): Promise<boolean> {
@@ -222,31 +203,11 @@ class BusinessService {
     };
   }
 
-  async updateBusiness(
-    id: string,
-    actor: BusinessMutationActor,
-    payload: BusinessUpdateInput,
-  ) {
-    assertCanMutateBusiness(actor, id);
-    const existing = await prisma.business.findFirst({
-      where: { id, deletedAt: null },
-      select: { id: true },
-    });
-    if (!existing) throw buildErr("Business not found", 404, "NOT_FOUND");
+  updateBusiness(id: string, payload: BusinessUpdateInput) {
     return prisma.business.update({ where: { id }, data: payload });
   }
 
-  async publishBusiness(
-    id: string,
-    actor: BusinessMutationActor,
-    isActive: boolean,
-  ) {
-    assertCanMutateBusiness(actor, id);
-    const existing = await prisma.business.findFirst({
-      where: { id, deletedAt: null },
-      select: { id: true },
-    });
-    if (!existing) throw buildErr("Business not found", 404, "NOT_FOUND");
+  publishBusiness(id: string, isActive: boolean) {
     return prisma.business.update({ where: { id }, data: { isActive } });
   }
 }
