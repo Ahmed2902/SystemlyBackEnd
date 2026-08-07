@@ -754,7 +754,7 @@ model ClinicVisitRecord {
 }
 
 model InsuranceClaim {
-  id          String   @id @default(uuid()) @db.Uuid @unique
+  id          String   @id @default(uuid()) @db.Uuid
   invoiceId   String   @map("invoice_id") @db.Uuid @unique
   insurerName String   @map("insurer_name") @db.VarChar(255)
   status      String   @db.VarChar(50)
