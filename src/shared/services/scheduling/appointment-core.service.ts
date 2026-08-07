@@ -110,7 +110,7 @@ export async function scheduleServiceSegments(
     const service = serviceById.get(selection.serviceId);
     if (!service) throw schedulingError("Service not found", 404);
 
-    const segmentEnd = segmentStart.plus({
+    const segmentEnd: DateTime = segmentStart.plus({
       minutes: service.durationMin,
     });
     const assignedStaff = eligibleBySelection[index].find((staffId) =>
