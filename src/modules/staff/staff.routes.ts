@@ -60,8 +60,8 @@ router.use(requireBusinessAccess, requireSubscriptionAccess);
 router.get("/", staffController.list);
 router.post(
   "/",
-  validate.validateBody(createStaffSchema),
   requireProtectedStaffFieldAccess,
+  validate.validateBody(createStaffSchema),
   requireServiceIdsBodyAccess(),
   staffController.create,
 );
@@ -69,8 +69,8 @@ router.get("/:id/workspace", requireStaffAccess, staffController.workspace);
 router.patch(
   "/:id",
   requireStaffAccess,
-  validate.validateBody(updateStaffSchema),
   requireProtectedStaffFieldAccess,
+  validate.validateBody(updateStaffSchema),
   requireServiceIdsBodyAccess(),
   staffController.update,
 );
