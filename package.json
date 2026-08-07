@@ -13,7 +13,7 @@
     "graphile:migrate": "graphile-worker --schema-only",
     "seed:plans": "node dist/src/scripts/seedPlans.js",
     "sentry:verify": "npm run build && node dist/src/scripts/verifySentry.js",
-    "test": "jest --runInBand --detectOpenHandles",
+    "test": "jest --runInBand",
     "validate:openapi": "node scripts/validate-openapi.js",
     "generate:openapi": "node scripts/generate-openapi.js",
     "studio:local": "node scripts/run-prisma-studio.js",
