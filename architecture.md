@@ -1,91 +1,183 @@
-# Hgezli — Architecture & Stack
+# Systemly Architecture
 
-This document describes the architecture, components, deployment notes, and operational considerations for the Hgezli project. It is written for engineers and automation agents preparing integrations, deployments, or performance tuning.
+## 1. Deployment shape
 
-## System components
+V1 deliberately uses one backend container and one Node.js process.
 
-- API Server
-  - Language: TypeScript (Node.js)
-  - Framework: Express (routes under `src/routes`)
-  - Key responsibilities: REST endpoints, authentication (JWT), validation (Zod), file uploads (Multer), rate-limiting, CSRF protection.
+```text
+Internet
+   |
+Azure Container Apps ingress
+   |
+Node.js process
+   |-- Express API
+   `-- Embedded Graphile Worker
+          `-- send_email
 
-- Background Worker
-  - Library: BullMQ (Redis-backed queues)
-  - Responsibilities: email sending, reminders, scheduled jobs, webhook handling retries, long-running tasks.
+Node.js
+   |-- PostgreSQL / Supabase
+   |-- Redis (optional analytics cache)
+   |-- Supabase Storage
+   |-- Resend
+   `-- Sentry
+```
 
-- Database
-  - PostgreSQL managed via Prisma ORM (`prisma/schema.prisma`).
-  - Migrations stored under `prisma/migrations`.
+This is intentional for the initial scale. A separate worker service is unnecessary while the only asynchronous work is HTTP-triggered transactional email.
 
-- Cache / Queuing
-  - Redis for BullMQ queues and ephemeral locks.
+Azure pilot scaling is min replicas 0 / max replicas 1. If scheduled jobs are added later, scale-to-zero must be revisited because a PostgreSQL job alone does not create HTTP traffic to wake the app.
 
-- External Integrations
-  - Email provider(s): Brevo or SMTP via nodemailer (configurable by env vars)
-  - Subscription billing: lifecycle state stored in PostgreSQL; payment provider integration is pending.
-  - Object storage: local `uploads/` by default; production may use S3-compatible storage or cloudinary.
+## 2. Application boundaries
 
-## Deployment artifacts
+### Routes and middleware
 
-- `Dockerfile` and `docker-compose.yml` provided for containerized runs.
-- `nginx/default.conf` used as a reverse proxy (TLS certs under `nginx/certs`).
+Responsible for:
 
-## Configuration & environment variables (critical)
+- authentication
+- roles
+- business/tenant access
+- resource ownership
+- validation
+- CSRF and rate limiting
 
-- `DATABASE_URL` — Postgres connection string.
-- `REDIS_URL` — Redis connection.
-- `JWT_SECRET`, `REFRESH_TOKEN_SECRET` — secrets for signing tokens.
-- `APP_URL`, `FRONTEND_URL` — used in email link generation and CORS.
-- `EMAIL_PROVIDER_*` — provider credentials.
+Tenant authorization belongs at this boundary rather than being duplicated as ad-hoc service assertions.
 
-Variable defaults and reading code is under [src/shared/config/config.ts](src/shared/config/config.ts#L1).
+### Services
 
-## Security model
+Responsible for:
 
-- Authentication: stateless `accessToken` JWTs and HttpOnly `refreshToken` cookies.
-- Authorization: RBAC via `requireRole` middleware and business-scoped checks (`requireBusinessAccess`).
-- CSRF: cookie flows (refresh/logout) are CSRF-protected; other endpoints protected via JWT.
-- Rate limiting: `express-rate-limit` applied globally and per-route for sensitive flows.
+- domain invariants
+- transactions
+- business state transitions
+- database operations after request authorization has succeeded
 
-## Data flow (simplified)
+Examples of service-level rules are appointment state transitions, availability overlap prevention, staff deactivation constraints, and financial invariants.
 
-1. Client requests `/auth/login` → server validates credentials → responds with `accessToken` + `refreshToken` cookie.
-2. Client requests protected resource → `requireAuth` validates `Authorization: Bearer <token>`.
-3. Booking creation enqueues reminder jobs → worker picks up job and sends emails via the configured email provider.
-4. Subscription flow: onboarding creates the lifetime trial; billing reads and updates the typed subscription lifecycle.
+## 3. Multi-tenancy
 
-## Scaling & operational notes
+Every tenant-owned request is resolved against the authenticated `businessId` before the service is called. Resources that expose only their own UUID in the route use focused ownership middleware.
 
-- API server: stateless; scale horizontally behind load balancer. Use consistent `JWT_SECRET` and DB + Redis connectivity across replicas.
-- Worker: can scale horizontally; ensure job concurrency and named queues are tuned to avoid duplicate deliveries. Use job locks (BullMQ) for critical sections.
-- Database: use read replicas for heavy read loads (public availability queries), but ensure booking & appointment writes are serialised via DB constraints and distributed locks when necessary.
+Public website APIs use explicit projections and never return internal Prisma models wholesale.
 
-## Observability
+## 4. Scheduling and time
 
-- Health endpoints: `/health`
-- Metrics: `/metrics` (Prometheus)
-- Logs: Node process logs (stdout) and worker logs. Consider structured logging (JSON) and central aggregation.
+Recurring business hours are wall-clock rules in the business timezone. They are not permanent UTC instants.
 
-## Testing considerations
+For a concrete appointment:
 
-- Unit tests: Jest used for code-level tests; test files in `/tests`.
-- Integration tests: run server + test database + Redis; use `NODE_ENV=test` and separate `DATABASE_URL` / `REDIS_URL`.
-- End-to-end: spin up containers via `docker-compose` and run integration suite.
+1. interpret local input in the stored business timezone
+2. validate availability/conflicts in that business timezone
+3. convert the resulting segment instants to UTC
+4. persist UTC timestamps
+5. convert back to business-local time for presentation
 
-## Deployment checklist
+PostgreSQL transaction-scoped advisory locks serialize competing bookings for the same staff/business day.
 
-- Provide environment variables in secrets manager (DB, Redis, email, JWT secrets).
-- Run Prisma migrations: `npx prisma migrate deploy`.
-- Start API and worker processes (separately) — `pm2`, `systemd`, Kubernetes Deployments, or Docker Compose.
-- Configure load balancer and TLS (Nginx in front or cloud LB).
-- Configure background jobs monitoring (BullBoard or custom UI).
+## 5. Appointment lifecycle
 
-## Architectural trade-offs & notes
+`Customer.visitCount` means completed appointments only.
 
-- Using cookies for refresh tokens improves security for browser clients but adds CSRF complexity for automated agents — tests should favor access token flows.
-- Background job eventual consistency: reminders and emails are asynchronous which simplifies UX but requires test harnesses to wait/flush queues.
-- Prisma + Postgres provides type-safe DB access but requires explicit transaction handling for multi-step operations (e.g., booking + payment). Use DB transactions for critical flows.
+- first transition to `completed` => increment once
+- repeated completion => no-op
+- revert/void from `completed` => decrement once
+- pending, confirmed, in-progress, canceled, no-show and uncancel do not affect visit count
 
----
+Public customer cancellation is limited to valid future booking states and is idempotent.
 
-For more detailed diagrams or a deployment Helm chart, tell me which target environment you want (Kubernetes, Docker Compose, or serverless) and I will generate it.
+## 6. Authentication
+
+- access tokens are short-lived JWT bearer tokens
+- refresh tokens are opaque HttpOnly cookies and are stored hashed in PostgreSQL
+- refresh/logout use signed CSRF tokens plus Origin validation
+- verification/reset tokens are opaque, hashed, one-time PostgreSQL records
+- Redis may accelerate auth-token lookup but never makes the security decision
+- Google OAuth uses browser-bound state + PKCE and establishes the same refresh-cookie session as password login
+- Systemly access/refresh tokens are never placed in OAuth redirect URLs
+
+## 7. Email jobs
+
+Graphile Worker persists jobs in PostgreSQL. The embedded worker currently registers only `send_email`.
+
+Supported mail includes:
+
+- email verification
+- welcome
+- password reset
+- staff invitation
+
+Resend is the only production email provider. Provider delivery is idempotency-keyed.
+
+## 8. Database and migrations
+
+Prisma is the schema/migration tool for application tables. Graphile Worker has its own schema migration.
+
+Production rollout order is fixed:
+
+1. Backend CI passes on an exact SHA
+2. build/push image for that SHA
+3. `prisma migrate deploy` using the migration connection
+4. Graphile schema-only migration using the migration connection
+5. update Azure Container App image
+6. wait for `/health/ready`
+
+The running application uses its separate Supabase Session Pooler `DATABASE_URL`.
+
+Financial writes use PostgreSQL transactions. Payment-critical serializable conflicts are retried; database constraints provide the final duplicate-payment safety net.
+
+## 9. Redis
+
+Redis is not a source of truth in V1.
+
+Its active responsibility is fail-open analytics caching. If Redis is unavailable, the database-backed application must continue to authenticate users, book appointments, and operate normally; analytics may simply perform uncached reads.
+
+## 10. Media
+
+Two storage classes are explicit:
+
+### Public media
+
+Branding and website gallery assets that are intended for public pages.
+
+### Private media
+
+Appointment/clinical photos. Uploads use signed tickets; persistence verifies expected path/ownership, metadata, MIME and size; reads return short-lived signed URLs.
+
+The Supabase service-role key exists only on the backend.
+
+## 11. Billing
+
+Subscription lifecycle is modeled in PostgreSQL. EasyKash self-service integration remains pending for the initial feedback pilot.
+
+During the pilot, SuperAdmin may extend a trial explicitly through the protected admin billing endpoint. Manual extension never creates a fake payment record.
+
+## 12. Observability
+
+- structured JSON application logs
+- Sentry error capture with sensitive request fields stripped
+- `/health/live` for process liveness
+- `/health/ready` for database + embedded worker readiness
+- optional Prometheus metrics endpoint where enabled
+
+## 13. Security rules
+
+- bearer access token only for normal protected API routes
+- HttpOnly cookie only for refresh session
+- CSRF only where cookies authenticate the action
+- strict allowed Origin checks
+- explicit public DTOs
+- tenant/resource ownership in middleware
+- hashed opaque security tokens at rest
+- production environment validation fails fast on required secrets
+- application container runs as non-root
+
+## 14. Scaling triggers
+
+Do not split services merely for anticipated scale.
+
+Revisit the one-process design when one of these becomes true:
+
+- delayed/scheduled background jobs must execute while HTTP traffic is zero
+- email/job throughput needs independent scaling
+- API replicas need to exceed one and a shared rate-limit strategy becomes necessary
+- database workload justifies dedicated replicas or other topology changes
+
+Until then, one API/worker container is simpler and cheaper.
