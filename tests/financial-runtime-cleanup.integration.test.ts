@@ -5,6 +5,7 @@ import {
   Roles,
   SubscriptionStatus,
 } from "@prisma/client";
+import appointmentsCommandService from "../src/modules/appointments/appointments.command.service";
 import billingService from "../src/modules/billing/billing.service";
 import invoicesCommandService from "../src/modules/invoices/invoices.command.service";
 import { ensureCorePlan } from "../src/modules/subscriptions/subscription.seed";
@@ -131,6 +132,42 @@ describe("invoice financial invariants", () => {
     expect(reloadedCustomer.visitCount).toBe(1);
   });
 
+  test("manual completion racing collect-payment counts the completed visit once", async () => {
+    const { business, owner, customer, appointment } = await invoiceFixture();
+    const input = {
+      appointmentId: appointment.id,
+      discountCents: 0,
+      paymentMethod: PaymentMethod.CASH,
+    };
+
+    await Promise.all([
+      appointmentsCommandService.finishAppointment(
+        appointment.id,
+        business.id,
+        {},
+      ),
+      invoicesCommandService.collectPayment(business.id, owner.id, input),
+    ]);
+
+    const [paidCount, reloadedAppointment, reloadedCustomer] =
+      await Promise.all([
+        prisma.invoice.count({
+          where: {
+            appointmentId: appointment.id,
+            status: InvoiceStatus.paid,
+          },
+        }),
+        prisma.appointment.findUniqueOrThrow({
+          where: { id: appointment.id },
+        }),
+        prisma.customer.findUniqueOrThrow({ where: { id: customer.id } }),
+      ]);
+
+    expect(paidCount).toBe(1);
+    expect(reloadedAppointment.status).toBe(AppointmentStatus.completed);
+    expect(reloadedCustomer.visitCount).toBe(1);
+  });
+
   test("paid -> voided -> paid again leaves one current paid invoice and one completed visit", async () => {
     const { business, owner, customer, appointment } = await invoiceFixture();
     const input = {
@@ -172,6 +209,46 @@ describe("invoice financial invariants", () => {
       where: { id: customer.id },
     });
     expect(customerAfter.visitCount).toBe(1);
+  });
+
+  test("appointment revert racing invoice void decrements a completed visit once", async () => {
+    const { business, owner, customer, appointment } = await invoiceFixture();
+    const paid = await invoicesCommandService.collectPayment(
+      business.id,
+      owner.id,
+      {
+        appointmentId: appointment.id,
+        discountCents: 0,
+        paymentMethod: PaymentMethod.CASH,
+      },
+    );
+
+    const results = await Promise.allSettled([
+      appointmentsCommandService.revertAppointment(
+        appointment.id,
+        business.id,
+      ),
+      invoicesCommandService.voidInvoice(
+        paid.id,
+        business.id,
+        owner.id,
+        { reason: "Concurrent correction" },
+      ),
+    ]);
+
+    expect(results.some((result) => result.status === "fulfilled")).toBe(true);
+    const [reloadedInvoice, reloadedAppointment, reloadedCustomer] =
+      await Promise.all([
+        prisma.invoice.findUniqueOrThrow({ where: { id: paid.id } }),
+        prisma.appointment.findUniqueOrThrow({
+          where: { id: appointment.id },
+        }),
+        prisma.customer.findUniqueOrThrow({ where: { id: customer.id } }),
+      ]);
+
+    expect(reloadedInvoice.status).toBe(InvoiceStatus.voided);
+    expect(reloadedAppointment.status).not.toBe(AppointmentStatus.completed);
+    expect(reloadedCustomer.visitCount).toBe(0);
   });
 });
 
