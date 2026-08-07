@@ -54,6 +54,21 @@ function withCurrentInvoice<T extends { invoices: unknown[] }>({
   return { ...appointment, invoice: invoices[0] ?? null };
 }
 
+async function transitionAppointmentStatus(
+  tx: Prisma.TransactionClient,
+  appointmentId: string,
+  businessId: string,
+  fromStatus: AppointmentStatus,
+  toStatus: AppointmentStatus,
+  data: Prisma.AppointmentUpdateManyMutationInput = {},
+) {
+  const result = await tx.appointment.updateMany({
+    where: { id: appointmentId, businessId, status: fromStatus },
+    data: { ...data, status: toStatus },
+  });
+  return result.count === 1;
+}
+
 export async function updateAppointmentInTransaction(
   tx: Prisma.TransactionClient,
   id: string,
@@ -195,8 +210,7 @@ export async function updateAppointmentInTransaction(
   const sortedSegments = payload.segments
     .slice()
     .sort(
-      (a, b) =>
-        new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
+      (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
     );
 
   const updated = await tx.appointment.update({
@@ -326,7 +340,28 @@ class AppointmentsCommandService {
         );
       }
 
-      if (appt.status === AppointmentStatus.no_show && appt.customerId) {
+      const transitioned = await transitionAppointmentStatus(
+        tx,
+        id,
+        businessId,
+        appt.status,
+        status,
+      );
+      if (!transitioned) {
+        const current = await getOwnedAppointmentOrThrow(tx, id, businessId);
+        if (current.status === status) return current;
+        throw invalidStateError(
+          "Appointment state changed while updating status",
+          "APPOINTMENT_STATE_CHANGED",
+          409,
+        );
+      }
+
+      if (
+        appt.status === AppointmentStatus.no_show &&
+        appt.customerId &&
+        appt.customer?.noShowCount > 0
+      ) {
         await tx.customer.update({
           where: { id: appt.customerId },
           data: { noShowCount: { decrement: 1 } },
@@ -339,10 +374,7 @@ class AppointmentsCommandService {
         });
       }
 
-      return tx.appointment.update({
-        where: { id },
-        data: { status },
-      });
+      return tx.appointment.findUniqueOrThrow({ where: { id } });
     });
   }
 
@@ -478,10 +510,27 @@ class AppointmentsCommandService {
         );
       }
 
-      const updated = await tx.appointment.update({
-        where: { id: appointmentId },
-        data: { status: AppointmentStatus.completed, notes: payload?.notes },
-      });
+      const transitioned = await transitionAppointmentStatus(
+        tx,
+        appointmentId,
+        businessId,
+        appointment.status,
+        AppointmentStatus.completed,
+        { notes: payload?.notes },
+      );
+      if (!transitioned) {
+        const current = await getOwnedAppointmentOrThrow(
+          tx,
+          appointmentId,
+          businessId,
+        );
+        if (current.status === AppointmentStatus.completed) return current;
+        throw invalidStateError(
+          "Appointment state changed while completing it",
+          "APPOINTMENT_STATE_CHANGED",
+          409,
+        );
+      }
 
       await tx.customer.update({
         where: { id: appointment.customerId },
@@ -531,7 +580,9 @@ class AppointmentsCommandService {
         });
       }
 
-      return updated;
+      return tx.appointment.findUniqueOrThrow({
+        where: { id: appointmentId },
+      });
     });
   }
 
@@ -560,18 +611,34 @@ class AppointmentsCommandService {
         );
       }
 
-      const updated = await tx.appointment.update({
-        where: { id },
-        data: {
-          status: AppointmentStatus.cancelled_by_business,
-          notes: payload.reason
-            ? `${appt.notes ? appt.notes + " | " : ""}Cancelled: ${payload.reason}`
-            : appt.notes,
-        },
-      });
+      const notes = payload.reason
+        ? `${appt.notes ? appt.notes + " | " : ""}Cancelled: ${payload.reason}`
+        : appt.notes;
+      const transitioned = await transitionAppointmentStatus(
+        tx,
+        id,
+        businessId,
+        appt.status,
+        AppointmentStatus.cancelled_by_business,
+        { notes },
+      );
+      if (!transitioned) {
+        const current = await getOwnedAppointmentOrThrow(tx, id, businessId);
+        if (isCancelled(current.status)) {
+          throw invalidStateError(
+            "Appointment is already cancelled",
+            "ALREADY_CANCELLED",
+          );
+        }
+        throw invalidStateError(
+          "Appointment state changed while cancelling it",
+          "APPOINTMENT_STATE_CHANGED",
+          409,
+        );
+      }
 
       await voidInvoiceIfPaid(tx, id);
-      return updated;
+      return tx.appointment.findUniqueOrThrow({ where: { id } });
     });
   }
 
@@ -599,10 +666,24 @@ class AppointmentsCommandService {
         throw invalidStateError("Appointment is not cancelled");
       }
 
-      return tx.appointment.update({
-        where: { id },
-        data: { status: AppointmentStatus.confirmed },
-      });
+      const transitioned = await transitionAppointmentStatus(
+        tx,
+        id,
+        businessId,
+        appt.status,
+        AppointmentStatus.confirmed,
+      );
+      if (!transitioned) {
+        const current = await getOwnedAppointmentOrThrow(tx, id, businessId);
+        if (current.status === AppointmentStatus.confirmed) return current;
+        throw invalidStateError(
+          "Appointment state changed while restoring it",
+          "APPOINTMENT_STATE_CHANGED",
+          409,
+        );
+      }
+
+      return tx.appointment.findUniqueOrThrow({ where: { id } });
     });
   }
 
@@ -618,6 +699,33 @@ class AppointmentsCommandService {
 
       const wasNoShow = appt.status === AppointmentStatus.no_show;
       const wasCompleted = appt.status === AppointmentStatus.completed;
+      const transitioned = await transitionAppointmentStatus(
+        tx,
+        apptId,
+        businessId,
+        appt.status,
+        AppointmentStatus.confirmed,
+      );
+      if (!transitioned) {
+        const current = await getOwnedAppointmentOrThrow(
+          tx,
+          apptId,
+          businessId,
+        );
+        if (current.status === AppointmentStatus.confirmed) {
+          return { ...current, wasNoShow: false, wasCompleted: false };
+        }
+        if (isCancelled(current.status)) {
+          throw invalidStateError(
+            "Cannot revert a cancelled appointment — it was never completed or paid",
+          );
+        }
+        throw invalidStateError(
+          "Appointment state changed while reverting it",
+          "APPOINTMENT_STATE_CHANGED",
+          409,
+        );
+      }
 
       if (
         wasNoShow &&
@@ -632,11 +740,6 @@ class AppointmentsCommandService {
       }
 
       await voidInvoiceIfPaid(tx, apptId);
-
-      const updated = await tx.appointment.update({
-        where: { id: apptId },
-        data: { status: AppointmentStatus.confirmed },
-      });
 
       if (wasCompleted && appt.customerId) {
         const latestCompleted = await tx.appointment.findFirst({
@@ -661,6 +764,9 @@ class AppointmentsCommandService {
         });
       }
 
+      const updated = await tx.appointment.findUniqueOrThrow({
+        where: { id: apptId },
+      });
       return { ...updated, wasNoShow, wasCompleted };
     });
   }
@@ -680,10 +786,22 @@ class AppointmentsCommandService {
         );
       }
 
-      const updated = await tx.appointment.update({
-        where: { id },
-        data: { status: AppointmentStatus.no_show },
-      });
+      const transitioned = await transitionAppointmentStatus(
+        tx,
+        id,
+        businessId,
+        appt.status,
+        AppointmentStatus.no_show,
+      );
+      if (!transitioned) {
+        const current = await getOwnedAppointmentOrThrow(tx, id, businessId);
+        if (current.status === AppointmentStatus.no_show) return current;
+        throw invalidStateError(
+          "Appointment state changed while marking no-show",
+          "APPOINTMENT_STATE_CHANGED",
+          409,
+        );
+      }
 
       if (appt.customerId) {
         await tx.customer.update({
@@ -692,7 +810,7 @@ class AppointmentsCommandService {
         });
       }
 
-      return updated;
+      return tx.appointment.findUniqueOrThrow({ where: { id } });
     });
   }
 }
