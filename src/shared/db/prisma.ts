@@ -52,6 +52,9 @@ const adapter = new PrismaPg({
   connectionTimeoutMillis: Number(
     process.env.DATABASE_CONNECTION_TIMEOUT_MS || 10_000,
   ),
+  // Test processes should be allowed to exit once every checked-out client is
+  // idle. Production keeps the default pooled-client behavior.
+  allowExitOnIdle: process.env.NODE_ENV === "test",
 });
 
 const basePrisma = new PrismaClient({ adapter });
