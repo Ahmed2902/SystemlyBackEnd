@@ -61,6 +61,7 @@ router.get("/", staffController.list);
 router.post(
   "/",
   validate.validateBody(createStaffSchema),
+  requireProtectedStaffFieldAccess,
   requireServiceIdsBodyAccess(),
   staffController.create,
 );
