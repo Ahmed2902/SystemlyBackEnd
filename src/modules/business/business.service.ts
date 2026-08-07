@@ -40,9 +40,7 @@ class BusinessService {
       throw buildErr("Invalid vertical", 400, "INVALID_VERTICAL");
     }
 
-    const user = await prisma.businessUser.findUnique({
-      where: { id: userId },
-    });
+    const user = await prisma.businessUser.findUnique({ where: { id: userId } });
     if (!user) throw buildErr("User not found", 404, "NOT_FOUND");
     if (user.businessId) {
       throw buildErr(
@@ -149,26 +147,58 @@ class BusinessService {
         websiteContent: true,
         services: {
           where: { isActive: true },
-          include: {
+          select: {
+            id: true,
+            name: true,
+            durationMin: true,
+            priceEgp: true,
+            description: true,
+            category: true,
             serviceStaff: {
               where: { staff: { isActive: true } },
               select: { staffId: true },
             },
           },
         },
-        staff: { where: { isActive: true } },
-        faqs: { orderBy: { displayOrder: "asc" } },
-        photos: { orderBy: { position: "asc" } },
+        staff: {
+          where: { isActive: true },
+          select: {
+            id: true,
+            name: true,
+            jobTitle: true,
+            yearsExperience: true,
+            bio: true,
+            photoUrl: true,
+          },
+        },
+        faqs: {
+          orderBy: { displayOrder: "asc" },
+          select: {
+            id: true,
+            question: true,
+            answer: true,
+            displayOrder: true,
+          },
+        },
+        photos: {
+          where: { kind: "gallery" },
+          orderBy: { position: "asc" },
+          select: {
+            id: true,
+            url: true,
+            type: true,
+            position: true,
+          },
+        },
       },
     });
     if (!business || !business.isActive) return null;
 
     return {
       ...business,
-      services: business.services.map((service) => ({
+      services: business.services.map(({ serviceStaff, ...service }) => ({
         ...service,
-        serviceStaff: undefined,
-        staffIds: service.serviceStaff.map((entry) => entry.staffId),
+        staffIds: serviceStaff.map((entry) => entry.staffId),
       })),
     };
   }

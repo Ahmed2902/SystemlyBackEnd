@@ -26,13 +26,14 @@ class FaqsService {
   }
 
   async reorderFaqs(items: ReorderFaqsBody) {
-    const ops = items.map((it) =>
-      prisma.faq.update({
-        where: { id: it.id },
-        data: { displayOrder: it.display_order },
-      })
+    return prisma.$transaction(
+      items.map((item) =>
+        prisma.faq.update({
+          where: { id: item.id },
+          data: { displayOrder: item.display_order },
+        }),
+      ),
     );
-    return prisma.$transaction(ops);
   }
 }
 

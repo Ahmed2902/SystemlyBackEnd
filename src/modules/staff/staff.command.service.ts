@@ -23,16 +23,6 @@ import staffWorkspaceService from "./staff.workspace.service";
 
 type AuthUser = NonNullable<Express.Request["user"]>;
 
-const buildError = (message: string, statusCode: number, code: string) => {
-  const error = new Error(message) as Error & {
-    statusCode: number;
-    code: string;
-  };
-  error.statusCode = statusCode;
-  error.code = code;
-  return error;
-};
-
 function staffPhotoFolder(businessId: string, staffId: string) {
   return `businesses/${businessId}/staff/${staffId}`;
 }
@@ -128,12 +118,6 @@ class StaffCommandService {
     businessId: string,
     contentType: string,
   ) {
-    const staff = await prisma.staff.findFirst({
-      where: { id: staffId, businessId },
-      select: { id: true },
-    });
-    if (!staff) throw buildError("Staff member not found", 404, "NOT_FOUND");
-
     const ticket = await createPublicImageUploadTicket({
       folder: staffPhotoFolder(businessId, staffId),
       contentType,
@@ -152,12 +136,6 @@ class StaffCommandService {
     objectPath: string,
     _ignoredClientUrl?: string,
   ) {
-    const staff = await prisma.staff.findFirst({
-      where: { id: staffId, businessId },
-      select: { id: true },
-    });
-    if (!staff) throw buildError("Staff member not found", 404, "NOT_FOUND");
-
     const uploaded = await confirmPublicImageUpload({
       folder: staffPhotoFolder(businessId, staffId),
       objectPath,
@@ -204,12 +182,6 @@ class StaffCommandService {
   }
 
   async removePhoto(staffId: string, businessId: string) {
-    const staff = await prisma.staff.findFirst({
-      where: { id: staffId, businessId },
-      select: { id: true },
-    });
-    if (!staff) throw buildError("Staff member not found", 404, "NOT_FOUND");
-
     const photos = await prisma.photo.findMany({
       where: { businessId, kind: "staff", type: staffId },
       select: { publicId: true },

@@ -1,58 +1,52 @@
 import type { NextFunction, Request, Response } from "express";
+import { ok } from "../../shared/utils/response.util";
 import faqsService from "./faqs.service";
-import { ok, fail } from "../../shared/utils/response.util";
 import {
   createFaqSchema,
-  updateFaqSchema,
   reorderFaqsSchema,
+  updateFaqSchema,
 } from "./faqs.schema";
 
 class FaqsController {
   async list(req: Request, res: Response, next: NextFunction) {
     try {
-      const businessId = (req as any).user?.businessId;
-      if (!businessId)
-        return fail(res, "Business id missing", 400, "BAD_REQUEST");
-      const data = await faqsService.listByBusiness(businessId);
-      return ok(res, data);
-    } catch (err) {
-      return next(err);
+      return ok(res, await faqsService.listByBusiness(req.user.businessId!));
+    } catch (error) {
+      return next(error);
     }
   }
 
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const businessId = (req as any).user?.businessId;
-      if (!businessId)
-        return fail(res, "Business id missing", 400, "BAD_REQUEST");
       const parsed = createFaqSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
-      const created = await faqsService.createFaq(businessId, parsed.data);
-      return ok(res, created);
-    } catch (err) {
-      return next(err);
+      return ok(
+        res,
+        await faqsService.createFaq(req.user.businessId!, parsed.data),
+      );
+    } catch (error) {
+      return next(error);
     }
   }
 
   async update(req: Request, res: Response, next: NextFunction) {
     try {
-      const id = String(req.params?.id);
       const parsed = updateFaqSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
-      const updated = await faqsService.updateFaq(id, parsed.data);
-      return ok(res, updated);
-    } catch (err) {
-      return next(err);
+      return ok(
+        res,
+        await faqsService.updateFaq(String(req.params.id), parsed.data),
+      );
+    } catch (error) {
+      return next(error);
     }
   }
 
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      const id = String(req.params?.id);
-      const deleted = await faqsService.deleteFaq(id);
-      return ok(res, deleted);
-    } catch (err) {
-      return next(err);
+      return ok(res, await faqsService.deleteFaq(String(req.params.id)));
+    } catch (error) {
+      return next(error);
     }
   }
 
@@ -60,10 +54,9 @@ class FaqsController {
     try {
       const parsed = reorderFaqsSchema.safeParse(req.body);
       if (!parsed.success) return next(parsed.error);
-      const result = await faqsService.reorderFaqs(parsed.data);
-      return ok(res, result);
-    } catch (err) {
-      return next(err);
+      return ok(res, await faqsService.reorderFaqs(parsed.data));
+    } catch (error) {
+      return next(error);
     }
   }
 }

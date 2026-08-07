@@ -1,10 +1,10 @@
 import { AppointmentStatus, Prisma, Roles } from "@prisma/client";
 import { DateTime } from "luxon";
+import { getCachedBusinessTimezone } from "../calendar/calendar.query.service";
 import { prisma } from "../../shared/db/prisma";
 import type { StaffDirectoryQuery } from "./staff.schema";
 import staffService from "./staff.service";
 import staffWorkspaceService from "./staff.workspace.service";
-import { getCachedBusinessTimezone } from "../calendar/calendar.query.service";
 
 type AuthUser = NonNullable<Express.Request["user"]>;
 
@@ -20,13 +20,6 @@ const ACTIVE_APPOINTMENT_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.confirmed,
   AppointmentStatus.in_progress,
 ];
-
-const buildError = (message: string, statusCode: number, code: string) => {
-  const error = new Error(message) as Error & { statusCode: number; code: string };
-  error.statusCode = statusCode;
-  error.code = code;
-  return error;
-};
 
 const canManageMoney = (role?: string) =>
   role === Roles.BusinessAdmin || role === Roles.SuperAdmin;
@@ -58,9 +51,8 @@ function applyDirectoryFilters(
 
 class StaffQueryService {
   async listDirectory(user: AuthUser, query: StaffDirectoryQuery) {
-    if (!user.businessId) throw buildError("Business id missing", 400, "BAD_REQUEST");
-
-    const baseWhere: Prisma.StaffWhereInput = { businessId: user.businessId };
+    const businessId = user.businessId!;
+    const baseWhere: Prisma.StaffWhereInput = { businessId };
     applyDirectoryFilters(baseWhere, query);
 
     if (query.view === "roster") {
@@ -73,9 +65,7 @@ class StaffQueryService {
           name: true,
           role: true,
           photoUrl: true,
-          serviceStaff: {
-            select: { serviceId: true },
-          },
+          serviceStaff: { select: { serviceId: true } },
         },
       });
 
@@ -91,10 +81,9 @@ class StaffQueryService {
     }
 
     const business = {
-      id: user.businessId,
-      timezone: await getCachedBusinessTimezone(user.businessId),
+      id: businessId,
+      timezone: await getCachedBusinessTimezone(businessId),
     };
-
     const ownerView = canManageMoney(user.role);
     const todayLocal = DateTime.now().setZone(business.timezone);
     const todayDate = new Date(`${todayLocal.toISODate()}T00:00:00.000Z`);
@@ -136,14 +125,22 @@ class StaffQueryService {
             where: { startsOn: { lte: todayDate }, endsOn: { gte: todayDate } },
             orderBy: { endsOn: "desc" },
             take: 1,
-            select: { id: true, type: true, label: true, startsOn: true, endsOn: true },
+            select: {
+              id: true,
+              type: true,
+              label: true,
+              startsOn: true,
+              endsOn: true,
+            },
           },
           serviceStaff: {
             orderBy: { service: { name: "asc" } },
             select: {
               commissionType: true,
               commissionAmount: true,
-              service: { select: { id: true, name: true, category: true, isActive: true } },
+              service: {
+                select: { id: true, name: true, category: true, isActive: true },
+              },
             },
           },
         },
@@ -191,7 +188,9 @@ class StaffQueryService {
     const metrics = metricRows[0];
     const items = members.map((member) => {
       const currentTimeOff = member.timeOff[0] ?? null;
-      const worksToday = member.availability.some((entry) => entry.dayOfWeek === dayOfWeek);
+      const worksToday = member.availability.some(
+        (entry) => entry.dayOfWeek === dayOfWeek,
+      );
       return {
         id: member.id,
         name: member.name,
@@ -270,12 +269,15 @@ class StaffQueryService {
     return staffService.listStaffBreaksForDate(businessId, date);
   }
 
-  async countUpcomingForStaff(staffId: string, businessId: string) {
+  countUpcomingForStaff(staffId: string, businessId: string) {
     return prisma.appointmentService.count({
       where: {
         staffId,
         endsAt: { gt: new Date() },
-        appointment: { businessId, status: { in: ACTIVE_APPOINTMENT_STATUSES } },
+        appointment: {
+          businessId,
+          status: { in: ACTIVE_APPOINTMENT_STATUSES },
+        },
       },
     });
   }

@@ -4,6 +4,10 @@ import {
   requireBusinessAccess,
 } from "../../shared/middleware/auth.middleware";
 import { requireSubscriptionAccess } from "../../shared/middleware/subscription-access.middleware";
+import {
+  requireFaqAccess,
+  requireFaqReorderAccess,
+} from "../../shared/middleware/tenant-resource.middleware";
 import validate from "../../shared/middleware/validate.middleware";
 import faqsController from "./faqs.controller";
 import {
@@ -24,13 +28,15 @@ router.post(
 );
 router.patch(
   "/:id",
+  requireFaqAccess,
   validate.validateBody(updateFaqSchema),
   faqsController.update,
 );
-router.delete("/:id", faqsController.remove);
+router.delete("/:id", requireFaqAccess, faqsController.remove);
 router.patch(
   "/reorder",
   validate.validateBody(reorderFaqsSchema),
+  requireFaqReorderAccess,
   faqsController.reorder,
 );
 
