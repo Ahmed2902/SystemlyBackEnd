@@ -7,7 +7,9 @@ import { requireBusinessAccessFor } from "../src/shared/middleware/auth.middlewa
 import {
   requireAvailabilityOverrideAccess,
   requireFaqAccess,
+  requireProtectedStaffFieldAccess,
   requireServiceBodyAccess,
+  requireServiceIdsBodyAccess,
   requireStaffAccess,
 } from "../src/shared/middleware/tenant-resource.middleware";
 
@@ -18,6 +20,7 @@ let faqAId: string;
 let faqBId: string;
 let staffAId: string;
 let staffBId: string;
+let serviceAId: string;
 let serviceBId: string;
 let overrideBId: string;
 
@@ -40,6 +43,7 @@ function requestFor(
   businessId: string,
   params: Record<string, string> = {},
   body: unknown = {},
+  role: Roles = Roles.BusinessAdmin,
 ): Request {
   return {
     params,
@@ -48,7 +52,7 @@ function requestFor(
     user: {
       id: "00000000-0000-0000-0000-000000000001",
       businessId,
-      role: Roles.BusinessAdmin,
+      role,
     },
   } as unknown as Request;
 }
@@ -96,7 +100,7 @@ beforeEach(async () => {
     },
   });
 
-  const [faqA, faqB, staffA, staffB, serviceB] = await Promise.all([
+  const [faqA, faqB, staffA, staffB, serviceA, serviceB] = await Promise.all([
     prisma.faq.create({
       data: {
         businessId: businessA.id,
@@ -132,6 +136,15 @@ beforeEach(async () => {
     }),
     prisma.service.create({
       data: {
+        businessId: businessA.id,
+        name: "Tenant A Service",
+        durationMin: 30,
+        priceEgp: 90,
+        isActive: true,
+      },
+    }),
+    prisma.service.create({
+      data: {
         businessId: businessB.id,
         name: "Tenant B Service",
         durationMin: 30,
@@ -145,6 +158,7 @@ beforeEach(async () => {
   faqBId = faqB.id;
   staffAId = staffA.id;
   staffBId = staffB.id;
+  serviceAId = serviceA.id;
   serviceBId = serviceB.id;
 
   await prisma.serviceStaff.create({
@@ -247,6 +261,44 @@ describe("tenant authorization middleware", () => {
       }),
     );
     expect(override.res.statusCode).toBe(404);
+  });
+
+  test("keeps protected staff fields and service ownership in middleware", async () => {
+    const protectedField = await runMiddleware(
+      requireProtectedStaffFieldAccess,
+      requestFor(
+        businessAId,
+        { id: staffAId },
+        { isActive: false },
+        Roles.Receptionist,
+      ),
+    );
+    expect(protectedField.res.statusCode).toBe(403);
+    expect(protectedField.next).not.toHaveBeenCalled();
+
+    const normalEdit = await runMiddleware(
+      requireProtectedStaffFieldAccess,
+      requestFor(
+        businessAId,
+        { id: staffAId },
+        { name: "Updated" },
+        Roles.Receptionist,
+      ),
+    );
+    expect(normalEdit.next).toHaveBeenCalledTimes(1);
+
+    const ownServices = await runMiddleware(
+      requireServiceIdsBodyAccess(),
+      requestFor(businessAId, {}, { serviceIds: [serviceAId] }),
+    );
+    expect(ownServices.next).toHaveBeenCalledTimes(1);
+
+    const foreignServices = await runMiddleware(
+      requireServiceIdsBodyAccess(),
+      requestFor(businessAId, {}, { serviceIds: [serviceBId] }),
+    );
+    expect(foreignServices.res.statusCode).toBe(404);
+    expect(foreignServices.next).not.toHaveBeenCalled();
   });
 });
 
