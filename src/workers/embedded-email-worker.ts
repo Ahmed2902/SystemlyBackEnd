@@ -1,5 +1,6 @@
 import { run } from "graphile-worker";
 import { captureException } from "../shared/observability/sentry";
+import { getPgWorkerConnectionString } from "../shared/config/database-connection";
 import taskList from "./task-list";
 
 export type EmailWorkerFatalHandler = (error: unknown) => void;
@@ -38,7 +39,7 @@ export class EmbeddedEmailWorker {
   private async startInternal(onFatal: EmailWorkerFatalHandler): Promise<void> {
     this.stopping = false;
     const runner = await run({
-      connectionString: resolveConnectionString(),
+      connectionString: getPgWorkerConnectionString(resolveConnectionString()),
       concurrency: 1,
       noHandleSignals: true,
       taskList,

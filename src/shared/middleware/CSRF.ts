@@ -22,7 +22,7 @@ function csrfCookieOptions(): CookieOptions {
     secure: APP_CONFIG.isProduction,
     sameSite: APP_CONFIG.isProduction ? "none" : "lax",
     maxAge: TOKEN_TTL_MS,
-    path: "/api/auth",
+    path: "/",
   };
 }
 
@@ -82,6 +82,8 @@ function hasAllowedOrigin(req: Request): boolean {
 export function issueCsrfToken(_req: Request, res: Response) {
   const token = createCsrfToken();
   res.set("Cache-Control", "no-store");
+  // Remove tokens issued by the previous /api/auth-scoped cookie policy.
+  res.clearCookie(CSRF_COOKIE_NAME, { path: "/api/auth" });
   res.cookie(CSRF_COOKIE_NAME, token, csrfCookieOptions());
   return ok(res, { csrfToken: token });
 }

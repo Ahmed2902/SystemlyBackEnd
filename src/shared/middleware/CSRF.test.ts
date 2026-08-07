@@ -18,6 +18,7 @@ import {
 function responseDouble() {
   const response = {
     cookie: jest.fn(),
+    clearCookie: jest.fn(),
     set: jest.fn(),
     status: jest.fn(),
     json: jest.fn(),

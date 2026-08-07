@@ -1,4 +1,5 @@
 import { makeWorkerUtils, WorkerUtils } from "graphile-worker";
+import { getPgWorkerConnectionString } from "../shared/config/database-connection";
 
 let workerUtils: WorkerUtils | null = null;
 let workerUtilsPromise: Promise<WorkerUtils> | null = null;
@@ -36,7 +37,7 @@ export async function getWorkerUtils(): Promise<WorkerUtils> {
 
   if (!workerUtilsPromise) {
     workerUtilsPromise = makeWorkerUtils({
-      connectionString: getConnectionString(),
+      connectionString: getPgWorkerConnectionString(getConnectionString()),
     })
       .then((utils) => {
         workerUtils = utils;
