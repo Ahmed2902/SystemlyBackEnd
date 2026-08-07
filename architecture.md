@@ -64,11 +64,13 @@ Recurring business hours are wall-clock rules in the business timezone. They are
 
 For a concrete appointment:
 
-1. interpret local input in the stored business timezone
-2. validate availability/conflicts in that business timezone
+1. interpret a timestamp without an offset as local time in the stored business timezone; a timestamp with `Z` or an explicit offset is already an absolute instant
+2. validate availability/conflicts in the business timezone
 3. convert the resulting segment instants to UTC
 4. persist UTC timestamps
 5. convert back to business-local time for presentation
+
+The browser/client timezone cannot override the business scheduling timezone. Public booking, manual scheduling, and rescheduling follow this same contract.
 
 PostgreSQL transaction-scoped advisory locks serialize competing bookings for the same staff/business day.
 
@@ -77,11 +79,14 @@ PostgreSQL transaction-scoped advisory locks serialize competing bookings for th
 `Customer.visitCount` means completed appointments only.
 
 - first transition to `completed` => increment once
-- repeated completion => no-op
+- repeated or concurrent completion => no additional increment
 - revert/void from `completed` => decrement once
+- repeated or concurrent revert/void => no additional decrement
 - pending, confirmed, in-progress, canceled, no-show and uncancel do not affect visit count
 
-Public customer cancellation is limited to valid future booking states and is idempotent.
+Appointment state changes use guarded compare-and-set updates inside the existing PostgreSQL transactions. Counter side effects run only for the request that actually wins the corresponding status transition.
+
+Public customer cancellation is limited to valid future booking states, race-safe, and idempotent.
 
 ## 6. Authentication
 
