@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
-import { v4 as uuidv4 } from "uuid";
 import { JWT } from "../config/config";
 
 type JwtSignOptions = Readonly<{
@@ -69,7 +68,7 @@ export function hashOpaqueToken(token: string): string {
 
 export const generateEmailToken = generateOpaqueToken;
 
-export const generateCancelToken = (): string => uuidv4();
+export const generateCancelToken = (): string => crypto.randomUUID();
 
 export function signAccessToken(payload: object): string {
   return jwt.sign(payload, JWT.SECRET, ACCESS_OPTIONS);
