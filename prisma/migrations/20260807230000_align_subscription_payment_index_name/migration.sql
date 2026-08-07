@@ -1,0 +1,2 @@
+ALTER INDEX "subscription_payments_provider_payment_id_key"
+  RENAME TO "subscription_payments_provider_provider_payment_id_key";
