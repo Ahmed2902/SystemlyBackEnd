@@ -74,7 +74,7 @@ async function createAppointmentFixture(status: AppointmentStatus) {
       status,
     },
   });
-  return { business, customer, appointment };
+  return { business, staff, customer, appointment };
 }
 
 function onboardingInput(slug: string): CompleteOnboardingInput {
@@ -116,8 +116,15 @@ function onboardingInput(slug: string): CompleteOnboardingInput {
 
 afterEach(async () => {
   if (createdBusinessIds.length > 0) {
+    const businessIds = createdBusinessIds.splice(0);
+    await prisma.appointmentService.deleteMany({
+      where: { appointment: { businessId: { in: businessIds } } },
+    });
+    await prisma.appointment.deleteMany({
+      where: { businessId: { in: businessIds } },
+    });
     await prisma.business.deleteMany({
-      where: { id: { in: createdBusinessIds.splice(0) } },
+      where: { id: { in: businessIds } },
     });
   }
   if (createdUserIds.length > 0) {
@@ -162,9 +169,19 @@ describe("booking lifecycle correctness", () => {
   });
 
   test("visitCount changes exactly once on completion and completed revert", async () => {
-    const { business, customer, appointment } = await createAppointmentFixture(
-      AppointmentStatus.confirmed,
-    );
+    const { business, staff, customer, appointment } =
+      await createAppointmentFixture(AppointmentStatus.confirmed);
+
+    await prisma.appointment.create({
+      data: {
+        businessId: business.id,
+        staffId: staff.id,
+        customerId: customer.id,
+        startsAt: new Date("2029-12-01T10:00:00.000Z"),
+        endsAt: new Date("2029-12-01T10:30:00.000Z"),
+        status: AppointmentStatus.completed,
+      },
+    });
 
     await appointmentsCommandService.finishAppointment(
       appointment.id,
