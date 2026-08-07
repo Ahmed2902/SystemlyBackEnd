@@ -1,5 +1,4 @@
 import { prisma } from "../../shared/db/prisma";
-import crypto from "crypto";
 import {
   Roles,
   AppointmentStatus,
@@ -16,7 +15,6 @@ import type {
 import { getBusinessDayRange } from "../../shared/utils/timezone";
 import { isModuleEnabled } from "../../shared/config/verticals.config";
 import { createAppointmentCore } from "../../shared/services/scheduling/appointment-core.service";
-import Supabase from "../../shared/services/Supabase.Service";
 import {
   getOwnedAppointmentOrThrow,
   assertEditable,
@@ -286,162 +284,6 @@ class AppointmentsCommandService {
     return appointment ? withCurrentInvoice(appointment) : null;
   }
 
-  // #Region Photos
-  async createProgressPhotoUploadTicket(
-    appointmentId: string,
-    businessId: string,
-    contentType: string,
-    type: "before" | "after" | "progress" = "progress",
-  ) {
-    const appointment = await getOwnedAppointmentOrThrow(
-      prisma,
-      appointmentId,
-      businessId,
-      { business: true },
-    );
-
-    if (
-      !isModuleEnabled(appointment.business.vertical ?? "", "appointmentPhotos")
-    ) {
-      throw invalidStateError(
-        "Appointment photos are not enabled for this business",
-        "MODULE_DISABLED",
-      );
-    }
-
-    const extensions: Record<string, string> = {
-      "image/jpeg": "jpg",
-      "image/png": "png",
-      "image/webp": "webp",
-      "image/avif": "avif",
-    };
-    const extension = extensions[contentType];
-    if (!extension) {
-      throw invalidStateError("Unsupported image type", "INVALID_FILE_TYPE");
-    }
-    const publicId = `appointments/${businessId}/${appointmentId}/${crypto.randomUUID()}.${extension}`;
-    const upload = await Supabase.getUploadUrl(publicId, contentType);
-    return { ...upload, publicId, type };
-  }
-
-  async confirmProgressPhotoUpload(
-    appointmentId: string,
-    businessId: string,
-    publicId: string,
-    type: "before" | "after" | "progress" = "progress",
-  ) {
-    const appointment = await getOwnedAppointmentOrThrow(
-      prisma,
-      appointmentId,
-      businessId,
-      { business: true },
-    );
-    if (
-      !isModuleEnabled(appointment.business.vertical ?? "", "appointmentPhotos")
-    ) {
-      throw invalidStateError(
-        "Appointment photos are not enabled for this business",
-        "MODULE_DISABLED",
-      );
-    }
-    const prefix = `appointments/${businessId}/${appointmentId}/`;
-    if (!publicId.startsWith(prefix)) {
-      throw invalidStateError(
-        "Invalid appointment photo path",
-        "INVALID_FILE_PATH",
-      );
-    }
-    const url = Supabase.getPublicUrl(publicId);
-
-    try {
-      return await prisma.$transaction(async (tx) => {
-        const photo = await tx.photo.create({
-          data: {
-            businessId,
-            url,
-            publicId,
-            kind: "appointment",
-            type,
-          },
-        });
-
-        const appointmentPhoto = await tx.appointmentPhoto.create({
-          data: {
-            appointmentId,
-            photoId: photo.id,
-            type,
-          },
-          include: {
-            photo: true,
-          },
-        });
-
-        return appointmentPhoto;
-      });
-    } catch (error) {
-      await Supabase.deleteFile(publicId);
-      throw error;
-    }
-  }
-
-  async listAppointmentPhotos(appointmentId: string, businessId: string) {
-    await getOwnedAppointmentOrThrow(prisma, appointmentId, businessId);
-
-    return prisma.appointmentPhoto.findMany({
-      where: {
-        appointmentId,
-      },
-      include: {
-        photo: true,
-      },
-      orderBy: {
-        createdAt: "asc",
-      },
-    });
-  }
-
-  async deleteAppointmentPhoto(
-    appointmentId: string,
-    businessId: string,
-    appointmentPhotoId: string,
-  ) {
-    await getOwnedAppointmentOrThrow(prisma, appointmentId, businessId);
-
-    const row = await prisma.appointmentPhoto.findUnique({
-      where: {
-        id: appointmentPhotoId,
-      },
-      include: {
-        photo: true,
-      },
-    });
-
-    if (!row || row.appointmentId !== appointmentId) {
-      throw notFoundError("Appointment photo not found");
-    }
-
-    await prisma.$transaction(async (tx) => {
-      await tx.appointmentPhoto.delete({
-        where: {
-          id: appointmentPhotoId,
-        },
-      });
-
-      await tx.photo.delete({
-        where: {
-          id: row.photoId,
-        },
-      });
-    });
-
-    if (row.photo.publicId) {
-      await Supabase.deleteFile(row.photo.publicId);
-    }
-
-    return { success: true };
-  }
-
-  // #EndRegion Photos
   async updateAppointment(
     id: string,
     businessId: string,
@@ -581,10 +423,10 @@ class AppointmentsCommandService {
       });
 
       await Promise.all(
-        newSegments.map((s) =>
+        newSegments.map((segment) =>
           tx.appointmentService.update({
-            where: { id: s.id },
-            data: { startsAt: s.start, endsAt: s.end },
+            where: { id: segment.id },
+            data: { startsAt: segment.start, endsAt: segment.end },
           }),
         ),
       );
@@ -594,52 +436,9 @@ class AppointmentsCommandService {
         data: {
           startsAt: newSegments[0].start,
           endsAt: newSegments[newSegments.length - 1].end,
-          reminderSent: false,
-          confirmationSent: false,
         },
       });
     });
-  }
-
-  async markNoShows(bufferMin = 30) {
-    const cutoff = new Date(Date.now() - bufferMin * 60 * 1000);
-
-    const appointments = await prisma.appointment.findMany({
-      where: { status: "confirmed", endsAt: { lt: cutoff } },
-      select: { id: true, customerId: true },
-    });
-
-    if (!appointments.length) {
-      console.log("[NoShowJob] No-show job: 0 appointments to process");
-      return { count: 0 };
-    }
-
-    const ids = appointments.map((a) => a.id);
-    const updated = await prisma.appointment.updateMany({
-      where: { id: { in: ids } },
-      data: { status: AppointmentStatus.no_show },
-    });
-
-    const customerCounts = appointments.reduce(
-      (acc: Record<string, number>, appt) => {
-        if (!appt.customerId) return acc;
-        acc[appt.customerId] = (acc[appt.customerId] || 0) + 1;
-        return acc;
-      },
-      {},
-    );
-
-    for (const [customerId, count] of Object.entries(customerCounts)) {
-      await prisma.customer.update({
-        where: { id: customerId },
-        data: { noShowCount: { increment: count } },
-      });
-    }
-
-    console.log(
-      `[NoShowJob] No-show job: ${updated.count} appointments marked as no_show`,
-    );
-    return { count: updated.count };
   }
 
   async finishAppointment(
