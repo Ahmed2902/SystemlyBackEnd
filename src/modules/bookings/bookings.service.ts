@@ -1,19 +1,17 @@
-import { DateTime } from "luxon";
+import { AppointmentStatus } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
 import { createAppointmentCore } from "../../shared/services/scheduling/appointment-core.service";
 import { buildAvailabilitySlots } from "../../shared/services/scheduling/availability-slots.service";
-import { notFoundError } from "../appointments/appointments.helper";
+import {
+  invalidStateError,
+  notFoundError,
+} from "../appointments/appointments.helper";
 import {
   findPublicBusinessGateById,
   requirePublicFeature,
 } from "../subscriptions/public-subscription-access.service";
 import { ENTITLEMENTS } from "../subscriptions/subscription.catalog";
 import type { AvailabilityQuery, CreateBookingBody } from "./bookings.schema";
-
-const CANCEL_TTL_DAYS = parseInt(
-  process.env.BOOKING_CANCEL_TTL_DAYS || "30",
-  10,
-);
 
 async function requireBookableBusiness(businessId: string) {
   const business = await findPublicBusinessGateById(businessId);
@@ -23,93 +21,90 @@ async function requireBookableBusiness(businessId: string) {
 
 class BookingsService {
   async getAvailability(opts: AvailabilityQuery) {
-    const { businessId, services: selections, date, timezone } = opts;
+    const { businessId, services: selections, date } = opts;
     const business = await requireBookableBusiness(businessId);
-    const effectiveTimezone = timezone || business.timezone || "UTC";
+    const timezone = business.timezone || "UTC";
 
     return buildAvailabilitySlots({
       businessId,
       date,
-      timezone: effectiveTimezone,
+      timezone,
       selections,
     });
   }
 
-  getByCancelToken(token: string) {
-    return prisma.appointment.findUnique({
-      where: { cancelToken: token } as any,
-    });
-  }
-
   async cancelByToken(token: string) {
-    const appointment = await prisma.appointment.findUnique({
-      where: { cancelToken: token } as any,
-      include: { customer: true },
-    });
-    if (!appointment) {
-      const error = new Error("Not found") as Error & {
-        statusCode?: number;
-      };
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const createdAt = DateTime.fromJSDate(appointment.createdAt, {
-      zone: "utc",
-    });
-    if (
-      createdAt.plus({ days: CANCEL_TTL_DAYS }).toMillis() <
-      DateTime.utc().toMillis()
-    ) {
-      const error = new Error("Cancel link expired") as Error & {
-        statusCode?: number;
-      };
-      error.statusCode = 410;
-      throw error;
-    }
-
     return prisma.$transaction(async (tx) => {
-      const updated = await tx.appointment.update({
-        where: { id: appointment.id },
-        data: { status: "cancelled_by_customer" } as any,
+      const appointment = await tx.appointment.findUnique({
+        where: { cancelToken: token },
       });
+      if (!appointment) throw notFoundError("Booking not found");
+
+      if (appointment.status === AppointmentStatus.cancelled_by_customer) {
+        return appointment;
+      }
 
       if (
-        appointment.customerId &&
-        appointment.customer &&
-        appointment.customer.visitCount > 0
+        appointment.status !== AppointmentStatus.pending &&
+        appointment.status !== AppointmentStatus.confirmed
       ) {
-        await tx.customer.update({
-          where: { id: appointment.customerId },
-          data: { visitCount: { decrement: 1 } },
+        throw invalidStateError(
+          "This appointment can no longer be cancelled by the customer",
+          "INVALID_APPOINTMENT_STATE",
+          409,
+        );
+      }
+
+      if (appointment.startsAt.getTime() <= Date.now()) {
+        throw invalidStateError(
+          "The cancellation window has closed",
+          "CANCELLATION_CLOSED",
+          410,
+        );
+      }
+
+      const transitioned = await tx.appointment.updateMany({
+        where: {
+          id: appointment.id,
+          status: appointment.status,
+        },
+        data: { status: AppointmentStatus.cancelled_by_customer },
+      });
+      if (transitioned.count === 1) {
+        return tx.appointment.findUniqueOrThrow({
+          where: { id: appointment.id },
         });
       }
 
-      return updated;
+      const current = await tx.appointment.findUniqueOrThrow({
+        where: { id: appointment.id },
+      });
+      if (current.status === AppointmentStatus.cancelled_by_customer) {
+        return current;
+      }
+      throw invalidStateError(
+        "This appointment can no longer be cancelled by the customer",
+        "INVALID_APPOINTMENT_STATE",
+        409,
+      );
     });
   }
 
   async createBooking(payload: CreateBookingBody) {
-    const { businessId, services: selections, startsAt, timezone } = payload;
-    await requireBookableBusiness(businessId);
-
-    const business = await prisma.business.findUnique({
-      where: { id: businessId },
-    });
-    if (!business) throw notFoundError("Business not found");
+    const { businessId, services: selections, startsAt } = payload;
+    const business = await requireBookableBusiness(businessId);
 
     return prisma.$transaction((tx) =>
       createAppointmentCore(tx, business, {
         businessId,
         selections,
         startsAt,
-        timezone,
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,
         notes: payload.notes,
         bookingChannel: "WEBSITE",
         acquisitionSource: payload.acquisitionSource,
-        status: "pending",
+        status: "confirmed",
         generateToken: true,
       }),
     );

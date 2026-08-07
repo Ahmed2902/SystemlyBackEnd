@@ -260,7 +260,6 @@ describe("public website and booking integration", () => {
         businessId: business.id,
         services: [{ serviceId: "service-1" }],
         date: "2026-08-20",
-        timezone: "Africa/Cairo",
       }),
     ).rejects.toMatchObject({
       statusCode: 503,
@@ -272,7 +271,6 @@ describe("public website and booking integration", () => {
         businessId: business.id,
         services: [{ serviceId: "service-1" }],
         startsAt: "2026-08-20T09:00:00.000Z",
-        timezone: "Africa/Cairo",
         customerName: "Blocked Customer",
         customerPhone: "01000000000",
       }),

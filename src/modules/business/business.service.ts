@@ -1,4 +1,4 @@
-import { Roles } from "@prisma/client";
+import { Prisma, Roles } from "@prisma/client";
 import {
   getVerticalConfig,
   isValidVertical,
@@ -40,21 +40,29 @@ class BusinessService {
       throw buildErr("Invalid vertical", 400, "INVALID_VERTICAL");
     }
 
-    const user = await prisma.businessUser.findUnique({ where: { id: userId } });
-    if (!user) throw buildErr("User not found", 404, "NOT_FOUND");
-    if (user.businessId) {
-      throw buildErr(
-        "User already has a business",
-        409,
-        "ALREADY_HAS_BUSINESS",
-      );
-    }
-
     if (await this.isSlugTaken(payload.slug)) {
       throw buildErr("Slug already taken", 409, "SLUG_TAKEN");
     }
 
     const result = await prisma.$transaction(async (tx) => {
+      const [lockedUser] = await tx.$queryRaw<
+        Array<{ businessId: string | null }>
+      >(Prisma.sql`
+        SELECT business_id AS "businessId"
+        FROM business_users
+        WHERE id = CAST(${userId} AS uuid)
+        FOR UPDATE
+      `);
+
+      if (!lockedUser) throw buildErr("User not found", 404, "NOT_FOUND");
+      if (lockedUser.businessId) {
+        throw buildErr(
+          "User already has a business",
+          409,
+          "ALREADY_HAS_BUSINESS",
+        );
+      }
+
       const business = await tx.business.create({
         data: payload,
         include: { websiteContent: true },

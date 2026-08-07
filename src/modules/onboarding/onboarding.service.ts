@@ -1,4 +1,4 @@
-import { CommissionType, Roles } from "@prisma/client";
+import { CommissionType, Prisma, Roles } from "@prisma/client";
 import { startLifetimeTrial } from "../subscriptions/subscription.service";
 import { prisma } from "../../shared/db/prisma";
 import { CompleteOnboardingInput } from "./onboarding.schema";
@@ -23,18 +23,27 @@ const toTimeDate = (hhmm: string) =>
 
 class OnboardingService {
   async completeOnboarding(userId: string, input: CompleteOnboardingInput) {
-    const user = await prisma.businessUser.findUnique({ where: { id: userId } });
-    if (!user) throw buildErr("User not found", 404, "NOT_FOUND");
-    if (user.businessId) {
-      throw buildErr("Business already exists for this user", 409, "CONFLICT");
-    }
-
     const slugTaken = await prisma.business.findUnique({
       where: { slug: input.slug },
+      select: { id: true },
     });
     if (slugTaken) throw buildErr("Slug already taken", 409, "SLUG_TAKEN");
 
     return prisma.$transaction(async (tx) => {
+      const [lockedUser] = await tx.$queryRaw<
+        Array<{ businessId: string | null }>
+      >(Prisma.sql`
+        SELECT business_id AS "businessId"
+        FROM business_users
+        WHERE id = CAST(${userId} AS uuid)
+        FOR UPDATE
+      `);
+
+      if (!lockedUser) throw buildErr("User not found", 404, "NOT_FOUND");
+      if (lockedUser.businessId) {
+        throw buildErr("Business already exists for this user", 409, "CONFLICT");
+      }
+
       const business = await tx.business.create({
         data: {
           name: input.name,

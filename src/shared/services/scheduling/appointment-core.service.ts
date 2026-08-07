@@ -24,7 +24,6 @@ export interface CreateAppointmentCoreParams {
   businessId: string;
   selections: ServiceSelection[];
   startsAt: string;
-  timezone?: string;
   customerName: string;
   customerPhone: string;
   notes?: string;
@@ -68,11 +67,10 @@ export async function scheduleServiceSegments(
   }
 
   const serviceById = new Map(services.map((service) => [service.id, service]));
-  let segmentStart: DateTime = /(?:Z|[+-]\d\d:\d\d)$/.test(startsAt)
-    ? DateTime.fromJSDate(new Date(startsAt)).setZone(timezone)
-    : DateTime.fromJSDate(toUtcFromBusinessTime(startsAt, timezone)).setZone(
-        timezone,
-      );
+  const startInstant = toUtcFromBusinessTime(startsAt, timezone);
+  let segmentStart: DateTime<boolean> = DateTime.fromJSDate(startInstant).setZone(
+    timezone,
+  );
 
   if (!segmentStart.isValid) {
     throw schedulingError("Invalid appointment start time", 400, "INVALID_DATE");
@@ -114,7 +112,7 @@ export async function scheduleServiceSegments(
     const service = serviceById.get(selection.serviceId);
     if (!service) throw schedulingError("Service not found", 404);
 
-    const segmentEnd: DateTime = segmentStart.plus({
+    const segmentEnd: DateTime<boolean> = segmentStart.plus({
       minutes: service.durationMin,
     });
     const assignedStaff = eligibleBySelection[index].find((staffId) =>
@@ -132,8 +130,8 @@ export async function scheduleServiceSegments(
     segments.push({
       serviceId: selection.serviceId,
       staffId: assignedStaff,
-      start: segmentStart.toJSDate(),
-      end: segmentEnd.toJSDate(),
+      start: segmentStart.toUTC().toJSDate(),
+      end: segmentEnd.toUTC().toJSDate(),
       durationMin: service.durationMin,
       priceEgp: Number(service.priceEgp),
     });
@@ -148,7 +146,7 @@ export async function createAppointmentCore(
   business: { id: string; timezone?: string | null },
   params: CreateAppointmentCoreParams,
 ) {
-  const timezone = params.timezone || business.timezone || "UTC";
+  const timezone = business.timezone || "UTC";
   const segments = await scheduleServiceSegments(
     tx,
     params.selections,
@@ -158,7 +156,7 @@ export async function createAppointmentCore(
   );
 
   const customer = await upsertCustomer(tx, {
-    businessId: params.businessId,
+    businessId: business.id,
     phone: params.customerPhone,
     name: params.customerName,
     acquisitionSource: params.acquisitionSource,
@@ -166,7 +164,7 @@ export async function createAppointmentCore(
 
   const appointment = await tx.appointment.create({
     data: {
-      businessId: params.businessId,
+      businessId: business.id,
       staffId: segments[0].staffId,
       customerId: customer.id,
       startsAt: segments[0].start,
