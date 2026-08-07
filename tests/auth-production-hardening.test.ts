@@ -45,7 +45,7 @@ describe("auth production hardening", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    mockedAxiosPost.mockReset();
     process.env.GOOGLE_CLIENT_ID = "google-client-id";
     process.env.GOOGLE_CLIENT_SECRET = "google-client-secret";
     process.env.GOOGLE_REDIRECT_URI =
