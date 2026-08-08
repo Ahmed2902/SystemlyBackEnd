@@ -56,6 +56,10 @@ export async function enqueueSendEmail(
   const job = emailJobSchema.parse({ ...parsed, idempotencyKey });
 
   if (getEmailDeliveryMode() === "inline") {
+    if (typeof options.delayMs === "number" && options.delayMs > 0) {
+      throw new Error("Delayed email jobs require EMAIL_DELIVERY_MODE=worker");
+    }
+
     await sendEmailTask(job);
     return { id: null, deliveryMode: "inline" as const };
   }
