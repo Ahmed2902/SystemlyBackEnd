@@ -9,6 +9,7 @@ import express, { Application } from "express";
 import helmet from "helmet";
 import * as promClient from "prom-client";
 import routes from "./src/routes";
+import { getEmailDeliveryMode } from "./src/queues/emailQueue";
 import { APP_CONFIG } from "./src/shared/config/config";
 import { prisma } from "./src/shared/db/prisma";
 import {
@@ -82,16 +83,30 @@ app.get("/health/ready", async (_req, res) => {
   res.set("Cache-Control", "no-store");
   try {
     await prisma.$queryRaw`SELECT 1`;
-    if (!embeddedEmailWorker.isReady()) {
+    const emailDeliveryMode = getEmailDeliveryMode();
+
+    if (
+      emailDeliveryMode === "worker" &&
+      !embeddedEmailWorker.isReady()
+    ) {
       return res.status(503).json({
         status: "not_ready",
-        components: { database: "ready", emailWorker: "not_ready" },
+        components: {
+          database: "ready",
+          emailDelivery: "worker",
+          emailWorker: "not_ready",
+        },
       });
     }
 
     return res.status(200).json({
       status: "ready",
-      components: { database: "ready", emailWorker: "ready" },
+      components: {
+        database: "ready",
+        emailDelivery: emailDeliveryMode,
+        emailWorker:
+          emailDeliveryMode === "worker" ? "ready" : "not_applicable",
+      },
     });
   } catch (error) {
     console.error("Readiness check failed", error);

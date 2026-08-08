@@ -34,6 +34,7 @@ const environmentSchema = z
     GOOGLE_REDIRECT_URI: z.string().url().optional(),
     RESEND_API_KEY: z.string().optional(),
     EMAIL_FROM: z.string().optional(),
+    EMAIL_DELIVERY_MODE: z.enum(["inline", "worker"]).optional(),
     SENTRY_DSN: z.string().url().optional(),
     SUPABASE_URL: z.string().url().optional(),
     SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),

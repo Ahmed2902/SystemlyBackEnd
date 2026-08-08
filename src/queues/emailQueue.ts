@@ -1,11 +1,30 @@
 import crypto from "node:crypto";
-import { getWorkerUtils } from "./queue";
+import { sendEmailTask } from "../workers/email.worker";
 import { emailJobSchema, type EmailJob } from "../workers/email-job.schema";
+import { getWorkerUtils } from "./queue";
 
 export interface EmailJobOptions {
   attempts?: number;
   delayMs?: number;
   idempotencyKey?: string;
+}
+
+export type EmailDeliveryMode = "inline" | "worker";
+
+export function getEmailDeliveryMode(): EmailDeliveryMode {
+  const configured = process.env.EMAIL_DELIVERY_MODE?.trim().toLowerCase();
+  if (configured === "inline" || configured === "worker") return configured;
+  if (configured) {
+    throw new Error(
+      'EMAIL_DELIVERY_MODE must be either "inline" or "worker"',
+    );
+  }
+
+  // Vercel functions do not execute server.ts, so the long-lived embedded
+  // Graphile Worker is never started there. Deliver synchronously using the
+  // same task/provider implementation instead of persisting jobs that have no
+  // consumer. Long-lived/container runtimes keep the durable worker default.
+  return process.env.VERCEL === "1" ? "inline" : "worker";
 }
 
 function stableIdempotencyKey(job: EmailJob, explicit?: string): string {
@@ -19,7 +38,12 @@ function stableIdempotencyKey(job: EmailJob, explicit?: string): string {
   return `systemly-email-${hash}`;
 }
 
-/** Persist an email job before the HTTP request is acknowledged. */
+/**
+ * Dispatch an email using the runtime-appropriate delivery mode.
+ *
+ * Long-lived runtimes persist the job before acknowledging the HTTP request.
+ * Vercel delivers inline because there is no persistent worker process there.
+ */
 export async function enqueueSendEmail(
   input: unknown,
   options: EmailJobOptions = {},
@@ -30,8 +54,17 @@ export async function enqueueSendEmail(
     options.idempotencyKey,
   );
   const job = emailJobSchema.parse({ ...parsed, idempotencyKey });
-  const workerUtils = await getWorkerUtils();
 
+  if (getEmailDeliveryMode() === "inline") {
+    if (typeof options.delayMs === "number" && options.delayMs > 0) {
+      throw new Error("Delayed email jobs require EMAIL_DELIVERY_MODE=worker");
+    }
+
+    await sendEmailTask(job);
+    return { id: null, deliveryMode: "inline" as const };
+  }
+
+  const workerUtils = await getWorkerUtils();
   return workerUtils.addJob("send_email", job, {
     jobKey: `email:${idempotencyKey}`,
     maxAttempts: options.attempts ?? 5,
@@ -80,5 +113,7 @@ export async function enqueueEmailJob(
 }
 
 export async function initEmailQueue() {
-  await getWorkerUtils();
+  if (getEmailDeliveryMode() === "worker") {
+    await getWorkerUtils();
+  }
 }
