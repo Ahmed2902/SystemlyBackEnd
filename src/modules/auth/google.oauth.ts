@@ -30,9 +30,17 @@ const refreshCookieOptions = {
 };
 
 function getGoogleRedirectUri() {
+  const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+
+  // Production has one canonical backend origin. Deriving the callback from it
+  // prevents a stale GOOGLE_REDIRECT_URI from sending users back to localhost.
+  if (process.env.NODE_ENV === "production") {
+    if (!appUrl) throw new Error("APP_URL is required for Google OAuth in production");
+    return `${appUrl}/api/auth/oauth/google/callback`;
+  }
+
   if (process.env.GOOGLE_REDIRECT_URI) return process.env.GOOGLE_REDIRECT_URI;
-  const appUrl = process.env.APP_URL || "http://localhost:3000";
-  return `${appUrl.replace(/\/$/, "")}/api/auth/oauth/google/callback`;
+  return `${appUrl || "http://localhost:3000"}/api/auth/oauth/google/callback`;
 }
 
 function getRequiredGoogleConfig() {
