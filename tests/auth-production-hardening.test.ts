@@ -50,6 +50,7 @@ describe("auth production hardening", () => {
     process.env.GOOGLE_CLIENT_SECRET = "google-client-secret";
     process.env.GOOGLE_REDIRECT_URI =
       "https://api.systemly.test/api/auth/oauth/google/callback";
+    process.env.APP_URL = "https://api.systemly.test";
     process.env.FRONTEND_URL = "https://app.systemly.test";
   });
 
@@ -105,6 +106,22 @@ describe("auth production hardening", () => {
         expect.objectContaining({ httpOnly: true, sameSite: "lax" }),
       );
     }
+  });
+
+  test("production Google redirect derives callback from APP_URL instead of a stale localhost override", () => {
+    process.env.NODE_ENV = "production";
+    process.env.APP_URL = "https://api.systemly.test";
+    process.env.GOOGLE_REDIRECT_URI =
+      "http://localhost:3003/api/auth/oauth/google/callback";
+    const res = responseDouble();
+
+    googleRedirect({} as Request, res);
+
+    const redirectUrl = (res.redirect as jest.Mock).mock.calls[0][0] as string;
+    const parsed = new URL(redirectUrl);
+    expect(parsed.searchParams.get("redirect_uri")).toBe(
+      "https://api.systemly.test/api/auth/oauth/google/callback",
+    );
   });
 
   test("Google callback rejects state that is not bound to the browser", async () => {
