@@ -26,12 +26,6 @@ enum Roles {
   User
 }
 
-enum NotificationChannel {
-  SMS
-  EMAIL
-  WHATSAPP
-}
-
 enum CommissionType {
   NONE
   FLAT
@@ -404,8 +398,6 @@ model Appointment {
   endsAt              DateTime          @map("ends_at")
   status              AppointmentStatus @default(pending)
   bookingChannel      BookingChannel    @default(UNKNOWN) @map("booking_channel")
-  reminderSent        Boolean           @default(false) @map("reminder_sent")
-  confirmationSent    Boolean           @default(false) @map("confirmation_sent")
   cancelToken         String            @unique @default(uuid()) @map("cancel_token") @db.Uuid
   notes               String?           @db.Text
   createdAt           DateTime          @default(now()) @map("created_at")
@@ -417,7 +409,6 @@ model Appointment {
   staff               Staff             @relation(fields: [staffId], references: [id], onDelete: Restrict)
   customItems         AppointmentCustomItem[]
   appointmentServices AppointmentService[]
-  notificationLogs    NotificationLog[]
   invoices            Invoice[]
   appointmentPhotos   AppointmentPhoto[]
   clinicVisitRecord   ClinicVisitRecord?
@@ -658,8 +649,6 @@ model Invoice {
   paidByUserId        String?              @map("paid_by_user_id") @db.Uuid
   voidedByUserId      String?              @map("voided_by_user_id") @db.Uuid
   voidReason          String?              @map("void_reason") @db.Text
-  etaReceiptUid       String?              @map("eta_receipt_uid") @db.VarChar(255)
-  etaSubmittedAt      DateTime?            @map("eta_submitted_at")
   createdAt           DateTime             @default(now()) @map("created_at")
   updatedAt           DateTime             @updatedAt
   discountCents       Int                  @default(0) @map("discount_cents")
@@ -720,22 +709,6 @@ model InvoiceLineItem {
   @@map("invoice_line_items")
 }
 
-model NotificationLog {
-  id            String              @id @default(uuid()) @db.Uuid
-  appointmentId String?             @map("appointment_id") @db.Uuid
-  phone         String              @db.VarChar(30)
-  channel       NotificationChannel
-  status        String              @db.VarChar(50)
-  gatewayId     String?             @map("gateway_id") @db.VarChar(255)
-  errorMessage  String?             @map("error_message") @db.Text
-  sentAt        DateTime?           @map("sent_at")
-  appointment   Appointment?        @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
-
-  @@index([appointmentId])
-  @@index([phone, sentAt])
-  @@map("notification_logs")
-}
-
 model RefreshToken {
   id           String        @id @default(uuid()) @db.Uuid
   userId       String        @map("user_id") @db.Uuid
@@ -747,22 +720,6 @@ model RefreshToken {
   asCurrentFor BusinessUser? @relation("CurrentRefreshToken")
 
   @@map("refresh_tokens")
-}
-
-model ReminderLog {
-  id            String    @id @default(uuid()) @db.Uuid
-  appointmentId String    @map("appointment_id") @db.Uuid
-  whenKey       String    @map("when_key") @db.VarChar(50)
-  channel       String?   @db.VarChar(50)
-  status        String    @default("pending") @db.VarChar(20)
-  errorMessage  String?   @map("error_message") @db.Text
-  sentAt        DateTime? @map("sent_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt
-
-  @@unique([appointmentId, whenKey])
-  @@index([appointmentId])
-  @@map("reminder_logs")
 }
 
 model Photo {

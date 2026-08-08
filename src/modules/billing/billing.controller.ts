@@ -4,6 +4,7 @@ import { fail, ok } from "../../shared/utils/response.util";
 import {
   billingPaymentParamsSchema,
   billingPaymentsQuerySchema,
+  pilotExtensionBodySchema,
   subscriptionActionBodySchema,
 } from "./billing.schema";
 import billingService from "./billing.service";
@@ -18,6 +19,21 @@ function authenticatedBusinessId(req: Request, res: Response) {
 }
 
 class BillingController {
+  async extendPilotTrial(req: Request, res: Response, next: NextFunction) {
+    try {
+      const parsed = pilotExtensionBodySchema.safeParse(req.body);
+      if (!parsed.success) return next(parsed.error);
+
+      const subscription = await billingService.extendPilotTrial(
+        parsed.data.businessId,
+        parsed.data.days,
+      );
+      return ok(res, { subscription });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   async getSubscription(req: Request, res: Response, next: NextFunction) {
     try {
       const businessId = authenticatedBusinessId(req, res);

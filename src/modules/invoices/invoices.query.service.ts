@@ -39,8 +39,6 @@ const invoiceIdentitySelect = {
   paidByUserId: true,
   voidedByUserId: true,
   voidReason: true,
-  etaReceiptUid: true,
-  etaSubmittedAt: true,
   createdAt: true,
   updatedAt: true,
   customer: {

@@ -50,6 +50,7 @@ describe("collect payment with pending appointment edits", () => {
       calls.push("invoice");
       return data;
     });
+    const appointmentUpdateMany = jest.fn().mockResolvedValue({ count: 1 });
     const tx = {
       invoice: {
         findFirst: jest.fn().mockResolvedValue(null),
@@ -82,7 +83,7 @@ describe("collect payment with pending appointment edits", () => {
             ],
           };
         }),
-        update: jest.fn().mockResolvedValue({}),
+        updateMany: appointmentUpdateMany,
       },
       serviceStaff: { findMany: jest.fn().mockResolvedValue([]) },
       invoiceCounter: {
@@ -134,6 +135,17 @@ describe("collect payment with pending appointment edits", () => {
       "business-1",
       appointmentUpdate,
     );
+    expect(appointmentUpdateMany).toHaveBeenCalledWith({
+      where: {
+        id: appointmentId,
+        businessId: "business-1",
+        status: AppointmentStatus.confirmed,
+      },
+      data: {
+        status: AppointmentStatus.completed,
+        discountCents: 0,
+      },
+    });
     expect(invoice.subtotalCents).toBe(35_000);
     expect(invoice.totalCents).toBe(35_000);
     expect(invoice.updatedAppointment).toMatchObject({
