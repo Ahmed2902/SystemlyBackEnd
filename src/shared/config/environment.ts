@@ -2,6 +2,23 @@ import { z } from "zod";
 
 const nodeEnvironmentSchema = z.enum(["development", "test", "production"]);
 
+const productionPublicUrlKeys = [
+  "FRONTEND_URL",
+  "APP_URL",
+  "GOOGLE_REDIRECT_URI",
+] as const;
+
+function isLocalHostname(hostname: string) {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized === "localhost" ||
+    normalized.endsWith(".localhost") ||
+    normalized === "127.0.0.1" ||
+    normalized === "0.0.0.0" ||
+    normalized === "::1"
+  );
+}
+
 const environmentSchema = z
   .object({
     NODE_ENV: nodeEnvironmentSchema.default("development"),
@@ -62,6 +79,42 @@ const environmentSchema = z
           code: "custom",
           path: [key],
           message: `${key} must contain at least 32 characters in production`,
+        });
+      }
+    }
+
+    for (const key of productionPublicUrlKeys) {
+      const value = environment[key];
+      if (!value) continue;
+
+      try {
+        const url = new URL(value);
+        if (url.protocol !== "https:") {
+          context.addIssue({
+            code: "custom",
+            path: [key],
+            message: `${key} must use HTTPS in production`,
+          });
+        }
+        if (isLocalHostname(url.hostname)) {
+          context.addIssue({
+            code: "custom",
+            path: [key],
+            message: `${key} must not point to localhost in production`,
+          });
+        }
+      } catch {
+        // The base z.string().url() validation reports malformed URLs.
+      }
+    }
+
+    if (environment.APP_URL && environment.GOOGLE_REDIRECT_URI) {
+      const expectedGoogleRedirect = `${environment.APP_URL.replace(/\/$/, "")}/api/auth/oauth/google/callback`;
+      if (environment.GOOGLE_REDIRECT_URI !== expectedGoogleRedirect) {
+        context.addIssue({
+          code: "custom",
+          path: ["GOOGLE_REDIRECT_URI"],
+          message: `GOOGLE_REDIRECT_URI must equal ${expectedGoogleRedirect} in production`,
         });
       }
     }
