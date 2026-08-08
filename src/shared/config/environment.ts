@@ -12,6 +12,9 @@ const environmentSchema = z
     CSRF_SECRET: z.string().optional(),
     FRONTEND_URL: z.string().url().optional(),
     APP_URL: z.string().url().optional(),
+    GOOGLE_CLIENT_ID: z.string().optional(),
+    GOOGLE_CLIENT_SECRET: z.string().optional(),
+    GOOGLE_REDIRECT_URI: z.string().url().optional(),
     RESEND_API_KEY: z.string().optional(),
     EMAIL_FROM: z.string().optional(),
     SENTRY_DSN: z.string().url().optional(),
@@ -30,6 +33,9 @@ const environmentSchema = z
       "CSRF_SECRET",
       "FRONTEND_URL",
       "APP_URL",
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+      "GOOGLE_REDIRECT_URI",
       "RESEND_API_KEY",
       "EMAIL_FROM",
       "SENTRY_DSN",
@@ -45,6 +51,17 @@ const environmentSchema = z
           code: "custom",
           path: [key],
           message: `${key} is required in production`,
+        });
+      }
+    }
+
+    for (const key of ["JWT_SECRET", "JWT_REFRESH_SECRET", "CSRF_SECRET"] as const) {
+      const value = environment[key];
+      if (value && value.length < 32) {
+        context.addIssue({
+          code: "custom",
+          path: [key],
+          message: `${key} must contain at least 32 characters in production`,
         });
       }
     }

@@ -102,6 +102,8 @@ jobs:
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_API_APP" \
             --image "$image" \
+            --min-replicas 0 \
+            --max-replicas 1 \
             --set-env-vars \
               "SENTRY_ENV=production" \
               "SENTRY_RELEASE=systemly-backend@$DEPLOY_SHA"
@@ -143,4 +145,5 @@ jobs:
           echo "- Prisma and Graphile Worker migrations: applied before rollout" >> "$GITHUB_STEP_SUMMARY"
           echo "- Runtime database URL: configured separately on the Container App" >> "$GITHUB_STEP_SUMMARY"
           echo "- API app: \`$AZURE_API_APP\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Embedded Graphile email worker: enabled" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Pilot scaling: min replicas 0, max replicas 1" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Embedded Graphile email worker: enabled while the HTTP app is awake" >> "$GITHUB_STEP_SUMMARY"

@@ -24,15 +24,44 @@ describe("validateEnvironment", () => {
     ).toThrow("JWT_SECRET is required in production");
   });
 
+  test("rejects weak production signing secrets", () => {
+    expect(() =>
+      validateEnvironment({
+        NODE_ENV: "production",
+        DATABASE_URL: "postgresql://user:pass@db.example.com:5432/systemly",
+        JWT_SECRET: "too-short",
+        JWT_REFRESH_SECRET: "r".repeat(32),
+        CSRF_SECRET: "c".repeat(32),
+        FRONTEND_URL: "https://app.systemly.example",
+        APP_URL: "https://api.systemly.example",
+        GOOGLE_CLIENT_ID: "google-client",
+        GOOGLE_CLIENT_SECRET: "google-secret",
+        GOOGLE_REDIRECT_URI:
+          "https://api.systemly.example/api/auth/oauth/google/callback",
+        RESEND_API_KEY: "re_test",
+        EMAIL_FROM: "Systemly <hello@systemly.example>",
+        SENTRY_DSN: "https://public@example.ingest.sentry.io/1",
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role",
+        SUPABASE_PUBLIC_MEDIA_BUCKET: "public-media",
+        SUPABASE_PRIVATE_MEDIA_BUCKET: "private-media",
+      }),
+    ).toThrow("JWT_SECRET must contain at least 32 characters in production");
+  });
+
   test("accepts complete production configuration", () => {
     const result = validateEnvironment({
       NODE_ENV: "production",
       DATABASE_URL: "postgresql://user:pass@db.example.com:5432/systemly",
-      JWT_SECRET: "access-secret",
-      JWT_REFRESH_SECRET: "refresh-secret",
-      CSRF_SECRET: "csrf-secret",
+      JWT_SECRET: "a".repeat(32),
+      JWT_REFRESH_SECRET: "r".repeat(32),
+      CSRF_SECRET: "c".repeat(32),
       FRONTEND_URL: "https://app.systemly.example",
       APP_URL: "https://api.systemly.example",
+      GOOGLE_CLIENT_ID: "google-client",
+      GOOGLE_CLIENT_SECRET: "google-secret",
+      GOOGLE_REDIRECT_URI:
+        "https://api.systemly.example/api/auth/oauth/google/callback",
       RESEND_API_KEY: "re_test",
       EMAIL_FROM: "Systemly <hello@systemly.example>",
       SENTRY_DSN: "https://public@example.ingest.sentry.io/1",
