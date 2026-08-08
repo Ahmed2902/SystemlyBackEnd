@@ -11,6 +11,29 @@ export interface EmailJobOptions {
 
 export type EmailDeliveryMode = "inline" | "worker";
 
+function isVercelRuntime(): boolean {
+  if (
+    process.env.VERCEL === "1" ||
+    Boolean(process.env.VERCEL_ENV) ||
+    Boolean(process.env.VERCEL_TARGET_ENV)
+  ) {
+    return true;
+  }
+
+  // VERCEL* system variables may be disabled in project settings. APP_URL is
+  // already required in production, so the canonical *.vercel.app API origin
+  // is a reliable fallback for the current serverless deployment.
+  const appUrl = process.env.APP_URL;
+  if (!appUrl) return false;
+
+  try {
+    const hostname = new URL(appUrl).hostname.toLowerCase();
+    return hostname === "vercel.app" || hostname.endsWith(".vercel.app");
+  } catch {
+    return false;
+  }
+}
+
 export function getEmailDeliveryMode(): EmailDeliveryMode {
   const configured = process.env.EMAIL_DELIVERY_MODE?.trim().toLowerCase();
   if (configured === "inline" || configured === "worker") return configured;
@@ -24,7 +47,7 @@ export function getEmailDeliveryMode(): EmailDeliveryMode {
   // Graphile Worker is never started there. Deliver synchronously using the
   // same task/provider implementation instead of persisting jobs that have no
   // consumer. Long-lived/container runtimes keep the durable worker default.
-  return process.env.VERCEL === "1" ? "inline" : "worker";
+  return isVercelRuntime() ? "inline" : "worker";
 }
 
 function stableIdempotencyKey(job: EmailJob, explicit?: string): string {
