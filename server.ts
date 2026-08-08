@@ -2,6 +2,7 @@ import "./src/instrument-api";
 
 import type { Server } from "http";
 import app from "./app";
+import { getEmailDeliveryMode } from "./src/queues/emailQueue";
 import { APP_CONFIG } from "./src/shared/config/config";
 import { disconnect as disconnectRedis } from "./src/shared/config/redis";
 import {
@@ -23,12 +24,15 @@ let shuttingDown = false;
 
 async function startServer() {
   await connectPrisma();
-  await embeddedEmailWorker.start((error) => {
-    logger.error("email_worker_failed", {
-      message: error instanceof Error ? error.message : String(error),
+
+  if (getEmailDeliveryMode() === "worker") {
+    await embeddedEmailWorker.start((error) => {
+      logger.error("email_worker_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+      void shutdown("email_worker_failure", 1);
     });
-    void shutdown("email_worker_failure", 1);
-  });
+  }
 
   server = app.listen(PORT, "0.0.0.0", () => {
     logger.info("server_started", { port: PORT, environment: APP_CONFIG.nodeEnv });
