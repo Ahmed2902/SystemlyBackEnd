@@ -38,19 +38,21 @@ In Azure Container Apps, confirm all required runtime values exist:
 
 `REDIS_URL` is optional for core availability; when configured, verify it is the intended production cache instance.
 
-In the GitHub `Production` environment confirm:
+In the GitHub `Production` environment, confirm these environment secrets:
 
 - `DATABASE_MIGRATION_URL`
 - `AZURE_CLIENT_ID`
 - `AZURE_TENANT_ID`
 - `AZURE_SUBSCRIPTION_ID`
 
-and variables:
+At the repository level under Actions configuration variables, confirm:
 
 - `AZURE_DEPLOY_ENABLED=true` only when automatic production deployment is intended
 - `AZURE_RESOURCE_GROUP`
 - `AZURE_CONTAINER_REGISTRY`
 - `AZURE_API_APP`
+
+The deploy job evaluates `AZURE_DEPLOY_ENABLED` before a runner starts, so these non-secret deployment variables must be repository-level variables rather than `Production` environment variables.
 
 Never configure `DATABASE_MIGRATION_URL` on the running Container App.
 
