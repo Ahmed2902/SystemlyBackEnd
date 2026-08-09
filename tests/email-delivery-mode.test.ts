@@ -7,6 +7,7 @@ jest.mock("../src/queues/queue", () => ({
 }));
 
 import {
+  configureEmailRuntime,
   enqueueSendEmail,
   getEmailDeliveryMode,
 } from "../src/queues/emailQueue";
@@ -31,109 +32,85 @@ const verificationJob = {
 };
 
 describe("email delivery mode", () => {
-  const originalVercel = process.env.VERCEL;
-  const originalVercelEnv = process.env.VERCEL_ENV;
-  const originalVercelTargetEnv = process.env.VERCEL_TARGET_ENV;
-  const originalAppUrl = process.env.APP_URL;
   const originalMode = process.env.EMAIL_DELIVERY_MODE;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    delete process.env.VERCEL;
-    delete process.env.VERCEL_ENV;
-    delete process.env.VERCEL_TARGET_ENV;
-    delete process.env.APP_URL;
     delete process.env.EMAIL_DELIVERY_MODE;
+    configureEmailRuntime("app_only");
   });
 
   afterAll(() => {
-    if (originalVercel === undefined) delete process.env.VERCEL;
-    else process.env.VERCEL = originalVercel;
-
-    if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV;
-    else process.env.VERCEL_ENV = originalVercelEnv;
-
-    if (originalVercelTargetEnv === undefined) delete process.env.VERCEL_TARGET_ENV;
-    else process.env.VERCEL_TARGET_ENV = originalVercelTargetEnv;
-
-    if (originalAppUrl === undefined) delete process.env.APP_URL;
-    else process.env.APP_URL = originalAppUrl;
-
+    configureEmailRuntime("app_only");
     if (originalMode === undefined) delete process.env.EMAIL_DELIVERY_MODE;
     else process.env.EMAIL_DELIVERY_MODE = originalMode;
   });
 
-  test("defaults to inline delivery when VERCEL is exposed", async () => {
-    process.env.VERCEL = "1";
-
+  test("app-only runtime delivers inline without environment detection", async () => {
     expect(getEmailDeliveryMode()).toBe("inline");
 
     await enqueueSendEmail(verificationJob, {
-      idempotencyKey: "verification:test-user:test-token",
+      idempotencyKey: "verification:app-only:test-token",
     });
 
     expect(mockedSendEmailTask).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "verification",
-        idempotencyKey: "verification:test-user:test-token",
+        idempotencyKey: "verification:app-only:test-token",
       }),
     );
     expect(mockedGetWorkerUtils).not.toHaveBeenCalled();
   });
 
-  test("detects Vercel from canonical APP_URL when system variables are hidden", async () => {
-    process.env.APP_URL = "https://systemly-backend.vercel.app";
+  test("app-only runtime ignores stale worker configuration", async () => {
+    process.env.EMAIL_DELIVERY_MODE = "worker";
 
     expect(getEmailDeliveryMode()).toBe("inline");
 
     await enqueueSendEmail(verificationJob, {
-      idempotencyKey: "verification:app-url:test-token",
+      idempotencyKey: "verification:stale-worker:test-token",
     });
 
     expect(mockedSendEmailTask).toHaveBeenCalledTimes(1);
     expect(mockedGetWorkerUtils).not.toHaveBeenCalled();
   });
 
-  test("keeps Graphile Worker as the default outside Vercel", async () => {
-    process.env.APP_URL = "https://api.systemly.me";
+  test("persistent server defaults to Graphile Worker", async () => {
+    configureEmailRuntime("persistent_server");
     const addJob = jest.fn().mockResolvedValue({ id: "job-1" });
     mockedGetWorkerUtils.mockResolvedValue({ addJob } as never);
 
     expect(getEmailDeliveryMode()).toBe("worker");
 
     await enqueueSendEmail(verificationJob, {
-      idempotencyKey: "verification:test-user:test-token",
+      idempotencyKey: "verification:persistent:test-token",
     });
 
     expect(addJob).toHaveBeenCalledWith(
       "send_email",
       expect.objectContaining({
         type: "verification",
-        idempotencyKey: "verification:test-user:test-token",
+        idempotencyKey: "verification:persistent:test-token",
       }),
       expect.objectContaining({
-        jobKey: "email:verification:test-user:test-token",
+        jobKey: "email:verification:persistent:test-token",
         maxAttempts: 5,
       }),
     );
     expect(mockedSendEmailTask).not.toHaveBeenCalled();
   });
 
-  test("explicit worker mode overrides Vercel auto-detection", () => {
-    process.env.APP_URL = "https://systemly-backend.vercel.app";
-    process.env.EMAIL_DELIVERY_MODE = "worker";
+  test("persistent server may explicitly choose inline delivery", () => {
+    configureEmailRuntime("persistent_server");
+    process.env.EMAIL_DELIVERY_MODE = "inline";
 
-    expect(getEmailDeliveryMode()).toBe("worker");
+    expect(getEmailDeliveryMode()).toBe("inline");
   });
 
-  test("inline mode rejects delayed delivery instead of sending early", async () => {
-    process.env.APP_URL = "https://systemly-backend.vercel.app";
-
+  test("app-only runtime rejects delayed delivery instead of sending early", async () => {
     await expect(
       enqueueSendEmail(verificationJob, { delayMs: 60_000 }),
-    ).rejects.toThrow(
-      "Delayed email jobs require EMAIL_DELIVERY_MODE=worker",
-    );
+    ).rejects.toThrow("Delayed email jobs require a persistent worker runtime");
 
     expect(mockedSendEmailTask).not.toHaveBeenCalled();
     expect(mockedGetWorkerUtils).not.toHaveBeenCalled();
