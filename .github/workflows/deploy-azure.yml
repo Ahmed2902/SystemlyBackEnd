@@ -104,10 +104,20 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
 
       - name: Apply production worker migrations
-        run: npm run graphile:migrate
+        shell: bash
         env:
           NODE_ENV: production
-          DATABASE_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
+          DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
+        run: |
+          set -euo pipefail
+          GRAPHILE_DATABASE_URL="$(
+            DATABASE_URL="$DATABASE_MIGRATION_URL" node -e '
+              const url = new URL(process.env.DATABASE_URL);
+              url.searchParams.set("sslmode", "no-verify");
+              process.stdout.write(url.toString());
+            '
+          )"
+          DATABASE_URL="$GRAPHILE_DATABASE_URL" npm run graphile:migrate
 
       - name: Configure Container App GHCR access
         shell: bash
