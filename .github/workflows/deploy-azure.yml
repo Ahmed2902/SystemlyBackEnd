@@ -82,6 +82,23 @@ jobs:
             --image "systemly-backend:$DEPLOY_SHA" \
             .
 
+      - name: Resolve registry login server
+        shell: bash
+        run: |
+          set -euo pipefail
+          acr_login_server="$(az acr show \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_CONTAINER_REGISTRY" \
+            --query loginServer \
+            --output tsv)"
+
+          if [ -z "$acr_login_server" ]; then
+            echo "Could not resolve the Azure Container Registry login server." >&2
+            exit 1
+          fi
+
+          echo "ACR_LOGIN_SERVER=$acr_login_server" >> "$GITHUB_ENV"
+
       - name: Apply production application migrations
         run: npm run prisma:migrate:deploy
         env:
@@ -112,14 +129,14 @@ jobs:
           az containerapp registry set \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_API_APP" \
-            --server "$AZURE_CONTAINER_REGISTRY.azurecr.io" \
+            --server "$ACR_LOGIN_SERVER" \
             --identity system
 
       - name: Deploy API revision
         shell: bash
         run: |
           set -euo pipefail
-          image="$AZURE_CONTAINER_REGISTRY.azurecr.io/systemly-backend:$DEPLOY_SHA"
+          image="$ACR_LOGIN_SERVER/systemly-backend:$DEPLOY_SHA"
           az containerapp update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_API_APP" \
@@ -182,6 +199,7 @@ jobs:
           echo "- Prisma and Graphile Worker migrations: applied before rollout" >> "$GITHUB_STEP_SUMMARY"
           echo "- Runtime database URL: configured separately on the Container App" >> "$GITHUB_STEP_SUMMARY"
           echo "- ACR quick build: caller identity (ABAC-compatible)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ACR login server: resolved from Azure (DNL-safe)" >> "$GITHUB_STEP_SUMMARY"
           echo "- ACR image pull: system-assigned managed identity" >> "$GITHUB_STEP_SUMMARY"
           echo "- External HTTPS ingress: target port 3000" >> "$GITHUB_STEP_SUMMARY"
           echo "- API app: \`$AZURE_API_APP\`" >> "$GITHUB_STEP_SUMMARY"
