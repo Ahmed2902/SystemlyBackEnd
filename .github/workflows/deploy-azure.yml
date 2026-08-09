@@ -24,7 +24,7 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    environment: production
+    environment: Production
     env:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
       AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
@@ -62,10 +62,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          : "${AZURE_RESOURCE_GROUP:?Set the AZURE_RESOURCE_GROUP production variable}"
-          : "${AZURE_CONTAINER_REGISTRY:?Set the AZURE_CONTAINER_REGISTRY production variable}"
-          : "${AZURE_API_APP:?Set the AZURE_API_APP production variable}"
-          : "${DATABASE_MIGRATION_URL:?Set the DATABASE_MIGRATION_URL production secret}"
+          : "${AZURE_RESOURCE_GROUP:?Set the AZURE_RESOURCE_GROUP Production variable}"
+          : "${AZURE_CONTAINER_REGISTRY:?Set the AZURE_CONTAINER_REGISTRY Production variable}"
+          : "${AZURE_API_APP:?Set the AZURE_API_APP Production variable}"
+          : "${DATABASE_MIGRATION_URL:?Set the DATABASE_MIGRATION_URL Production secret}"
         env:
           DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
 
