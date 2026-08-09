@@ -44,15 +44,17 @@ In the GitHub `Production` environment, confirm these environment secrets:
 - `AZURE_CLIENT_ID`
 - `AZURE_TENANT_ID`
 - `AZURE_SUBSCRIPTION_ID`
+- `GHCR_PULL_TOKEN` — classic GitHub PAT with `read:packages` only, used by Azure to pull the private GHCR image
 
 At the repository level under Actions configuration variables, confirm:
 
 - `AZURE_DEPLOY_ENABLED=true` only when automatic production deployment is intended
 - `AZURE_RESOURCE_GROUP`
-- `AZURE_CONTAINER_REGISTRY`
 - `AZURE_API_APP`
 
 The deploy job evaluates `AZURE_DEPLOY_ENABLED` before a runner starts, so these non-secret deployment variables must be repository-level variables rather than `Production` environment variables.
+
+There is intentionally no Azure Container Registry resource or `AZURE_CONTAINER_REGISTRY` variable in the zero-fixed-cost pilot. Docker images are stored in GitHub Container Registry at `ghcr.io/ahmed2902/systemly-backend`.
 
 Never configure `DATABASE_MIGRATION_URL` on the running Container App.
 
@@ -93,6 +95,7 @@ The pilot Container App is intentionally configured for:
 - maximum replicas: 1
 - one container / one Node.js process
 - Express API and embedded Graphile Worker in that same process
+- image registry: private GitHub Container Registry (`ghcr.io`), not Azure Container Registry
 - target port: 3000
 - external HTTPS ingress
 - liveness path: `/health/live`
@@ -101,16 +104,19 @@ The pilot Container App is intentionally configured for:
 
 When the app scales to zero, both the API process and embedded Graphile Worker are stopped. Durable Graphile jobs remain in PostgreSQL and resume when an incoming HTTP request wakes the Container App. This topology is acceptable for the V1 pilot only while jobs do not require strict execution at a wall-clock time during completely idle periods.
 
+For the zero-fixed-cost pilot, configure the Container Apps environment under `Monitoring -> Logging options` with `Don't save logs`. Live log streaming remains available. Use Sentry for persistent error history and alerts. Do not create a Log Analytics workspace solely for this app unless you intentionally accept its metered cost.
+
 After deployment:
 
 1. confirm the deployed image tag equals the intended Git SHA
-2. request `/health/live`
-3. request `/health/ready`
-4. stop sending traffic and confirm the app can eventually scale to zero
-5. send a new HTTP request and confirm the app wakes successfully
-6. confirm `/health/ready` becomes healthy after wake-up and the embedded worker reconnects
-7. confirm queued email jobs are consumed after wake-up
-8. confirm no restart loop in Azure logs
+2. confirm the image is `ghcr.io/ahmed2902/systemly-backend:<SHA>`
+3. request `/health/live`
+4. request `/health/ready`
+5. stop sending traffic and confirm the app can eventually scale to zero
+6. send a new HTTP request and confirm the app wakes successfully
+7. confirm `/health/ready` becomes healthy after wake-up and the embedded worker reconnects
+8. confirm queued email jobs are consumed after wake-up
+9. confirm no restart loop in the live Azure log stream or Sentry
 
 Keep maximum replicas at 1 until worker ownership, shared rate limiting and horizontal-concurrency behavior are deliberately redesigned.
 
@@ -248,7 +254,7 @@ Record any money collected outside Systemly separately until EasyKash is live.
 
 For the first pilot period, check daily:
 
-- Azure restarts and failed revisions
+- Azure restarts and failed revisions using live log stream when needed
 - Sentry new errors
 - failed Graphile jobs / missing transactional mail
 - PostgreSQL connection saturation
