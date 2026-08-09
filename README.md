@@ -51,13 +51,13 @@ The Docker image:
 Use two credentials deliberately:
 
 - `DATABASE_URL` — runtime Supabase Session Pooler connection used by Express + Graphile Worker
-- `DATABASE_MIGRATION_URL` — GitHub production secret used only by the deployment workflow for Prisma and Graphile schema migrations
+- `DATABASE_MIGRATION_URL` — GitHub Production secret used only by the deployment workflow for Prisma and Graphile schema migrations
 
 Never put `DATABASE_MIGRATION_URL` in the running Container App.
 
 ## Required production configuration
 
-The application fails fast in `NODE_ENV=production` when required configuration is missing.
+The application fails fast in `NODE_ENV=production` when required core configuration is missing.
 
 Core:
 
@@ -72,12 +72,14 @@ Google OAuth:
 
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI`
+
+`GOOGLE_REDIRECT_URI` is optional compatibility configuration. Production derives the callback from `APP_URL` so a stale override cannot redirect production OAuth to another host.
 
 Email:
 
 - `RESEND_API_KEY`
 - `EMAIL_FROM`
+- `EMAIL_DELIVERY_MODE=worker` on the persistent Azure runtime
 
 Observability:
 
@@ -144,16 +146,18 @@ Backend CI on every PR/main push verifies:
 - non-root runtime
 - liveness/readiness
 
-Production deployment runs only after successful Backend CI on `main` and when `AZURE_DEPLOY_ENABLED=true`.
+Production deployment runs only after successful Backend CI on `main` and when `AZURE_DEPLOY_ENABLED=true` in the GitHub `Production` environment.
 
 Deployment order:
 
-1. build/push the tested SHA
+1. build/push the tested SHA to Azure Container Registry using the GitHub OIDC caller identity
 2. apply Prisma migration
 3. apply Graphile Worker schema migration
-4. update the Azure Container App to that exact image
-5. set pilot scaling to min 0 / max 1
-6. wait for `/health/ready`
+4. bind the Container App to ACR using its system-assigned managed identity
+5. update the Azure Container App to that exact image
+6. enforce external HTTPS ingress on port 3000
+7. keep production scaling at min 1 / max 1 so the embedded Graphile Worker always has a consumer
+8. wait for `/health/ready`
 
 ## Operational docs
 
