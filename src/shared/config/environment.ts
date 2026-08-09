@@ -2,11 +2,7 @@ import { z } from "zod";
 
 const nodeEnvironmentSchema = z.enum(["development", "test", "production"]);
 
-const productionPublicUrlKeys = [
-  "FRONTEND_URL",
-  "APP_URL",
-  "GOOGLE_REDIRECT_URI",
-] as const;
+const productionPublicUrlKeys = ["FRONTEND_URL", "APP_URL"] as const;
 
 function isLocalHostname(hostname: string) {
   const normalized = hostname.toLowerCase();
@@ -31,7 +27,9 @@ const environmentSchema = z
     APP_URL: z.string().url().optional(),
     GOOGLE_CLIENT_ID: z.string().optional(),
     GOOGLE_CLIENT_SECRET: z.string().optional(),
-    GOOGLE_REDIRECT_URI: z.string().url().optional(),
+    // Kept as plain text for backward compatibility only. Production OAuth
+    // derives its callback from APP_URL and does not trust this override.
+    GOOGLE_REDIRECT_URI: z.string().optional(),
     RESEND_API_KEY: z.string().optional(),
     EMAIL_FROM: z.string().optional(),
     EMAIL_DELIVERY_MODE: z.enum(["inline", "worker"]).optional(),
@@ -45,22 +43,16 @@ const environmentSchema = z
   .superRefine((environment, context) => {
     if (environment.NODE_ENV !== "production") return;
 
+    // Only configuration required for the API to boot securely belongs here.
+    // Feature-specific credentials (Google, email, Sentry, storage) are
+    // validated by the feature when it is invoked so one disabled or stale
+    // integration cannot take every endpoint offline.
     const required = [
       "JWT_SECRET",
       "JWT_REFRESH_SECRET",
       "CSRF_SECRET",
       "FRONTEND_URL",
       "APP_URL",
-      "GOOGLE_CLIENT_ID",
-      "GOOGLE_CLIENT_SECRET",
-      "GOOGLE_REDIRECT_URI",
-      "RESEND_API_KEY",
-      "EMAIL_FROM",
-      "SENTRY_DSN",
-      "SUPABASE_URL",
-      "SUPABASE_SERVICE_ROLE_KEY",
-      "SUPABASE_PUBLIC_MEDIA_BUCKET",
-      "SUPABASE_PRIVATE_MEDIA_BUCKET",
     ] as const;
 
     for (const key of required) {
@@ -106,17 +98,6 @@ const environmentSchema = z
         }
       } catch {
         // The base z.string().url() validation reports malformed URLs.
-      }
-    }
-
-    if (environment.APP_URL && environment.GOOGLE_REDIRECT_URI) {
-      const expectedGoogleRedirect = `${environment.APP_URL.replace(/\/$/, "")}/api/auth/oauth/google/callback`;
-      if (environment.GOOGLE_REDIRECT_URI !== expectedGoogleRedirect) {
-        context.addIssue({
-          code: "custom",
-          path: ["GOOGLE_REDIRECT_URI"],
-          message: `GOOGLE_REDIRECT_URI must equal ${expectedGoogleRedirect} in production`,
-        });
       }
     }
   });
