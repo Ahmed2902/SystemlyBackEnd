@@ -79,7 +79,7 @@ Email:
 
 - `RESEND_API_KEY`
 - `EMAIL_FROM`
-- `EMAIL_DELIVERY_MODE=worker` on the persistent Azure runtime
+- `EMAIL_DELIVERY_MODE=worker` on the Azure runtime
 
 Observability:
 
@@ -124,6 +124,8 @@ JWT and CSRF secrets must contain at least 32 characters in production.
 
 The only V1 Graphile task is `send_email`, used for authentication and staff-invitation mail.
 
+The worker runs inside the same Node.js process as the HTTP API. The pilot Azure deployment uses `minReplicas=0` and `maxReplicas=1`, so the worker only runs while the Container App has an active replica. Queued jobs remain durable in PostgreSQL and are consumed after the app wakes again. Do not rely on this topology for strict wall-clock scheduled jobs that must execute while the service is idle.
+
 After production deployment, verify the complete queue/provider path with:
 
 ```bash
@@ -146,7 +148,7 @@ Backend CI on every PR/main push verifies:
 - non-root runtime
 - liveness/readiness
 
-Production deployment runs only after successful Backend CI on `main` and when `AZURE_DEPLOY_ENABLED=true` in the GitHub `Production` environment.
+Production deployment runs only after successful Backend CI on `main` and when repository variable `AZURE_DEPLOY_ENABLED=true`.
 
 Deployment order:
 
@@ -156,7 +158,7 @@ Deployment order:
 4. bind the Container App to ACR using its system-assigned managed identity
 5. update the Azure Container App to that exact image
 6. enforce external HTTPS ingress on port 3000
-7. keep production scaling at min 1 / max 1 so the embedded Graphile Worker always has a consumer
+7. set pilot scaling to min 0 / max 1
 8. wait for `/health/ready`
 
 ## Operational docs
