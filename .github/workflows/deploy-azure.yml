@@ -78,6 +78,7 @@ jobs:
           set -euo pipefail
           az acr build \
             --registry "$AZURE_CONTAINER_REGISTRY" \
+            --source-acr-auth-id '[caller]' \
             --image "systemly-backend:$DEPLOY_SHA" \
             .
 
@@ -180,6 +181,7 @@ jobs:
           echo "- Sentry release: \`systemly-backend@$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Prisma and Graphile Worker migrations: applied before rollout" >> "$GITHUB_STEP_SUMMARY"
           echo "- Runtime database URL: configured separately on the Container App" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ACR quick build: caller identity (ABAC-compatible)" >> "$GITHUB_STEP_SUMMARY"
           echo "- ACR image pull: system-assigned managed identity" >> "$GITHUB_STEP_SUMMARY"
           echo "- External HTTPS ingress: target port 3000" >> "$GITHUB_STEP_SUMMARY"
           echo "- API app: \`$AZURE_API_APP\`" >> "$GITHUB_STEP_SUMMARY"
