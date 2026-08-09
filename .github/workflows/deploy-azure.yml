@@ -62,10 +62,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          : "${AZURE_RESOURCE_GROUP:?Set the AZURE_RESOURCE_GROUP Production variable}"
-          : "${AZURE_CONTAINER_REGISTRY:?Set the AZURE_CONTAINER_REGISTRY Production variable}"
-          : "${AZURE_API_APP:?Set the AZURE_API_APP Production variable}"
-          : "${DATABASE_MIGRATION_URL:?Set the DATABASE_MIGRATION_URL Production secret}"
+          : "${AZURE_RESOURCE_GROUP:?Set the AZURE_RESOURCE_GROUP repository variable}"
+          : "${AZURE_CONTAINER_REGISTRY:?Set the AZURE_CONTAINER_REGISTRY repository variable}"
+          : "${AZURE_API_APP:?Set the AZURE_API_APP repository variable}"
+          : "${DATABASE_MIGRATION_URL:?Set the DATABASE_MIGRATION_URL Production environment secret}"
         env:
           DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
 
