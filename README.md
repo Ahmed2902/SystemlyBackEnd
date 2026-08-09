@@ -16,6 +16,7 @@ Supporting services:
 - Supabase Storage — public website media and private appointment media
 - Resend — transactional email provider
 - Sentry — error monitoring
+- GitHub Container Registry (GHCR) — production Docker image storage
 - Azure Container Apps — production API container
 
 There is no separate worker service and no BullMQ/reminder runtime in V1.
@@ -150,16 +151,20 @@ Backend CI on every PR/main push verifies:
 
 Production deployment runs only after successful Backend CI on `main` and when repository variable `AZURE_DEPLOY_ENABLED=true`.
 
+The production Docker image is stored in GitHub Container Registry rather than Azure Container Registry. GitHub Actions publishes the tested SHA using the repository `GITHUB_TOKEN`. The Azure Container App pulls the private GHCR image using a separate read-only `GHCR_PULL_TOKEN` stored as a GitHub Production secret and then saved as a Container App registry credential.
+
 Deployment order:
 
-1. build/push the tested SHA to Azure Container Registry using the GitHub OIDC caller identity
+1. build/push the tested SHA to `ghcr.io/ahmed2902/systemly-backend`
 2. apply Prisma migration
 3. apply Graphile Worker schema migration
-4. bind the Container App to ACR using its system-assigned managed identity
+4. configure the Container App to authenticate to private GHCR
 5. update the Azure Container App to that exact image
 6. enforce external HTTPS ingress on port 3000
 7. set pilot scaling to min 0 / max 1
 8. wait for `/health/ready`
+
+For the zero-fixed-cost pilot, configure the Container Apps environment logging destination as `Don't save logs`. Live log streaming remains available and Sentry provides persistent application error monitoring.
 
 ## Operational docs
 
