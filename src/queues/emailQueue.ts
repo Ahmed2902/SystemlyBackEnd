@@ -10,44 +10,33 @@ export interface EmailJobOptions {
 }
 
 export type EmailDeliveryMode = "inline" | "worker";
+export type EmailRuntimeModel = "app_only" | "persistent_server";
 
-function isVercelRuntime(): boolean {
-  if (
-    process.env.VERCEL === "1" ||
-    Boolean(process.env.VERCEL_ENV) ||
-    Boolean(process.env.VERCEL_TARGET_ENV)
-  ) {
-    return true;
-  }
+// index.ts/app.ts are safe for serverless platforms by default. Only the
+// long-lived server.ts entrypoint marks this process as capable of consuming
+// Graphile Worker jobs.
+let runtimeModel: EmailRuntimeModel = "app_only";
 
-  // VERCEL* system variables may be disabled in project settings. APP_URL is
-  // already required in production, so the canonical *.vercel.app API origin
-  // is a reliable fallback for the current serverless deployment.
-  const appUrl = process.env.APP_URL;
-  if (!appUrl) return false;
-
-  try {
-    const hostname = new URL(appUrl).hostname.toLowerCase();
-    return hostname === "vercel.app" || hostname.endsWith(".vercel.app");
-  } catch {
-    return false;
-  }
+export function configureEmailRuntime(model: EmailRuntimeModel) {
+  runtimeModel = model;
 }
 
 export function getEmailDeliveryMode(): EmailDeliveryMode {
   const configured = process.env.EMAIL_DELIVERY_MODE?.trim().toLowerCase();
-  if (configured === "inline" || configured === "worker") return configured;
-  if (configured) {
+  if (configured && configured !== "inline" && configured !== "worker") {
     throw new Error(
       'EMAIL_DELIVERY_MODE must be either "inline" or "worker"',
     );
   }
 
-  // Vercel functions do not execute server.ts, so the long-lived embedded
-  // Graphile Worker is never started there. Deliver synchronously using the
-  // same task/provider implementation instead of persisting jobs that have no
-  // consumer. Long-lived/container runtimes keep the durable worker default.
-  return isVercelRuntime() ? "inline" : "worker";
+  if (runtimeModel === "app_only") {
+    // An app-only/serverless entrypoint has no persistent Graphile consumer.
+    // Never persist email jobs there, even if a stale deployment variable says
+    // "worker"; doing so creates durable jobs that nobody can execute.
+    return "inline";
+  }
+
+  return configured === "inline" ? "inline" : "worker";
 }
 
 function stableIdempotencyKey(job: EmailJob, explicit?: string): string {
@@ -62,10 +51,10 @@ function stableIdempotencyKey(job: EmailJob, explicit?: string): string {
 }
 
 /**
- * Dispatch an email using the runtime-appropriate delivery mode.
+ * Dispatch an email using the execution-model-appropriate delivery mode.
  *
- * Long-lived runtimes persist the job before acknowledging the HTTP request.
- * Vercel delivers inline because there is no persistent worker process there.
+ * Persistent servers may use Graphile Worker. App-only/serverless entrypoints
+ * deliver inline through the same validated task/provider implementation.
  */
 export async function enqueueSendEmail(
   input: unknown,
@@ -80,7 +69,7 @@ export async function enqueueSendEmail(
 
   if (getEmailDeliveryMode() === "inline") {
     if (typeof options.delayMs === "number" && options.delayMs > 0) {
-      throw new Error("Delayed email jobs require EMAIL_DELIVERY_MODE=worker");
+      throw new Error("Delayed email jobs require a persistent worker runtime");
     }
 
     await sendEmailTask(job);
