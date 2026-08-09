@@ -2,7 +2,10 @@ import "./src/instrument-api";
 
 import type { Server } from "http";
 import app from "./app";
-import { getEmailDeliveryMode } from "./src/queues/emailQueue";
+import {
+  configureEmailRuntime,
+  getEmailDeliveryMode,
+} from "./src/queues/emailQueue";
 import { APP_CONFIG } from "./src/shared/config/config";
 import { disconnect as disconnectRedis } from "./src/shared/config/redis";
 import {
@@ -21,6 +24,10 @@ const PORT = Number(process.env.PORT) || APP_CONFIG.port || 3000;
 const SHUTDOWN_DEADLINE_MS = 10_000;
 let server: Server | undefined;
 let shuttingDown = false;
+
+// This file is the long-lived process entrypoint. Serverless deployments import
+// app/index directly and therefore never opt into persistent worker mode.
+configureEmailRuntime("persistent_server");
 
 async function startServer() {
   await connectPrisma();
