@@ -1,6 +1,6 @@
 import { validateEnvironment } from "../environment";
 
-function completeProductionEnvironment(overrides: Record<string, string> = {}) {
+function coreProductionEnvironment(overrides: Record<string, string> = {}) {
   return {
     NODE_ENV: "production",
     DATABASE_URL: "postgresql://user:pass@db.example.com:5432/systemly",
@@ -9,17 +9,6 @@ function completeProductionEnvironment(overrides: Record<string, string> = {}) {
     CSRF_SECRET: "c".repeat(32),
     FRONTEND_URL: "https://app.systemly.example",
     APP_URL: "https://api.systemly.example",
-    GOOGLE_CLIENT_ID: "google-client",
-    GOOGLE_CLIENT_SECRET: "google-secret",
-    GOOGLE_REDIRECT_URI:
-      "https://api.systemly.example/api/auth/oauth/google/callback",
-    RESEND_API_KEY: "re_test",
-    EMAIL_FROM: "Systemly <hello@systemly.example>",
-    SENTRY_DSN: "https://public@example.ingest.sentry.io/1",
-    SUPABASE_URL: "https://project.supabase.co",
-    SUPABASE_SERVICE_ROLE_KEY: "service-role",
-    SUPABASE_PUBLIC_MEDIA_BUCKET: "public-media",
-    SUPABASE_PRIVATE_MEDIA_BUCKET: "private-media",
     ...overrides,
   };
 }
@@ -39,7 +28,7 @@ describe("validateEnvironment", () => {
     );
   });
 
-  test("rejects missing production secrets", () => {
+  test("rejects missing core production secrets", () => {
     expect(() =>
       validateEnvironment({
         NODE_ENV: "production",
@@ -51,7 +40,7 @@ describe("validateEnvironment", () => {
   test("rejects weak production signing secrets", () => {
     expect(() =>
       validateEnvironment(
-        completeProductionEnvironment({ JWT_SECRET: "too-short" }),
+        coreProductionEnvironment({ JWT_SECRET: "too-short" }),
       ),
     ).toThrow("JWT_SECRET must contain at least 32 characters in production");
   });
@@ -59,29 +48,43 @@ describe("validateEnvironment", () => {
   test.each([
     ["FRONTEND_URL", "http://localhost:3000"],
     ["APP_URL", "http://localhost:3003"],
-    [
-      "GOOGLE_REDIRECT_URI",
-      "http://localhost:3003/api/auth/oauth/google/callback",
-    ],
-  ])("rejects local production URL for %s", (key, value) => {
+  ])("rejects local core production URL for %s", (key, value) => {
     expect(() =>
-      validateEnvironment(completeProductionEnvironment({ [key]: value })),
+      validateEnvironment(coreProductionEnvironment({ [key]: value })),
     ).toThrow();
   });
 
-  test("rejects a Google callback that does not match APP_URL", () => {
+  test("does not let a stale Google redirect override crash startup", () => {
     expect(() =>
       validateEnvironment(
-        completeProductionEnvironment({
-          GOOGLE_REDIRECT_URI:
-            "https://different.example/api/auth/oauth/google/callback",
+        coreProductionEnvironment({
+          GOOGLE_REDIRECT_URI: "http://localhost:3003/api/auth/oauth/google/callback",
         }),
       ),
-    ).toThrow("GOOGLE_REDIRECT_URI must equal");
+    ).not.toThrow();
   });
 
-  test("accepts complete production configuration", () => {
-    const result = validateEnvironment(completeProductionEnvironment());
+  test("allows feature credentials to be configured independently", () => {
+    const result = validateEnvironment(
+      coreProductionEnvironment({
+        GOOGLE_CLIENT_ID: "google-client",
+        GOOGLE_CLIENT_SECRET: "google-secret",
+        RESEND_API_KEY: "re_test",
+        EMAIL_FROM: "Systemly <hello@systemly.example>",
+        SENTRY_DSN: "https://public@example.ingest.sentry.io/1",
+        SUPABASE_URL: "https://project.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY: "service-role",
+        SUPABASE_PUBLIC_MEDIA_BUCKET: "public-media",
+        SUPABASE_PRIVATE_MEDIA_BUCKET: "private-media",
+      }),
+    );
+
+    expect(result.NODE_ENV).toBe("production");
+    expect(result.RESEND_API_KEY).toBe("re_test");
+  });
+
+  test("accepts core production configuration without optional integrations", () => {
+    const result = validateEnvironment(coreProductionEnvironment());
     expect(result.NODE_ENV).toBe("production");
   });
 });
