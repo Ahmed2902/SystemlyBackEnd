@@ -38,7 +38,7 @@ In Azure Container Apps, confirm all required runtime values exist:
 
 `REDIS_URL` is optional for core availability; when configured, verify it is the intended production cache instance.
 
-In the GitHub `production` environment confirm:
+In the GitHub `Production` environment confirm:
 
 - `DATABASE_MIGRATION_URL`
 - `AZURE_CLIENT_ID`
