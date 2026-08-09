@@ -25,14 +25,16 @@ In Azure Container Apps, confirm all required runtime values exist:
 - `APP_URL`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI`
 - `RESEND_API_KEY`
 - `EMAIL_FROM`
+- `EMAIL_DELIVERY_MODE=worker`
 - `SENTRY_DSN`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_PUBLIC_MEDIA_BUCKET`
 - `SUPABASE_PRIVATE_MEDIA_BUCKET`
+
+`GOOGLE_REDIRECT_URI` is optional backward-compatibility configuration. In production the backend derives the Google callback from `APP_URL` and does not trust a stale override.
 
 `REDIS_URL` is optional for core availability; when configured, verify it is the intended production cache instance.
 
@@ -83,26 +85,28 @@ A backup that has never been restored is not considered verified.
 
 ## 5. Azure deployment
 
-The pilot Container App is intentionally configured for:
+The production Container App is intentionally configured for:
 
-- minimum replicas: 0
+- minimum replicas: 1
 - maximum replicas: 1
 - target port: 3000
 - external HTTPS ingress
 - liveness path: `/health/live`
 - readiness path: `/health/ready`
+- `EMAIL_DELIVERY_MODE=worker`
+
+The API process owns the embedded Graphile Worker, so one replica must remain alive to consume queued jobs and retries even when there is no incoming HTTP traffic.
 
 After deployment:
 
 1. confirm the deployed image tag equals the intended Git SHA
 2. request `/health/live`
 3. request `/health/ready`
-4. allow the app to scale to zero
-5. make a new HTTP request and confirm cold-start recovery
-6. confirm PostgreSQL/Graphile reconnect after wake-up
-7. confirm no restart loop in Azure logs
+4. leave the API idle and confirm the replica remains running
+5. confirm PostgreSQL/Graphile remain connected after idle periods
+6. confirm no restart loop in Azure logs
 
-Current V1 email jobs are produced by HTTP-triggered actions, so scale-to-zero is acceptable. Revisit minimum replicas before adding jobs that must run at a future time without incoming HTTP traffic.
+Keep maximum replicas at 1 until worker ownership, shared rate limiting and horizontal-concurrency behavior are deliberately redesigned.
 
 ## 6. Real Graphile -> Resend verification
 
@@ -150,7 +154,7 @@ From the real production frontend/domain:
 5. refresh the page and confirm the session survives
 6. logout and confirm refresh/logout behavior
 7. try a second simultaneous refresh scenario by opening multiple authenticated requests; the session must remain usable
-8. confirm Google Console redirect URI exactly matches `GOOGLE_REDIRECT_URI`
+8. confirm Google Console contains the exact production callback `${APP_URL}/api/auth/oauth/google/callback`
 
 ## 9. Supabase Storage
 
@@ -209,7 +213,7 @@ Run this against the deployed production candidate, not localhost:
 22. open analytics
 23. reset password
 24. logout
-25. scale Azure to zero, wake it through HTTP, and repeat login/booking basics
+25. leave the Azure API idle, then repeat login/booking basics and confirm readiness remained healthy
 
 ## 12. Tenant-isolation smoke
 
@@ -247,7 +251,7 @@ For the first pilot period, check daily:
 - booking conflicts
 - invoice/payment anomalies
 
-Keep max replicas at 1 until there is a demonstrated reason to scale horizontally and shared rate limiting/concurrency behavior has been revisited.
+Keep exactly one continuously running API/worker replica until there is a demonstrated reason to scale horizontally and shared rate limiting/concurrency behavior has been revisited.
 
 ## Go-live decision
 
