@@ -87,26 +87,30 @@ A backup that has never been restored is not considered verified.
 
 ## 5. Azure deployment
 
-The production Container App is intentionally configured for:
+The pilot Container App is intentionally configured for:
 
-- minimum replicas: 1
+- minimum replicas: 0
 - maximum replicas: 1
+- one container / one Node.js process
+- Express API and embedded Graphile Worker in that same process
 - target port: 3000
 - external HTTPS ingress
 - liveness path: `/health/live`
 - readiness path: `/health/ready`
 - `EMAIL_DELIVERY_MODE=worker`
 
-The API process owns the embedded Graphile Worker, so one replica must remain alive to consume queued jobs and retries even when there is no incoming HTTP traffic.
+When the app scales to zero, both the API process and embedded Graphile Worker are stopped. Durable Graphile jobs remain in PostgreSQL and resume when an incoming HTTP request wakes the Container App. This topology is acceptable for the V1 pilot only while jobs do not require strict execution at a wall-clock time during completely idle periods.
 
 After deployment:
 
 1. confirm the deployed image tag equals the intended Git SHA
 2. request `/health/live`
 3. request `/health/ready`
-4. leave the API idle and confirm the replica remains running
-5. confirm PostgreSQL/Graphile remain connected after idle periods
-6. confirm no restart loop in Azure logs
+4. stop sending traffic and confirm the app can eventually scale to zero
+5. send a new HTTP request and confirm the app wakes successfully
+6. confirm `/health/ready` becomes healthy after wake-up and the embedded worker reconnects
+7. confirm queued email jobs are consumed after wake-up
+8. confirm no restart loop in Azure logs
 
 Keep maximum replicas at 1 until worker ownership, shared rate limiting and horizontal-concurrency behavior are deliberately redesigned.
 
@@ -215,7 +219,7 @@ Run this against the deployed production candidate, not localhost:
 22. open analytics
 23. reset password
 24. logout
-25. leave the Azure API idle, then repeat login/booking basics and confirm readiness remained healthy
+25. allow Azure to scale to zero, make a fresh request, and repeat login/booking basics after wake-up
 
 ## 12. Tenant-isolation smoke
 
@@ -253,7 +257,7 @@ For the first pilot period, check daily:
 - booking conflicts
 - invoice/payment anomalies
 
-Keep exactly one continuously running API/worker replica until there is a demonstrated reason to scale horizontally and shared rate limiting/concurrency behavior has been revisited.
+Keep maximum replicas at 1 for the pilot. If Systemly later needs strict scheduled jobs that must execute without incoming HTTP traffic, move the worker to an always-on worker/container/job or raise minimum replicas before relying on those jobs.
 
 ## Go-live decision
 
