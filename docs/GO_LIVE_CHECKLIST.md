@@ -25,30 +25,36 @@ In Azure Container Apps, confirm all required runtime values exist:
 - `APP_URL`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI`
 - `RESEND_API_KEY`
 - `EMAIL_FROM`
+- `EMAIL_DELIVERY_MODE=worker`
 - `SENTRY_DSN`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_PUBLIC_MEDIA_BUCKET`
 - `SUPABASE_PRIVATE_MEDIA_BUCKET`
 
+`GOOGLE_REDIRECT_URI` is optional backward-compatibility configuration. In production the backend derives the Google callback from `APP_URL` and does not trust a stale override.
+
 `REDIS_URL` is optional for core availability; when configured, verify it is the intended production cache instance.
 
-In the GitHub `production` environment confirm:
+In the GitHub `Production` environment, confirm these environment secrets:
 
 - `DATABASE_MIGRATION_URL`
 - `AZURE_CLIENT_ID`
 - `AZURE_TENANT_ID`
 - `AZURE_SUBSCRIPTION_ID`
+- `GHCR_PULL_TOKEN` — classic GitHub PAT with `read:packages` only, used by Azure to pull the private GHCR image
 
-and variables:
+At the repository level under Actions configuration variables, confirm:
 
 - `AZURE_DEPLOY_ENABLED=true` only when automatic production deployment is intended
 - `AZURE_RESOURCE_GROUP`
-- `AZURE_CONTAINER_REGISTRY`
 - `AZURE_API_APP`
+
+The deploy job evaluates `AZURE_DEPLOY_ENABLED` before a runner starts, so these non-secret deployment variables must be repository-level variables rather than `Production` environment variables.
+
+There is intentionally no Azure Container Registry resource or `AZURE_CONTAINER_REGISTRY` variable in the zero-fixed-cost pilot. Docker images are stored in GitHub Container Registry at `ghcr.io/ahmed2902/systemly-backend`.
 
 Never configure `DATABASE_MIGRATION_URL` on the running Container App.
 
@@ -87,22 +93,32 @@ The pilot Container App is intentionally configured for:
 
 - minimum replicas: 0
 - maximum replicas: 1
+- one container / one Node.js process
+- Express API and embedded Graphile Worker in that same process
+- image registry: private GitHub Container Registry (`ghcr.io`), not Azure Container Registry
 - target port: 3000
 - external HTTPS ingress
 - liveness path: `/health/live`
 - readiness path: `/health/ready`
+- `EMAIL_DELIVERY_MODE=worker`
+
+When the app scales to zero, both the API process and embedded Graphile Worker are stopped. Durable Graphile jobs remain in PostgreSQL and resume when an incoming HTTP request wakes the Container App. This topology is acceptable for the V1 pilot only while jobs do not require strict execution at a wall-clock time during completely idle periods.
+
+For the zero-fixed-cost pilot, configure the Container Apps environment under `Monitoring -> Logging options` with `Don't save logs`. Live log streaming remains available. Use Sentry for persistent error history and alerts. Do not create a Log Analytics workspace solely for this app unless you intentionally accept its metered cost.
 
 After deployment:
 
 1. confirm the deployed image tag equals the intended Git SHA
-2. request `/health/live`
-3. request `/health/ready`
-4. allow the app to scale to zero
-5. make a new HTTP request and confirm cold-start recovery
-6. confirm PostgreSQL/Graphile reconnect after wake-up
-7. confirm no restart loop in Azure logs
+2. confirm the image is `ghcr.io/ahmed2902/systemly-backend:<SHA>`
+3. request `/health/live`
+4. request `/health/ready`
+5. stop sending traffic and confirm the app can eventually scale to zero
+6. send a new HTTP request and confirm the app wakes successfully
+7. confirm `/health/ready` becomes healthy after wake-up and the embedded worker reconnects
+8. confirm queued email jobs are consumed after wake-up
+9. confirm no restart loop in the live Azure log stream or Sentry
 
-Current V1 email jobs are produced by HTTP-triggered actions, so scale-to-zero is acceptable. Revisit minimum replicas before adding jobs that must run at a future time without incoming HTTP traffic.
+Keep maximum replicas at 1 until worker ownership, shared rate limiting and horizontal-concurrency behavior are deliberately redesigned.
 
 ## 6. Real Graphile -> Resend verification
 
@@ -150,7 +166,7 @@ From the real production frontend/domain:
 5. refresh the page and confirm the session survives
 6. logout and confirm refresh/logout behavior
 7. try a second simultaneous refresh scenario by opening multiple authenticated requests; the session must remain usable
-8. confirm Google Console redirect URI exactly matches `GOOGLE_REDIRECT_URI`
+8. confirm Google Console contains the exact production callback `${APP_URL}/api/auth/oauth/google/callback`
 
 ## 9. Supabase Storage
 
@@ -209,7 +225,7 @@ Run this against the deployed production candidate, not localhost:
 22. open analytics
 23. reset password
 24. logout
-25. scale Azure to zero, wake it through HTTP, and repeat login/booking basics
+25. allow Azure to scale to zero, make a fresh request, and repeat login/booking basics after wake-up
 
 ## 12. Tenant-isolation smoke
 
@@ -238,7 +254,7 @@ Record any money collected outside Systemly separately until EasyKash is live.
 
 For the first pilot period, check daily:
 
-- Azure restarts and failed revisions
+- Azure restarts and failed revisions using live log stream when needed
 - Sentry new errors
 - failed Graphile jobs / missing transactional mail
 - PostgreSQL connection saturation
@@ -247,7 +263,7 @@ For the first pilot period, check daily:
 - booking conflicts
 - invoice/payment anomalies
 
-Keep max replicas at 1 until there is a demonstrated reason to scale horizontally and shared rate limiting/concurrency behavior has been revisited.
+Keep maximum replicas at 1 for the pilot. If Systemly later needs strict scheduled jobs that must execute without incoming HTTP traffic, move the worker to an always-on worker/container/job or raise minimum replicas before relying on those jobs.
 
 ## Go-live decision
 

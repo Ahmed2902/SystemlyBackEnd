@@ -16,6 +16,7 @@ Supporting services:
 - Supabase Storage — public website media and private appointment media
 - Resend — transactional email provider
 - Sentry — error monitoring
+- GitHub Container Registry (GHCR) — production Docker image storage
 - Azure Container Apps — production API container
 
 There is no separate worker service and no BullMQ/reminder runtime in V1.
@@ -51,13 +52,13 @@ The Docker image:
 Use two credentials deliberately:
 
 - `DATABASE_URL` — runtime Supabase Session Pooler connection used by Express + Graphile Worker
-- `DATABASE_MIGRATION_URL` — GitHub production secret used only by the deployment workflow for Prisma and Graphile schema migrations
+- `DATABASE_MIGRATION_URL` — GitHub Production secret used only by the deployment workflow for Prisma and Graphile schema migrations
 
 Never put `DATABASE_MIGRATION_URL` in the running Container App.
 
 ## Required production configuration
 
-The application fails fast in `NODE_ENV=production` when required configuration is missing.
+The application fails fast in `NODE_ENV=production` when required core configuration is missing.
 
 Core:
 
@@ -72,12 +73,14 @@ Google OAuth:
 
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI`
+
+`GOOGLE_REDIRECT_URI` is optional compatibility configuration. Production derives the callback from `APP_URL` so a stale override cannot redirect production OAuth to another host.
 
 Email:
 
 - `RESEND_API_KEY`
 - `EMAIL_FROM`
+- `EMAIL_DELIVERY_MODE=worker` on the Azure runtime
 
 Observability:
 
@@ -122,6 +125,8 @@ JWT and CSRF secrets must contain at least 32 characters in production.
 
 The only V1 Graphile task is `send_email`, used for authentication and staff-invitation mail.
 
+The worker runs inside the same Node.js process as the HTTP API. The pilot Azure deployment uses `minReplicas=0` and `maxReplicas=1`, so the worker only runs while the Container App has an active replica. Queued jobs remain durable in PostgreSQL and are consumed after the app wakes again. Do not rely on this topology for strict wall-clock scheduled jobs that must execute while the service is idle.
+
 After production deployment, verify the complete queue/provider path with:
 
 ```bash
@@ -144,16 +149,22 @@ Backend CI on every PR/main push verifies:
 - non-root runtime
 - liveness/readiness
 
-Production deployment runs only after successful Backend CI on `main` and when `AZURE_DEPLOY_ENABLED=true`.
+Production deployment runs only after successful Backend CI on `main` and when repository variable `AZURE_DEPLOY_ENABLED=true`.
+
+The production Docker image is stored in GitHub Container Registry rather than Azure Container Registry. GitHub Actions publishes the tested SHA using the repository `GITHUB_TOKEN`. The Azure Container App pulls the private GHCR image using a separate read-only `GHCR_PULL_TOKEN` stored as a GitHub Production secret and then saved as a Container App registry credential.
 
 Deployment order:
 
-1. build/push the tested SHA
+1. build/push the tested SHA to `ghcr.io/ahmed2902/systemly-backend`
 2. apply Prisma migration
 3. apply Graphile Worker schema migration
-4. update the Azure Container App to that exact image
-5. set pilot scaling to min 0 / max 1
-6. wait for `/health/ready`
+4. configure the Container App to authenticate to private GHCR
+5. update the Azure Container App to that exact image
+6. enforce external HTTPS ingress on port 3000
+7. set pilot scaling to min 0 / max 1
+8. wait for `/health/ready`
+
+For the zero-fixed-cost pilot, configure the Container Apps environment logging destination as `Don't save logs`. Live log streaming remains available and Sentry provides persistent application error monitoring.
 
 ## Operational docs
 

@@ -12,6 +12,7 @@ concurrency:
 permissions:
   contents: read
   id-token: write
+  packages: write
 
 jobs:
   deploy:
@@ -24,11 +25,10 @@ jobs:
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 35
-    environment: production
+    environment: Production
     env:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
       AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-      AZURE_CONTAINER_REGISTRY: ${{ vars.AZURE_CONTAINER_REGISTRY }}
       AZURE_API_APP: ${{ vars.AZURE_API_APP }}
 
     steps:
@@ -51,6 +51,30 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
 
+      - name: Resolve GHCR image name
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "GHCR_IMAGE=ghcr.io/$owner/systemly-backend" >> "$GITHUB_ENV"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the tested image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.GHCR_IMAGE }}:${{ env.DEPLOY_SHA }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ env.DEPLOY_SHA }}
+
       - name: Log in to Azure with OIDC
         uses: azure/login@v2
         with:
@@ -62,24 +86,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          : "${AZURE_RESOURCE_GROUP:?Set the AZURE_RESOURCE_GROUP production variable}"
-          : "${AZURE_CONTAINER_REGISTRY:?Set the AZURE_CONTAINER_REGISTRY production variable}"
-          : "${AZURE_API_APP:?Set the AZURE_API_APP production variable}"
-          : "${DATABASE_MIGRATION_URL:?Set the DATABASE_MIGRATION_URL production secret}"
+          : "${AZURE_RESOURCE_GROUP:?Set the AZURE_RESOURCE_GROUP repository variable}"
+          : "${AZURE_API_APP:?Set the AZURE_API_APP repository variable}"
+          : "${DATABASE_MIGRATION_URL:?Set the DATABASE_MIGRATION_URL Production environment secret}"
+          : "${GHCR_PULL_TOKEN:?Set the GHCR_PULL_TOKEN Production environment secret}"
         env:
           DATABASE_MIGRATION_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
 
       - name: Install Container Apps CLI extension
-        run: az extension add --name containerapp --upgrade
-
-      - name: Build and push the tested image
-        shell: bash
-        run: |
-          set -euo pipefail
-          az acr build \
-            --registry "$AZURE_CONTAINER_REGISTRY" \
-            --image "systemly-backend:$DEPLOY_SHA" \
-            .
+        run: az extension add --name containerapp --upgrade --allow-preview true
 
       - name: Apply production application migrations
         run: npm run prisma:migrate:deploy
@@ -93,11 +109,24 @@ jobs:
           NODE_ENV: production
           DATABASE_URL: ${{ secrets.DATABASE_MIGRATION_URL }}
 
+      - name: Configure Container App GHCR access
+        shell: bash
+        env:
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+        run: |
+          set -euo pipefail
+          az containerapp registry set \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_API_APP" \
+            --server ghcr.io \
+            --username "$GITHUB_REPOSITORY_OWNER" \
+            --password "$GHCR_PULL_TOKEN"
+
       - name: Deploy API revision
         shell: bash
         run: |
           set -euo pipefail
-          image="$AZURE_CONTAINER_REGISTRY.azurecr.io/systemly-backend:$DEPLOY_SHA"
+          image="$GHCR_IMAGE:$DEPLOY_SHA"
           az containerapp update \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name "$AZURE_API_APP" \
@@ -105,8 +134,23 @@ jobs:
             --min-replicas 0 \
             --max-replicas 1 \
             --set-env-vars \
+              "NODE_ENV=production" \
+              "PORT=3000" \
+              "EMAIL_DELIVERY_MODE=worker" \
               "SENTRY_ENV=production" \
               "SENTRY_RELEASE=systemly-backend@$DEPLOY_SHA"
+
+      - name: Configure production ingress
+        shell: bash
+        run: |
+          set -euo pipefail
+          az containerapp ingress update \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$AZURE_API_APP" \
+            --type external \
+            --target-port 3000 \
+            --transport auto \
+            --allow-insecure false
 
       - name: Wait for API readiness
         shell: bash
@@ -144,6 +188,8 @@ jobs:
           echo "- Sentry release: \`systemly-backend@$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Prisma and Graphile Worker migrations: applied before rollout" >> "$GITHUB_STEP_SUMMARY"
           echo "- Runtime database URL: configured separately on the Container App" >> "$GITHUB_STEP_SUMMARY"
-          echo "- API app: \`$AZURE_API_APP\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image registry: GitHub Container Registry (GHCR)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: \`$GHCR_IMAGE:$DEPLOY_SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- External HTTPS ingress: target port 3000" >> "$GITHUB_STEP_SUMMARY"
           echo "- Pilot scaling: min replicas 0, max replicas 1" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Embedded Graphile email worker: enabled while the HTTP app is awake" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Embedded Graphile email worker: runs inside the API container whenever a replica is awake" >> "$GITHUB_STEP_SUMMARY"
