@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { Roles } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
 import { enqueueStaffInviteEmail } from "../../shared/services/email.service";
+import { signAccessToken } from "../../shared/utils/token.util";
 import type { CreateInviteInput } from "./staff.schema";
 
 const buildError = (message: string, statusCode: number, code: string) => {
@@ -166,7 +167,14 @@ class StaffInviteService {
         },
       });
 
-      return { user: updatedUser };
+      return {
+        user: updatedUser,
+        accessToken: signAccessToken({
+          userId: updatedUser.id,
+          businessId: updatedUser.businessId,
+          role: updatedUser.role,
+        }),
+      };
     });
   }
 }
