@@ -26,6 +26,8 @@ export interface CreateAppointmentCoreParams {
   startsAt: string;
   customerName: string;
   customerPhone: string;
+  dateOfBirth?: string;
+  gender?: "male" | "female";
   notes?: string;
   acquisitionSource?: string;
   status: "pending" | "confirmed";
@@ -38,6 +40,8 @@ interface UpsertCustomerParams {
   phone: string;
   name?: string;
   acquisitionSource?: string;
+  dateOfBirth?: string;
+  gender?: "male" | "female";
 }
 
 export async function scheduleServiceSegments(
@@ -160,6 +164,8 @@ export async function createAppointmentCore(
     phone: params.customerPhone,
     name: params.customerName,
     acquisitionSource: params.acquisitionSource,
+    dateOfBirth: params.dateOfBirth,
+    gender: params.gender,
   });
 
   const appointment = await tx.appointment.create({
@@ -196,7 +202,7 @@ export async function upsertCustomer(
   tx: TxClient,
   params: UpsertCustomerParams,
 ) {
-  const { businessId, phone, name, acquisitionSource } = params;
+  const { businessId, phone, name, acquisitionSource, dateOfBirth, gender } = params;
   const existing = await tx.customer.findUnique({
     where: { businessId_phone: { businessId, phone } },
   });
@@ -207,6 +213,10 @@ export async function upsertCustomer(
       data: {
         name: name?.trim() || existing.name,
         acquisitionSource: existing.acquisitionSource ?? acquisitionSource,
+        ...(dateOfBirth !== undefined
+          ? { dateOfBirth: new Date(`${dateOfBirth}T00:00:00.000Z`) }
+          : {}),
+        ...(gender !== undefined ? { gender } : {}),
       },
     });
   }
@@ -217,6 +227,10 @@ export async function upsertCustomer(
       phone,
       name: name?.trim() || "",
       acquisitionSource,
+      dateOfBirth: dateOfBirth
+        ? new Date(`${dateOfBirth}T00:00:00.000Z`)
+        : undefined,
+      gender,
       visitCount: 0,
       noShowCount: 0,
       lastVisitAt: null,

@@ -5,6 +5,15 @@ const serviceSelectionSchema = z.object({
   staffId: z.string().optional(),
 });
 
+const optionalDateOfBirth = z
+  .string()
+  .date()
+  .optional()
+  .refine(
+    (value) => !value || new Date(`${value}T00:00:00.000Z`).getTime() <= Date.now(),
+    "Date of birth cannot be in the future",
+  );
+
 export const availabilityQuerySchema = z
   .object({
     businessId: z.string().min(1).openapi({ example: "biz-123" }),
@@ -28,6 +37,8 @@ export const createBookingSchema = z
     startsAt: z.string().min(1).openapi({ example: "2026-03-20T10:00:00" }),
     customerName: z.string().min(1).openapi({ example: "Sara Ali" }),
     customerPhone: z.string().min(4).openapi({ example: "01098765432" }),
+    dateOfBirth: optionalDateOfBirth.openapi({ example: "1994-05-20" }),
+    gender: z.enum(["male", "female"]).optional().openapi({ example: "female" }),
     notes: z
       .string()
       .optional()

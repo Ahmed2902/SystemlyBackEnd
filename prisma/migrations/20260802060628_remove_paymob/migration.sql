@@ -1,5 +1,4 @@
--- A prior migration already removes this legacy column on a clean database.
--- Keep this migration as an idempotent compatibility step for environments
--- where the earlier cleanup was not applied consistently.
+-- The preceding migration removes this legacy column on a clean database.
+-- Keep this duplicate cleanup safe for databases where it was already removed.
 ALTER TABLE "subscriptions"
   DROP COLUMN IF EXISTS "paymob_subscription_id";

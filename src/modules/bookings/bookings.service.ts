@@ -101,6 +101,8 @@ class BookingsService {
         startsAt,
         customerName: payload.customerName,
         customerPhone: payload.customerPhone,
+        dateOfBirth: payload.dateOfBirth,
+        gender: payload.gender,
         notes: payload.notes,
         bookingChannel: "WEBSITE",
         acquisitionSource: payload.acquisitionSource,

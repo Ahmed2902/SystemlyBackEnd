@@ -233,7 +233,8 @@ class CustomersQueryService {
     ]);
     if (!customer) throw notFoundError();
 
-    const { visitCount, noShowCount, lastVisitAt, ...customerProfile } = customer;
+    const { visitCount, noShowCount, lastVisitAt, ...customerProfile } =
+      customer;
     const normalizedUpcoming = upcoming.map(withCurrentInvoice);
     const historyHasMore = historyRows.length > CUSTOMER_HISTORY_LIMIT;
     const limitedHistoryRows = historyRows.slice(0, CUSTOMER_HISTORY_LIMIT);
@@ -268,8 +269,8 @@ class CustomersQueryService {
           startsAt: appointment.startsAt,
           endsAt: appointment.endsAt,
           status: appointment.status,
-          services: appointment.appointmentServices.map((segment) =>
-            segment.service,
+          services: appointment.appointmentServices.map(
+            (segment) => segment.service,
           ),
           staff,
           diagnosisAssessment: record.diagnosis,

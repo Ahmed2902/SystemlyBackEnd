@@ -25,7 +25,6 @@ function hashToken(token: string) {
 class StaffInviteService {
   async create(businessId: string, input: CreateInviteInput) {
     const email = normaliseEmail(input.email);
-    const role = input.role;
     const expiresInDays = input.expiresInDays ?? 7;
     const token = crypto.randomBytes(32).toString("hex");
     const tokenHash = hashToken(token);
@@ -70,7 +69,7 @@ class StaffInviteService {
         data: {
           businessId,
           email,
-          role,
+          role: Roles.Receptionist,
           tokenHash,
           expiresAt,
         },
@@ -88,9 +87,9 @@ class StaffInviteService {
         businessName: business.name,
         acceptUrl,
         locale: business.language,
-        idempotencyKey: `staff-invite:${invite.id}`,
+        idempotencyKey: `receptionist-invite:${invite.id}`,
       },
-      { idempotencyKey: `staff-invite:${invite.id}` },
+      { idempotencyKey: `receptionist-invite:${invite.id}` },
     );
 
     return {
@@ -112,7 +111,7 @@ class StaffInviteService {
     if (invite.expiresAt.getTime() <= Date.now()) {
       throw buildError("Invitation expired", 410, "INVITE_EXPIRED");
     }
-    if (invite.role !== Roles.Receptionist && invite.role !== Roles.Staff) {
+    if (invite.role !== Roles.Receptionist) {
       throw buildError("Invalid invitation role", 400, "INVALID_INVITE_ROLE");
     }
 
@@ -142,7 +141,7 @@ class StaffInviteService {
           id: invite.id,
           acceptedAt: null,
           expiresAt: { gt: new Date() },
-          role: invite.role,
+          role: Roles.Receptionist,
         },
         data: { acceptedAt: new Date() },
       });
@@ -158,7 +157,7 @@ class StaffInviteService {
         where: { id: user.id },
         data: {
           businessId: invite.businessId,
-          role: invite.role,
+          role: Roles.Receptionist,
         },
         select: {
           id: true,
