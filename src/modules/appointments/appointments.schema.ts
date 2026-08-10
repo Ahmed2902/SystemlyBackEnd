@@ -15,9 +15,6 @@ const clinicVisitInputSchema = z
     diagnosisAssessment: z.string().max(2000).optional(),
     clinicalSessionNotes: z.string().max(5000).optional(),
     planAndPrescription: z.string().max(5000).optional(),
-    // Temporary aliases keep the backend-first rollout compatible with the
-    // currently deployed frontend. They are normalized to text before the
-    // command service reaches Prisma.
     diagnosis: z.string().max(2000).optional(),
     notes: z.string().max(5000).optional(),
     prescriptionJson: legacyPrescriptionSchema.optional(),
@@ -116,6 +113,8 @@ export const createManualAppointmentSchema = z
     startsAt: z.string().min(1).openapi({ example: "2026-03-20T10:00:00Z" }),
     customerName: z.string().min(1).openapi({ example: "Mona Ahmed" }),
     customerPhone: z.string().min(4).openapi({ example: "01023456789" }),
+    customerDateOfBirth: z.string().date().optional().nullable(),
+    customerGender: z.enum(["male", "female"]).optional().nullable(),
     notes: z.string().optional().openapi({ example: "First visit" }),
     acquisitionSource: z.string().optional().openapi({ example: "website" }),
   })
