@@ -9,6 +9,36 @@ const ACTIVE_STATUSES: AppointmentStatus[] = [
 ];
 const CUSTOMER_HISTORY_LIMIT = 100;
 
+type CustomerDemographicsRow = {
+  id: string;
+  dateOfBirth: Date | null;
+  gender: string | null;
+};
+
+async function demographicsByCustomerIds(ids: string[]) {
+  if (ids.length === 0) return new Map<string, Omit<CustomerDemographicsRow, "id">>();
+  const rows = await prisma.$queryRaw<CustomerDemographicsRow[]>(Prisma.sql`
+    SELECT
+      id::text AS id,
+      date_of_birth AS "dateOfBirth",
+      gender
+    FROM customers
+    WHERE id IN (${Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`))})
+  `);
+  return new Map(
+    rows.map(({ id, dateOfBirth, gender }) => [id, { dateOfBirth, gender }]),
+  );
+}
+
+async function attachDemographics<T extends { id: string }>(items: T[]) {
+  const byId = await demographicsByCustomerIds(items.map((item) => item.id));
+  return items.map((item) => ({
+    ...item,
+    dateOfBirth: byId.get(item.id)?.dateOfBirth ?? null,
+    gender: byId.get(item.id)?.gender ?? null,
+  }));
+}
+
 const appointmentSelect = {
   id: true,
   startsAt: true,
@@ -70,8 +100,8 @@ function hasClinicalContent(record: {
 }) {
   return Boolean(
     record.diagnosis?.trim() ||
-      record.notes?.trim() ||
-      record.prescriptionJson?.trim(),
+    record.notes?.trim() ||
+    record.prescriptionJson?.trim(),
   );
 }
 
@@ -135,7 +165,12 @@ class CustomersQueryService {
         }),
         prisma.customer.count({ where }),
       ]);
-      return { items, total, page: query.page, perPage: query.perPage };
+      return {
+        items: await attachDemographics(items),
+        total,
+        page: query.page,
+        perPage: query.perPage,
+      };
     }
 
     const [customers, total] = await Promise.all([
@@ -160,24 +195,30 @@ class CustomersQueryService {
       prisma.customer.count({ where }),
     ]);
 
-    return {
-      items: customers.map(({ appointments, visitCount, noShowCount, ...customer }) => ({
+    const items = customers.map(
+      ({ appointments, visitCount, noShowCount, ...customer }) => ({
         ...customer,
         visits: visitCount,
         noShows: noShowCount,
         nextAppointment: appointments[0] ?? null,
-      })),
+      }),
+    );
+
+    return {
+      items: await attachDemographics(items),
       total,
       page: query.page,
       perPage: query.perPage,
     };
   }
 
-  getCustomerById(id: string, businessId: string) {
-    return prisma.customer.findFirst({
+  async getCustomerById(id: string, businessId: string) {
+    const customer = await prisma.customer.findFirst({
       where: { id, businessId },
       select: customerProfileSelect,
     });
+    if (!customer) return null;
+    return (await attachDemographics([customer]))[0];
   }
 
   async getWorkspace(id: string, businessId: string) {
@@ -220,12 +261,8 @@ class CustomersQueryService {
     ]);
     if (!customer) throw notFoundError();
 
-    const {
-      visitCount,
-      noShowCount,
-      lastVisitAt,
-      ...customerProfile
-    } = customer;
+    const { visitCount, noShowCount, lastVisitAt, ...customerBase } = customer;
+    const [customerProfile] = await attachDemographics([customerBase]);
     const normalizedUpcoming = upcoming.map(withCurrentInvoice);
     const historyHasMore = historyRows.length > CUSTOMER_HISTORY_LIMIT;
     const limitedHistoryRows = historyRows.slice(0, CUSTOMER_HISTORY_LIMIT);
