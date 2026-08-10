@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { Roles } from "@prisma/client";
 import staffInviteService from "../src/modules/staff/staff-invite.service";
 import { prisma } from "../src/shared/db/prisma";
+import { verifyAccessToken } from "../src/shared/utils/token.util";
 
 let businessId: string | null = null;
 let userId: string | null = null;
@@ -61,7 +62,7 @@ describe("receptionist invitations", () => {
       },
     });
 
-    await staffInviteService.accept(token, user.id);
+    const accepted = await staffInviteService.accept(token, user.id);
 
     await expect(
       prisma.businessUser.findUniqueOrThrow({
@@ -69,6 +70,12 @@ describe("receptionist invitations", () => {
         select: { businessId: true, role: true },
       }),
     ).resolves.toEqual({
+      businessId: business.id,
+      role: Roles.Receptionist,
+    });
+
+    expect(verifyAccessToken(accepted.accessToken)).toMatchObject({
+      userId: user.id,
       businessId: business.id,
       role: Roles.Receptionist,
     });
