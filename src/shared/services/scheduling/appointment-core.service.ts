@@ -26,6 +26,8 @@ export interface CreateAppointmentCoreParams {
   startsAt: string;
   customerName: string;
   customerPhone: string;
+  customerDateOfBirth?: string | null;
+  customerGender?: "male" | "female" | null;
   notes?: string;
   acquisitionSource?: string;
   status: "pending" | "confirmed";
@@ -37,7 +39,14 @@ interface UpsertCustomerParams {
   businessId: string;
   phone: string;
   name?: string;
+  dateOfBirth?: string | null;
+  gender?: "male" | "female" | null;
   acquisitionSource?: string;
+}
+
+function toDateOfBirth(value: string | null | undefined) {
+  if (value === undefined) return undefined;
+  return value ? new Date(`${value}T00:00:00.000Z`) : null;
 }
 
 export async function scheduleServiceSegments(
@@ -159,6 +168,8 @@ export async function createAppointmentCore(
     businessId: business.id,
     phone: params.customerPhone,
     name: params.customerName,
+    dateOfBirth: params.customerDateOfBirth,
+    gender: params.customerGender,
     acquisitionSource: params.acquisitionSource,
   });
 
@@ -196,7 +207,7 @@ export async function upsertCustomer(
   tx: TxClient,
   params: UpsertCustomerParams,
 ) {
-  const { businessId, phone, name, acquisitionSource } = params;
+  const { businessId, phone, name, dateOfBirth, gender, acquisitionSource } = params;
   const existing = await tx.customer.findUnique({
     where: { businessId_phone: { businessId, phone } },
   });
@@ -206,6 +217,10 @@ export async function upsertCustomer(
       where: { id: existing.id },
       data: {
         name: name?.trim() || existing.name,
+        ...(dateOfBirth !== undefined
+          ? { dateOfBirth: toDateOfBirth(dateOfBirth) }
+          : {}),
+        ...(gender !== undefined ? { gender } : {}),
         acquisitionSource: existing.acquisitionSource ?? acquisitionSource,
       },
     });
@@ -216,6 +231,8 @@ export async function upsertCustomer(
       businessId,
       phone,
       name: name?.trim() || "",
+      dateOfBirth: toDateOfBirth(dateOfBirth),
+      gender: gender ?? null,
       acquisitionSource,
       visitCount: 0,
       noShowCount: 0,
