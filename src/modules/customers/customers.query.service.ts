@@ -9,36 +9,6 @@ const ACTIVE_STATUSES: AppointmentStatus[] = [
 ];
 const CUSTOMER_HISTORY_LIMIT = 100;
 
-type CustomerDemographicsRow = {
-  id: string;
-  dateOfBirth: Date | null;
-  gender: string | null;
-};
-
-async function demographicsByCustomerIds(ids: string[]) {
-  if (ids.length === 0) return new Map<string, Omit<CustomerDemographicsRow, "id">>();
-  const rows = await prisma.$queryRaw<CustomerDemographicsRow[]>(Prisma.sql`
-    SELECT
-      id::text AS id,
-      date_of_birth AS "dateOfBirth",
-      gender
-    FROM customers
-    WHERE id IN (${Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`))})
-  `);
-  return new Map(
-    rows.map(({ id, dateOfBirth, gender }) => [id, { dateOfBirth, gender }]),
-  );
-}
-
-async function attachDemographics<T extends { id: string }>(items: T[]) {
-  const byId = await demographicsByCustomerIds(items.map((item) => item.id));
-  return items.map((item) => ({
-    ...item,
-    dateOfBirth: byId.get(item.id)?.dateOfBirth ?? null,
-    gender: byId.get(item.id)?.gender ?? null,
-  }));
-}
-
 const appointmentSelect = {
   id: true,
   startsAt: true,
@@ -80,6 +50,8 @@ const customerProfileSelect = {
   name: true,
   phone: true,
   email: true,
+  dateOfBirth: true,
+  gender: true,
   acquisitionSource: true,
   notes: true,
   createdAt: true,
@@ -161,12 +133,14 @@ class CustomersQueryService {
             phone: true,
             visitCount: true,
             lastVisitAt: true,
+            dateOfBirth: true,
+            gender: true,
           },
         }),
         prisma.customer.count({ where }),
       ]);
       return {
-        items: await attachDemographics(items),
+        items,
         total,
         page: query.page,
         perPage: query.perPage,
@@ -205,20 +179,18 @@ class CustomersQueryService {
     );
 
     return {
-      items: await attachDemographics(items),
+      items,
       total,
       page: query.page,
       perPage: query.perPage,
     };
   }
 
-  async getCustomerById(id: string, businessId: string) {
-    const customer = await prisma.customer.findFirst({
+  getCustomerById(id: string, businessId: string) {
+    return prisma.customer.findFirst({
       where: { id, businessId },
       select: customerProfileSelect,
     });
-    if (!customer) return null;
-    return (await attachDemographics([customer]))[0];
   }
 
   async getWorkspace(id: string, businessId: string) {
@@ -261,8 +233,7 @@ class CustomersQueryService {
     ]);
     if (!customer) throw notFoundError();
 
-    const { visitCount, noShowCount, lastVisitAt, ...customerBase } = customer;
-    const [customerProfile] = await attachDemographics([customerBase]);
+    const { visitCount, noShowCount, lastVisitAt, ...customerProfile } = customer;
     const normalizedUpcoming = upcoming.map(withCurrentInvoice);
     const historyHasMore = historyRows.length > CUSTOMER_HISTORY_LIMIT;
     const limitedHistoryRows = historyRows.slice(0, CUSTOMER_HISTORY_LIMIT);
