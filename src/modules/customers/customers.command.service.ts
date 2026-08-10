@@ -20,6 +20,11 @@ function normalizeNullable(value: string | null | undefined) {
   return normalized ? normalized : null;
 }
 
+function normalizeDateOfBirth(value: string | null | undefined) {
+  if (value === undefined) return undefined;
+  return value ? new Date(`${value}T00:00:00.000Z`) : null;
+}
+
 class CustomersCommandService {
   createCustomer(businessId: string, input: CreateCustomerBody) {
     return prisma.customer.create({
@@ -28,6 +33,8 @@ class CustomersCommandService {
         name: input.name.trim(),
         phone: input.phone.trim(),
         email: normalizeNullable(input.email),
+        dateOfBirth: normalizeDateOfBirth(input.dateOfBirth),
+        gender: input.gender ?? null,
         acquisitionSource: normalizeNullable(input.acquisitionSource),
         notes: normalizeNullable(input.notes),
       },
@@ -53,6 +60,10 @@ class CustomersCommandService {
         ...(input.email !== undefined
           ? { email: normalizeNullable(input.email) }
           : {}),
+        ...(input.dateOfBirth !== undefined
+          ? { dateOfBirth: normalizeDateOfBirth(input.dateOfBirth) }
+          : {}),
+        ...(input.gender !== undefined ? { gender: input.gender } : {}),
         ...(input.acquisitionSource !== undefined
           ? { acquisitionSource: normalizeNullable(input.acquisitionSource) }
           : {}),
