@@ -364,18 +364,20 @@ model AvailabilityOverride {
 }
 
 model Customer {
-  id                String   @id @default(uuid()) @db.Uuid
-  businessId        String   @map("business_id") @db.Uuid
-  name              String   @db.VarChar(255)
-  phone             String   @db.VarChar(30)
-  email             String?  @db.VarChar(255)
-  visitCount        Int      @default(0) @map("visit_count")
-  noShowCount       Int      @default(0) @map("no_show_count")
-  notes             String?  @db.Text
+  id                String    @id @default(uuid()) @db.Uuid
+  businessId        String    @map("business_id") @db.Uuid
+  name              String    @db.VarChar(255)
+  phone             String    @db.VarChar(30)
+  email             String?   @db.VarChar(255)
+  dateOfBirth       DateTime? @map("date_of_birth") @db.Date
+  gender            String?   @db.VarChar(20)
+  visitCount        Int       @default(0) @map("visit_count")
+  noShowCount       Int       @default(0) @map("no_show_count")
+  notes             String?   @db.Text
   lastVisitAt       DateTime? @map("last_visit_at")
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
-  acquisitionSource String?  @map("acquisition_source")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  acquisitionSource String?   @map("acquisition_source")
 
   appointments    Appointment[]
   invoices        Invoice[]

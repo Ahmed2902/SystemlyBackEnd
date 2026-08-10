@@ -50,6 +50,8 @@ const customerProfileSelect = {
   name: true,
   phone: true,
   email: true,
+  dateOfBirth: true,
+  gender: true,
   acquisitionSource: true,
   notes: true,
   createdAt: true,
@@ -70,8 +72,8 @@ function hasClinicalContent(record: {
 }) {
   return Boolean(
     record.diagnosis?.trim() ||
-      record.notes?.trim() ||
-      record.prescriptionJson?.trim(),
+    record.notes?.trim() ||
+    record.prescriptionJson?.trim(),
   );
 }
 
@@ -131,11 +133,18 @@ class CustomersQueryService {
             phone: true,
             visitCount: true,
             lastVisitAt: true,
+            dateOfBirth: true,
+            gender: true,
           },
         }),
         prisma.customer.count({ where }),
       ]);
-      return { items, total, page: query.page, perPage: query.perPage };
+      return {
+        items,
+        total,
+        page: query.page,
+        perPage: query.perPage,
+      };
     }
 
     const [customers, total] = await Promise.all([
@@ -160,13 +169,17 @@ class CustomersQueryService {
       prisma.customer.count({ where }),
     ]);
 
-    return {
-      items: customers.map(({ appointments, visitCount, noShowCount, ...customer }) => ({
+    const items = customers.map(
+      ({ appointments, visitCount, noShowCount, ...customer }) => ({
         ...customer,
         visits: visitCount,
         noShows: noShowCount,
         nextAppointment: appointments[0] ?? null,
-      })),
+      }),
+    );
+
+    return {
+      items,
       total,
       page: query.page,
       perPage: query.perPage,
@@ -220,12 +233,7 @@ class CustomersQueryService {
     ]);
     if (!customer) throw notFoundError();
 
-    const {
-      visitCount,
-      noShowCount,
-      lastVisitAt,
-      ...customerProfile
-    } = customer;
+    const { visitCount, noShowCount, lastVisitAt, ...customerProfile } = customer;
     const normalizedUpcoming = upcoming.map(withCurrentInvoice);
     const historyHasMore = historyRows.length > CUSTOMER_HISTORY_LIMIT;
     const limitedHistoryRows = historyRows.slice(0, CUSTOMER_HISTORY_LIMIT);
