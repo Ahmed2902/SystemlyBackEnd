@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
 import type {
   CreateCustomerBody,
@@ -26,59 +25,20 @@ function normalizeDateOfBirth(value: string | null | undefined) {
   return value ? new Date(`${value}T00:00:00.000Z`) : null;
 }
 
-type CustomerDemographics = {
-  dateOfBirth: Date | null;
-  gender: string | null;
-};
-
-async function getDemographics(id: string, businessId: string) {
-  const [row] = await prisma.$queryRaw<CustomerDemographics[]>(Prisma.sql`
-    SELECT
-      date_of_birth AS "dateOfBirth",
-      gender
-    FROM customers
-    WHERE id = ${id}::uuid AND business_id = ${businessId}::uuid
-    LIMIT 1
-  `);
-  return row ?? { dateOfBirth: null, gender: null };
-}
-
-async function updateDemographics(
-  id: string,
-  businessId: string,
-  input: Pick<UpdateCustomerBody, "dateOfBirth" | "gender">,
-) {
-  if (input.dateOfBirth !== undefined) {
-    const dateOfBirth = normalizeDateOfBirth(input.dateOfBirth);
-    await prisma.$executeRaw(Prisma.sql`
-      UPDATE customers
-      SET date_of_birth = ${dateOfBirth}
-      WHERE id = ${id}::uuid AND business_id = ${businessId}::uuid
-    `);
-  }
-  if (input.gender !== undefined) {
-    await prisma.$executeRaw(Prisma.sql`
-      UPDATE customers
-      SET gender = ${input.gender ?? null}
-      WHERE id = ${id}::uuid AND business_id = ${businessId}::uuid
-    `);
-  }
-}
-
 class CustomersCommandService {
-  async createCustomer(businessId: string, input: CreateCustomerBody) {
-    const customer = await prisma.customer.create({
+  createCustomer(businessId: string, input: CreateCustomerBody) {
+    return prisma.customer.create({
       data: {
         businessId,
         name: input.name.trim(),
         phone: input.phone.trim(),
         email: normalizeNullable(input.email),
+        dateOfBirth: normalizeDateOfBirth(input.dateOfBirth),
+        gender: input.gender ?? null,
         acquisitionSource: normalizeNullable(input.acquisitionSource),
         notes: normalizeNullable(input.notes),
       },
     });
-    await updateDemographics(customer.id, businessId, input);
-    return { ...customer, ...(await getDemographics(customer.id, businessId)) };
   }
 
   async updateCustomer(
@@ -92,7 +52,7 @@ class CustomersCommandService {
     });
     if (!existing) throw notFoundError();
 
-    const customer = await prisma.customer.update({
+    return prisma.customer.update({
       where: { id },
       data: {
         ...(input.name !== undefined ? { name: input.name.trim() } : {}),
@@ -100,6 +60,10 @@ class CustomersCommandService {
         ...(input.email !== undefined
           ? { email: normalizeNullable(input.email) }
           : {}),
+        ...(input.dateOfBirth !== undefined
+          ? { dateOfBirth: normalizeDateOfBirth(input.dateOfBirth) }
+          : {}),
+        ...(input.gender !== undefined ? { gender: input.gender } : {}),
         ...(input.acquisitionSource !== undefined
           ? { acquisitionSource: normalizeNullable(input.acquisitionSource) }
           : {}),
@@ -108,8 +72,6 @@ class CustomersCommandService {
           : {}),
       },
     });
-    await updateDemographics(id, businessId, input);
-    return { ...customer, ...(await getDemographics(id, businessId)) };
   }
 
   updateNotes(
