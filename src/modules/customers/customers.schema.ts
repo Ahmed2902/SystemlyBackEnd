@@ -17,10 +17,22 @@ export const listCustomersQuerySchema = z.object({
 const optionalText = (max: number) =>
   z.string().trim().max(max).optional().nullable();
 
+const optionalDateOfBirth = z
+  .string()
+  .date()
+  .optional()
+  .nullable()
+  .refine(
+    (value) => !value || new Date(`${value}T00:00:00.000Z`).getTime() <= Date.now(),
+    "Date of birth cannot be in the future",
+  );
+
 export const createCustomerSchema = z.object({
   name: z.string().trim().min(1).max(255),
   phone: z.string().trim().min(5).max(30),
   email: z.string().trim().email().max(255).optional().nullable(),
+  dateOfBirth: optionalDateOfBirth,
+  gender: z.enum(["male", "female"]).optional().nullable(),
   acquisitionSource: optionalText(120),
   notes: optionalText(5000),
 });
