@@ -63,6 +63,7 @@ export const completeOnboardingSchema = z
     logoUrl: z.string().url().optional(),
     galleryPhotoUrls: z.array(z.string().url()).default([]),
     primaryColor: z.string().max(30),
+    secondaryColor: z.string().max(30),
     sectionOrder: z.array(z.string()),
     showTeam: z.boolean(),
     showFaq: z.boolean(),

@@ -83,6 +83,7 @@ function onboardingInput(slug: string): CompleteOnboardingInput {
     timezone: "Africa/Cairo",
     language: "en",
     primaryColor: "#111111",
+    secondaryColor: "#eeeeee",
     sectionOrder: ["services", "team"],
     showTeam: true,
     showFaq: true,

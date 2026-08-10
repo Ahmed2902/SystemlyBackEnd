@@ -72,6 +72,7 @@ class OnboardingService {
           tagline: input.tagline,
           aboutText: input.aboutText,
           primaryColor: input.primaryColor,
+          secondaryColor: input.secondaryColor,
           sectionOrder: input.sectionOrder,
           showTeam: input.showTeam,
           showFaq: input.showFaq,

@@ -11,6 +11,7 @@ function inputForRole(
     slug: `test-salon-${role.toLowerCase()}`,
     phone: "+201000000000",
     primaryColor: "#000000",
+    secondaryColor: "#ffffff",
     sectionOrder: ["hero", "services"],
     showTeam: true,
     showFaq: true,
