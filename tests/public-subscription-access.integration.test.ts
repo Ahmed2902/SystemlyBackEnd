@@ -30,6 +30,7 @@ function gate(
     timezone: "Africa/Cairo",
     isActive: true,
     deletedAt: null,
+    updatedAt: NOW,
     subscription: {
       status,
       trialEndsAt: null,
