@@ -8,6 +8,7 @@ declare global {
         id: string;
         businessId?: string;
         branchId?: string;
+        requestedBranchId?: string;
         role?: string;
         email?: string;
       };

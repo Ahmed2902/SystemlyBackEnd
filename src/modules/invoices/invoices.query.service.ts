@@ -21,6 +21,7 @@ const buildError = (message: string, statusCode: number, code: string) => {
 const invoiceIdentitySelect = {
   id: true,
   businessId: true,
+  branchId: true,
   appointmentId: true,
   customerId: true,
   invoiceNumber: true,
@@ -55,9 +56,20 @@ const invoiceIdentitySelect = {
       timezone: true,
     },
   },
+  branch: {
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      address: true,
+      city: true,
+      timezone: true,
+    },
+  },
   appointment: {
     select: {
       id: true,
+      branchId: true,
       startsAt: true,
       endsAt: true,
       status: true,
@@ -73,11 +85,10 @@ const invoiceLineItemInclude = {
   staff: { select: { id: true, name: true } },
 } satisfies Prisma.InvoiceLineItemInclude;
 
-// Command paths use this projection when an invoice must be returned from the
-// same transaction. Query paths can load line items in parallel below.
 export const invoiceDetailInclude = {
   customer: invoiceIdentitySelect.customer,
   business: invoiceIdentitySelect.business,
+  branch: invoiceIdentitySelect.branch,
   appointment: invoiceIdentitySelect.appointment,
   paidBy: invoiceIdentitySelect.paidBy,
   voidedBy: invoiceIdentitySelect.voidedBy,
@@ -88,9 +99,10 @@ export const invoiceDetailInclude = {
 } satisfies Prisma.InvoiceInclude;
 
 class InvoicesQueryService {
-  async list(businessId: string, query: ListInvoicesQuery) {
+  async list(businessId: string, branchId: string, query: ListInvoicesQuery) {
     const where: Prisma.InvoiceWhereInput = {
       businessId,
+      branchId,
       status: query.status ?? { in: ACTIVE_INVOICE_STATUSES },
     };
 
@@ -130,6 +142,7 @@ class InvoicesQueryService {
         orderBy: [{ issuedAt: "desc" }, { createdAt: "desc" }],
         select: {
           id: true,
+          branchId: true,
           invoiceNumber: true,
           status: true,
           issuedAt: true,
@@ -152,6 +165,7 @@ class InvoicesQueryService {
     ]);
 
     return {
+      branchId,
       items: items.map(({ lineItems, ...invoice }) => ({
         ...invoice,
         services: lineItems.map((item) => item.description),
@@ -162,16 +176,35 @@ class InvoicesQueryService {
     };
   }
 
-  async get(invoiceId: string, businessId: string) {
-    // Both reads are tenant-scoped and parameterised by Prisma. Running them in
-    // parallel avoids serial relation loading over a high-latency DB link.
+  async getBranchId(invoiceId: string, businessId: string) {
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: invoiceId, businessId },
+      select: { branchId: true },
+    });
+    if (!invoice) throw buildError("Invoice not found", 404, "NOT_FOUND");
+    if (!invoice.branchId) {
+      throw buildError(
+        "Invoice branch context is missing",
+        409,
+        "BRANCH_CONTEXT_REQUIRED",
+      );
+    }
+    return invoice.branchId;
+  }
+
+  async get(invoiceId: string, businessId: string, branchId?: string) {
+    const scope: Prisma.InvoiceWhereInput = {
+      id: invoiceId,
+      businessId,
+      ...(branchId ? { branchId } : {}),
+    };
     const [invoice, lineItems] = await Promise.all([
       prisma.invoice.findFirst({
-        where: { id: invoiceId, businessId },
+        where: scope,
         select: invoiceIdentitySelect,
       }),
       prisma.invoiceLineItem.findMany({
-        where: { invoice: { id: invoiceId, businessId } },
+        where: { invoice: scope },
         orderBy: { createdAt: "asc" },
         include: invoiceLineItemInclude,
       }),

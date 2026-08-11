@@ -14,6 +14,7 @@ const branchError = (message: string, statusCode: number, code: string) => {
 type BranchUser = {
   businessId?: string;
   branchId?: string;
+  requestedBranchId?: string;
   role?: string;
 };
 
@@ -66,6 +67,7 @@ export async function resolveOperationalBranch(
     );
   }
 
+  const requested = requestedBranchId ?? user.requestedBranchId;
   const isBranchBound =
     user.role === Roles.Receptionist || user.role === Roles.Staff;
 
@@ -77,7 +79,7 @@ export async function resolveOperationalBranch(
         "BRANCH_CONTEXT_REQUIRED",
       );
     }
-    if (requestedBranchId && requestedBranchId !== user.branchId) {
+    if (requested && requested !== user.branchId) {
       throw branchError("Forbidden", 403, "FORBIDDEN");
     }
 
@@ -85,8 +87,8 @@ export async function resolveOperationalBranch(
     return { businessId: user.businessId, branchId: branch.id, branch };
   }
 
-  const branch = requestedBranchId
-    ? await requireOwnedBranch(user.businessId, requestedBranchId)
+  const branch = requested
+    ? await requireOwnedBranch(user.businessId, requested)
     : await resolveSingleActiveBranch(user.businessId);
 
   return { businessId: user.businessId, branchId: branch.id, branch };

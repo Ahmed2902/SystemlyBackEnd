@@ -16,6 +16,8 @@ const metadataCache = new Map<string, MetadataEntry>();
 const metadataInFlight = new Map<string, Promise<CalendarMetadata>>();
 const timezoneCache = new Map<string, TimezoneEntry>();
 const timezoneInFlight = new Map<string, Promise<string>>();
+const branchTimezoneCache = new Map<string, TimezoneEntry>();
+const branchTimezoneInFlight = new Map<string, Promise<string>>();
 
 function calendarError(message: string, statusCode: number, code: string) {
   return Object.assign(new Error(message), { statusCode, code });
@@ -36,8 +38,12 @@ function parseRequestedDate(date: string) {
   return requestedDate;
 }
 
-function metadataKey(businessId: string, date: string) {
-  return `${businessId}:${date}`;
+function metadataKey(businessId: string, branchId: string, date: string) {
+  return `${businessId}:${branchId}:${date}`;
+}
+
+function branchTimezoneKey(businessId: string, branchId: string) {
+  return `${businessId}:${branchId}`;
 }
 
 function evictOldest<T>(cache: Map<string, T>, maximum: number) {
@@ -51,14 +57,9 @@ function storeMetadata(key: string, value: CalendarMetadata) {
   metadataCache.set(key, { value, expiresAt: Date.now() + METADATA_TTL_MS });
 }
 
-function storeTimezone(businessId: string, value: string) {
-  if (!timezoneCache.has(businessId)) {
-    evictOldest(timezoneCache, MAX_TIMEZONE_ENTRIES);
-  }
-  timezoneCache.set(businessId, {
-    value,
-    expiresAt: Date.now() + TIMEZONE_TTL_MS,
-  });
+function storeTimezone(cache: Map<string, TimezoneEntry>, key: string, value: string) {
+  if (!cache.has(key)) evictOldest(cache, MAX_TIMEZONE_ENTRIES);
+  cache.set(key, { value, expiresAt: Date.now() + TIMEZONE_TTL_MS });
 }
 
 async function loadBusinessTimezone(businessId: string) {
@@ -80,7 +81,7 @@ export async function getCachedBusinessTimezone(businessId: string) {
 
   const loading = loadBusinessTimezone(businessId)
     .then((value) => {
-      storeTimezone(businessId, value);
+      storeTimezone(timezoneCache, businessId, value);
       return value;
     })
     .finally(() => timezoneInFlight.delete(businessId));
@@ -88,18 +89,51 @@ export async function getCachedBusinessTimezone(businessId: string) {
   return loading;
 }
 
+async function loadBranchTimezone(businessId: string, branchId: string) {
+  const branch = await prisma.branch.findFirst({
+    where: { id: branchId, businessId, isActive: true },
+    select: { timezone: true },
+  });
+  if (!branch) throw calendarError("Branch not found", 404, "BRANCH_NOT_FOUND");
+  return branch.timezone || "UTC";
+}
+
+export async function getCachedBranchTimezone(
+  businessId: string,
+  branchId: string,
+) {
+  const key = branchTimezoneKey(businessId, branchId);
+  const cached = branchTimezoneCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  if (cached) branchTimezoneCache.delete(key);
+
+  const existing = branchTimezoneInFlight.get(key);
+  if (existing) return existing;
+
+  const loading = loadBranchTimezone(businessId, branchId)
+    .then((value) => {
+      storeTimezone(branchTimezoneCache, key, value);
+      return value;
+    })
+    .finally(() => branchTimezoneInFlight.delete(key));
+  branchTimezoneInFlight.set(key, loading);
+  return loading;
+}
+
 async function loadCalendarMetadata(
   businessId: string,
+  branchId: string,
   requestedDate: Date,
 ) {
   const weekday = requestedDate.getUTCDay();
   const [staff, services] = await Promise.all([
     prisma.staff.findMany({
       relationLoadStrategy: "join",
-      where: { businessId, isActive: true },
+      where: { businessId, branchId, isActive: true },
       orderBy: { name: "asc" },
       select: {
         id: true,
+        branchId: true,
         name: true,
         role: true,
         serviceStaff: { select: { serviceId: true } },
@@ -126,10 +160,11 @@ async function loadCalendarMetadata(
       },
     }),
     prisma.service.findMany({
-      where: { businessId, isActive: true },
+      where: { businessId, branchId, isActive: true },
       orderBy: { name: "asc" },
       select: {
         id: true,
+        branchId: true,
         name: true,
         durationMin: true,
         priceEgp: true,
@@ -142,10 +177,11 @@ async function loadCalendarMetadata(
 
 async function getCalendarMetadata(
   businessId: string,
+  branchId: string,
   date: string,
   requestedDate: Date,
 ) {
-  const key = metadataKey(businessId, date);
+  const key = metadataKey(businessId, branchId, date);
   const cached = metadataCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
   if (cached) metadataCache.delete(key);
@@ -157,7 +193,7 @@ async function getCalendarMetadata(
     throw calendarError("Calendar is temporarily busy", 503, "SERVER_BUSY");
   }
 
-  const loading = loadCalendarMetadata(businessId, requestedDate)
+  const loading = loadCalendarMetadata(businessId, branchId, requestedDate)
     .then((value) => {
       storeMetadata(key, value);
       return value;
@@ -169,25 +205,25 @@ async function getCalendarMetadata(
 }
 
 class CalendarQueryService {
-  async getWorkspace(businessId: string, date: string) {
+  async getWorkspace(businessId: string, branchId: string, date: string) {
     const requestedDate = parseRequestedDate(date);
-    const timezone = await getCachedBusinessTimezone(businessId);
+    const timezone = await getCachedBranchTimezone(businessId, branchId);
     const { start, end } = getBusinessDayRange(timezone, date);
 
-    // Once the stable timezone is known, all date-specific reads are independent.
-    // Running them together removes the previous metadata -> live-data waterfall.
     const [metadata, appointments, breaks] = await Promise.all([
-      getCalendarMetadata(businessId, date, requestedDate),
+      getCalendarMetadata(businessId, branchId, date, requestedDate),
       prisma.appointment.findMany({
         relationLoadStrategy: "join",
         where: {
           businessId,
+          branchId,
           startsAt: { lt: end },
           endsAt: { gt: start },
         },
         orderBy: { startsAt: "asc" },
         select: {
           id: true,
+          branchId: true,
           startsAt: true,
           status: true,
           discountCents: true,
@@ -216,7 +252,11 @@ class CalendarQueryService {
         },
       }),
       prisma.staffBreak.findMany({
-        where: { businessId, breakDate: requestedDate },
+        where: {
+          businessId,
+          breakDate: requestedDate,
+          staff: { branchId },
+        },
         orderBy: { startTime: "asc" },
         select: {
           id: true,
@@ -229,6 +269,7 @@ class CalendarQueryService {
     ]);
 
     return {
+      branchId,
       date,
       timezone,
       appointments: appointments.map(({ invoices, ...appointment }) => ({
