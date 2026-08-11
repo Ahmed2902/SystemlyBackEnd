@@ -48,7 +48,11 @@ class StaffInviteService {
       );
     }
 
-    return invite;
+    return {
+      ...invite,
+      branchId: invite.branchId,
+      branch: invite.branch,
+    };
   }
 
   async create(businessId: string, input: CreateInviteInput) {
