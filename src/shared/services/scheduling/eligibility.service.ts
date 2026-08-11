@@ -9,6 +9,7 @@ export async function resolveEligibleStaffBySelection(
   tx: TxLike,
   selections: ServiceSelection[],
   businessId?: string,
+  branchId?: string,
 ): Promise<string[][]> {
   if (selections.length === 0) return [];
 
@@ -19,8 +20,14 @@ export async function resolveEligibleStaffBySelection(
       staff: {
         isActive: true,
         ...(businessId ? { businessId } : {}),
+        ...(branchId ? { branchId } : {}),
       },
-      ...(businessId ? { service: { businessId } } : {}),
+      ...((businessId || branchId) && {
+        service: {
+          ...(businessId ? { businessId } : {}),
+          ...(branchId ? { branchId } : {}),
+        },
+      }),
     },
     select: { serviceId: true, staffId: true },
   });
