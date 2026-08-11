@@ -67,6 +67,7 @@ function setup(adapter: BillingProviderAdapter, overrides: Record<string, unknow
     providerCheckoutId: "ek-checkout-1",
     checkoutUrl: "https://checkout.example/ek-checkout-1",
   };
+  let persistedPayment = { ...pendingPayment };
 
   const db = {
     plan: {
@@ -89,12 +90,14 @@ function setup(adapter: BillingProviderAdapter, overrides: Record<string, unknow
     },
     subscriptionPayment: {
       findFirst: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockImplementation(({ data }) =>
-        Promise.resolve({ ...pendingPayment, ...data }),
-      ),
-      update: jest.fn().mockImplementation(({ data }) =>
-        Promise.resolve({ ...readyPayment, ...data }),
-      ),
+      create: jest.fn().mockImplementation(({ data }) => {
+        persistedPayment = { ...pendingPayment, ...data };
+        return Promise.resolve(persistedPayment);
+      }),
+      update: jest.fn().mockImplementation(({ data }) => {
+        persistedPayment = { ...persistedPayment, ...data };
+        return Promise.resolve(persistedPayment);
+      }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     ...overrides,
