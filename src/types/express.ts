@@ -7,6 +7,7 @@ declare global {
       user: {
         id: string;
         businessId?: string;
+        branchId?: string;
         role?: string;
         email?: string;
       };

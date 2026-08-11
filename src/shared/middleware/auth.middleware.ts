@@ -45,6 +45,8 @@ export const requireAuth = (
       id: userId,
       businessId:
         typeof payload.businessId === "string" ? payload.businessId : undefined,
+      branchId:
+        typeof payload.branchId === "string" ? payload.branchId : undefined,
       role: typeof payload.role === "string" ? payload.role : undefined,
       email: typeof payload.email === "string" ? payload.email : undefined,
     };

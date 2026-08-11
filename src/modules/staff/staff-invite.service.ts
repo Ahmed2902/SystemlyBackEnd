@@ -27,6 +27,7 @@ class StaffInviteService {
   private async getAvailableInvite(token: string) {
     const invite = await prisma.staffInvite.findUnique({
       where: { tokenHash: hashToken(token) },
+      include: { branch: { select: { id: true, name: true, isActive: true } } },
     });
 
     if (!invite) throw buildError("Invalid invitation", 400, "INVALID_INVITE");
@@ -39,8 +40,19 @@ class StaffInviteService {
     if (invite.role !== Roles.Receptionist) {
       throw buildError("Invalid invitation role", 400, "INVALID_INVITE_ROLE");
     }
+    if (!invite.branchId || !invite.branch || !invite.branch.isActive) {
+      throw buildError(
+        "Invitation branch is unavailable",
+        409,
+        "INVITE_BRANCH_UNAVAILABLE",
+      );
+    }
 
-    return invite;
+    return {
+      ...invite,
+      branchId: invite.branchId,
+      branch: invite.branch,
+    };
   }
 
   async create(businessId: string, input: CreateInviteInput) {
@@ -52,10 +64,14 @@ class StaffInviteService {
       Date.now() + expiresInDays * 24 * 60 * 60 * 1000,
     );
 
-    const [business, existingUser] = await Promise.all([
+    const [business, branch, existingUser] = await Promise.all([
       prisma.business.findUnique({
         where: { id: businessId },
         select: { id: true, name: true, language: true },
+      }),
+      prisma.branch.findFirst({
+        where: { id: input.branchId, businessId, isActive: true },
+        select: { id: true, name: true },
       }),
       prisma.businessUser.findUnique({
         where: { email },
@@ -64,6 +80,9 @@ class StaffInviteService {
     ]);
 
     if (!business) throw buildError("Business not found", 404, "NOT_FOUND");
+    if (!branch) {
+      throw buildError("Branch not found", 404, "BRANCH_NOT_FOUND");
+    }
     if (existingUser?.businessId === businessId) {
       throw buildError(
         "This account already belongs to the business",
@@ -88,6 +107,7 @@ class StaffInviteService {
       return tx.staffInvite.create({
         data: {
           businessId,
+          branchId: branch.id,
           email,
           role: Roles.Receptionist,
           tokenHash,
@@ -114,6 +134,7 @@ class StaffInviteService {
 
     return {
       id: invite.id,
+      branch: { id: branch.id, name: branch.name },
       expiresAt: invite.expiresAt,
       acceptUrl,
       delivery: "queued" as const,
@@ -137,6 +158,7 @@ class StaffInviteService {
       email: normaliseEmail(invite.email),
       accountExists: Boolean(account),
       businessName: business?.name ?? "Systemly business",
+      branch: { id: invite.branch.id, name: invite.branch.name },
       expiresAt: invite.expiresAt,
     };
   }
@@ -183,6 +205,7 @@ class StaffInviteService {
           acceptedAt: null,
           expiresAt: { gt: new Date() },
           role: Roles.Receptionist,
+          branchId: invite.branchId,
         },
         data: { acceptedAt: new Date() },
       });
@@ -198,11 +221,13 @@ class StaffInviteService {
         where: { id: user.id },
         data: {
           businessId: invite.businessId,
+          branchId: invite.branchId,
           role: Roles.Receptionist,
         },
         select: {
           id: true,
           businessId: true,
+          branchId: true,
           role: true,
         },
       });
@@ -212,6 +237,7 @@ class StaffInviteService {
         accessToken: signAccessToken({
           userId: updatedUser.id,
           businessId: updatedUser.businessId,
+          branchId: updatedUser.branchId,
           role: updatedUser.role,
         }),
       };
