@@ -168,6 +168,7 @@ export const createTimeOffSchema = z
 export const createInviteSchema = z
   .object({
     email: z.string().trim().email(),
+    branchId: z.string().uuid(),
     role: z.literal(Roles.Receptionist).optional().default(Roles.Receptionist),
     expiresInDays: z.number().int().min(1).max(30).optional(),
   })
