@@ -19,16 +19,40 @@ async function requireBookableBusiness(businessId: string) {
   return requirePublicFeature(business, ENTITLEMENTS.ONLINE_BOOKING);
 }
 
+async function resolvePublicBranch(businessId: string, branchId?: string) {
+  if (branchId) {
+    const branch = await prisma.branch.findFirst({
+      where: { id: branchId, businessId, isActive: true },
+    });
+    if (!branch) throw notFoundError("Branch not found");
+    return branch;
+  }
+
+  const branches = await prisma.branch.findMany({
+    where: { businessId, isActive: true },
+    orderBy: { createdAt: "asc" },
+    take: 2,
+  });
+  if (branches.length === 1) return branches[0];
+  if (branches.length === 0) throw notFoundError("Branch not found");
+  throw invalidStateError(
+    "Select a branch before booking",
+    "BRANCH_REQUIRED",
+    400,
+  );
+}
+
 class BookingsService {
   async getAvailability(opts: AvailabilityQuery) {
     const { businessId, services: selections, date } = opts;
-    const business = await requireBookableBusiness(businessId);
-    const timezone = business.timezone || "UTC";
+    await requireBookableBusiness(businessId);
+    const branch = await resolvePublicBranch(businessId, opts.branchId);
 
     return buildAvailabilitySlots({
       businessId,
+      branchId: branch.id,
       date,
-      timezone,
+      timezone: branch.timezone || "UTC",
       selections,
     });
   }
@@ -93,10 +117,12 @@ class BookingsService {
   async createBooking(payload: CreateBookingBody) {
     const { businessId, services: selections, startsAt } = payload;
     const business = await requireBookableBusiness(businessId);
+    const branch = await resolvePublicBranch(businessId, payload.branchId);
 
     return prisma.$transaction((tx) =>
       createAppointmentCore(tx, business, {
         businessId,
+        branchId: branch.id,
         selections,
         startsAt,
         customerName: payload.customerName,
