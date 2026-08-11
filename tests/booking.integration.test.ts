@@ -10,6 +10,7 @@ const makeTx = (conflict = false) => ({
       {
         id: "svc1",
         businessId: "b1",
+        branchId: "branch1",
         isActive: true,
         durationMin: 45,
         priceEgp: 100,
@@ -78,12 +79,29 @@ const activeBusiness = {
   },
 };
 
+const activeBranch = {
+  id: "branch1",
+  businessId: "b1",
+  name: "Main Branch",
+  slug: "main-branch",
+  phone: null,
+  address: null,
+  city: null,
+  lat: null,
+  lng: null,
+  timezone: "UTC",
+  isActive: true,
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+};
+
 describe("booking integration (mocked prisma)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (prisma.business.findUnique as any) = jest
       .fn()
       .mockResolvedValue(activeBusiness);
+    (prisma.branch.findMany as any) = jest.fn().mockResolvedValue([activeBranch]);
   });
 
   test("createBooking success", async () => {

@@ -7,6 +7,7 @@ const BOOKING_DATE = "2030-01-07";
 const BUSINESS_TIMEZONE = "UTC";
 
 let businessId: string | null = null;
+let branchId: string;
 let serviceId: string;
 let staffId: string;
 
@@ -25,6 +26,16 @@ async function createSchedulingFixture() {
     },
   });
   businessId = business.id;
+  const branch = await prisma.branch.create({
+    data: {
+      businessId: business.id,
+      name: "Main Branch",
+      slug: "main",
+      timezone: BUSINESS_TIMEZONE,
+      isActive: true,
+    },
+  });
+  branchId = branch.id;
 
   await prisma.subscription.create({
     data: {
@@ -39,6 +50,7 @@ async function createSchedulingFixture() {
   const staff = await prisma.staff.create({
     data: {
       businessId: business.id,
+      branchId,
       name: "Concurrent Staff",
       email: `staff-${suffix}@example.com`,
       isActive: true,
@@ -49,6 +61,7 @@ async function createSchedulingFixture() {
   const service = await prisma.service.create({
     data: {
       businessId: business.id,
+      branchId,
       name: "Concurrent Service",
       durationMin: 45,
       priceEgp: 100,

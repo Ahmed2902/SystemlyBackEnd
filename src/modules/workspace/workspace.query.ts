@@ -10,10 +10,11 @@ type AuthUser = NonNullable<Express.Request["user"]>;
 
 /**
  * CQRS-lite read side for screens that aggregate multiple domain models.
+ * Operational callers must resolve one branch before using branch-owned reads.
  */
 class WorkspaceQuery {
-  calendarDay(businessId: string, date: string) {
-    return calendarQueryService.getWorkspace(businessId, date);
+  calendarDay(businessId: string, branchId: string, date: string) {
+    return calendarQueryService.getWorkspace(businessId, branchId, date);
   }
 
   customerList(businessId: string, query: ListCustomersQuery) {
@@ -36,12 +37,16 @@ class WorkspaceQuery {
     return staffQueryService.getWorkspace(staffId, user);
   }
 
-  invoiceList(businessId: string, query: ListInvoicesQuery) {
-    return invoicesQueryService.list(businessId, query);
+  invoiceList(
+    businessId: string,
+    branchId: string,
+    query: ListInvoicesQuery,
+  ) {
+    return invoicesQueryService.list(businessId, branchId, query);
   }
 
-  invoiceDetail(invoiceId: string, businessId: string) {
-    return invoicesQueryService.get(invoiceId, businessId);
+  invoiceDetail(invoiceId: string, businessId: string, branchId?: string) {
+    return invoicesQueryService.get(invoiceId, businessId, branchId);
   }
 }
 

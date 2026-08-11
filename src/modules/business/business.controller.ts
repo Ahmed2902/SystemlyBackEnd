@@ -34,9 +34,14 @@ class BusinessController {
 
   async getPublicBySlug(req: Request, res: Response, next: NextFunction) {
     try {
+      const branchSlug =
+        typeof req.query.branch === "string" ? req.query.branch : undefined;
       return ok(
         res,
-        await businessService.getPublicBySlug(String(req.params.slug)),
+        await businessService.getPublicBySlug(
+          String(req.params.slug),
+          branchSlug,
+        ),
       );
     } catch (error) {
       return next(error);

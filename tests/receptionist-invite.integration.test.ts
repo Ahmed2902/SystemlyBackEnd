@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 describe("receptionist invitations", () => {
-  test("resolves the invited account state and attaches the verified user", async () => {
+  test("resolves the invited account state and attaches the verified user to the branch", async () => {
     const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const email = `reception-${suffix}@example.com`;
     const token = crypto.randomBytes(32).toString("hex");
@@ -41,9 +41,19 @@ describe("receptionist invitations", () => {
     });
     businessId = business.id;
 
+    const branch = await prisma.branch.create({
+      data: {
+        businessId: business.id,
+        name: "Maadi",
+        slug: "maadi",
+        timezone: "UTC",
+      },
+    });
+
     await prisma.staffInvite.create({
       data: {
         businessId: business.id,
+        branchId: branch.id,
         email,
         role: Roles.Receptionist,
         tokenHash: hashToken(token),
@@ -55,6 +65,7 @@ describe("receptionist invitations", () => {
       email,
       accountExists: false,
       businessName: business.name,
+      branch: { id: branch.id, name: branch.name },
     });
 
     await expect(
@@ -76,6 +87,7 @@ describe("receptionist invitations", () => {
       email,
       accountExists: true,
       businessName: business.name,
+      branch: { id: branch.id, name: branch.name },
     });
 
     const accepted = await staffInviteService.accept(token, user.id);
@@ -83,16 +95,18 @@ describe("receptionist invitations", () => {
     await expect(
       prisma.businessUser.findUniqueOrThrow({
         where: { id: user.id },
-        select: { businessId: true, role: true },
+        select: { businessId: true, branchId: true, role: true },
       }),
     ).resolves.toEqual({
       businessId: business.id,
+      branchId: branch.id,
       role: Roles.Receptionist,
     });
 
     expect(verifyAccessToken(accepted.accessToken)).toMatchObject({
       userId: user.id,
       businessId: business.id,
+      branchId: branch.id,
       role: Roles.Receptionist,
     });
 

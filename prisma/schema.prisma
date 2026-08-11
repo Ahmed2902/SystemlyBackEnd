@@ -114,6 +114,7 @@ model Business {
   deletedAt          DateTime?       @map("deleted_at")
   createdAt          DateTime        @default(now()) @map("created_at")
   updatedAt          DateTime        @updatedAt @map("updated_at")
+  branches           Branch[]
   staffInvite        StaffInvite[]
   appointments       Appointment[]
   businessUsers      BusinessUser[]
@@ -135,9 +136,38 @@ model Business {
   @@map("businesses")
 }
 
+model Branch {
+  id           String   @id @default(uuid()) @db.Uuid
+  businessId   String   @map("business_id") @db.Uuid
+  name         String   @db.VarChar(120)
+  slug         String   @db.VarChar(120)
+  phone        String?  @db.VarChar(30)
+  address      String?  @db.Text
+  city         String?  @db.VarChar(120)
+  lat          Decimal? @db.Decimal(10, 7)
+  lng          Decimal? @db.Decimal(10, 7)
+  timezone     String   @default("Africa/Cairo") @db.VarChar(80)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  business     Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  businessUsers BusinessUser[]
+  staffInvites StaffInvite[]
+  staff        Staff[]
+  services     Service[]
+  appointments Appointment[]
+  invoices     Invoice[]
+
+  @@unique([businessId, slug])
+  @@index([businessId, isActive])
+  @@map("branches")
+}
+
 model BusinessUser {
   id                    String        @id @default(uuid()) @db.Uuid
   businessId            String?       @map("business_id") @db.Uuid
+  branchId              String?       @map("branch_id") @db.Uuid
   name                  String        @db.VarChar(255)
   email                 String        @unique @db.VarChar(255)
   passwordHash          String        @map("password_hash") @db.Text
@@ -153,6 +183,7 @@ model BusinessUser {
   provider              String?
   providerId            String?       @unique
   business              Business?     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branch                Branch?       @relation(fields: [branchId], references: [id], onDelete: Restrict)
   currentRefreshToken   RefreshToken? @relation("CurrentRefreshToken", fields: [currentRefreshTokenId], references: [id])
   refreshTokens         RefreshToken[]
   authActionTokens      AuthActionToken[]
@@ -160,6 +191,7 @@ model BusinessUser {
   voidedInvoices        Invoice[]     @relation("InvoiceVoidedBy")
 
   @@index([businessId])
+  @@index([businessId, branchId])
   @@map("business_users")
 }
 
@@ -181,6 +213,7 @@ model AuthActionToken {
 model Staff {
   id                    String                 @id @default(uuid()) @db.Uuid
   businessId            String                 @map("business_id") @db.Uuid
+  branchId              String?                @map("branch_id") @db.Uuid
   name                  String                 @db.VarChar(255)
   role                  Roles                  @default(Staff)
   jobTitle              String?                @map("job_title") @db.VarChar(120)
@@ -194,18 +227,20 @@ model Staff {
   updatedAt             DateTime               @updatedAt @map("updated_at")
 
   appointmentServices    AppointmentService[]
-  appointments          Appointment[]
-  availability          Availability[]
-  availabilityOverrides AvailabilityOverride[]
-  business              Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  serviceStaff          ServiceStaff[]
-  InvoiceLineItems      InvoiceLineItem[]
-  staffBreaks           StaffBreak[]
-  timeOff               StaffTimeOff[]
+  appointments           Appointment[]
+  availability           Availability[]
+  availabilityOverrides  AvailabilityOverride[]
+  business               Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branch                 Branch?                @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  serviceStaff           ServiceStaff[]
+  InvoiceLineItems       InvoiceLineItem[]
+  staffBreaks            StaffBreak[]
+  timeOff                StaffTimeOff[]
 
   @@unique([businessId, email])
   @@index([businessId, isActive])
   @@index([businessId])
+  @@index([businessId, branchId])
   @@map("staff")
 }
 
@@ -284,6 +319,7 @@ model LoyaltyTransaction {
 model StaffInvite {
   id         String    @id @default(uuid()) @db.Uuid
   businessId String    @map("business_id") @db.Uuid
+  branchId   String?   @map("branch_id") @db.Uuid
   email      String    @db.VarChar(255)
   role       Roles
   tokenHash  String    @unique @map("token_hash")
@@ -292,14 +328,17 @@ model StaffInvite {
   createdAt  DateTime  @default(now()) @map("created_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branch   Branch?  @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
   @@index([businessId])
+  @@index([businessId, branchId])
   @@map("staff_invites")
 }
 
 model Service {
   id                  String               @id @default(uuid()) @db.Uuid
   businessId          String               @map("business_id") @db.Uuid
+  branchId            String?              @map("branch_id") @db.Uuid
   name                String               @db.VarChar(255)
   durationMin         Int                  @map("duration_min")
   priceEgp            Decimal              @map("price_egp") @db.Decimal(10, 2)
@@ -310,12 +349,14 @@ model Service {
   category            String?              @db.VarChar(80) @map("category")
 
   business            Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branch              Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
   serviceStaff        ServiceStaff[]
   invoiceLineItems    InvoiceLineItem[]
   appointmentServices AppointmentService[]
 
   @@index([businessId, category])
   @@index([businessId])
+  @@index([businessId, branchId])
   @@map("services")
 }
 
@@ -394,6 +435,7 @@ model Customer {
 model Appointment {
   id                  String            @id @default(uuid()) @db.Uuid
   businessId          String            @map("business_id") @db.Uuid
+  branchId            String?           @map("branch_id") @db.Uuid
   staffId             String            @map("staff_id") @db.Uuid
   customerId          String            @map("customer_id") @db.Uuid
   startsAt            DateTime          @map("starts_at")
@@ -407,6 +449,7 @@ model Appointment {
   discountCents       Int               @default(0) @map("discount_cents")
 
   business            Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branch              Branch?           @relation(fields: [branchId], references: [id], onDelete: Restrict)
   customer            Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
   staff               Staff             @relation(fields: [staffId], references: [id], onDelete: Restrict)
   customItems         AppointmentCustomItem[]
@@ -417,6 +460,7 @@ model Appointment {
 
   @@index([businessId, startsAt])
   @@index([businessId, endsAt])
+  @@index([businessId, branchId, startsAt])
   @@index([staffId, startsAt])
   @@index([customerId])
   @@map("appointments")
@@ -636,6 +680,7 @@ model BillingWebhookEvent {
 model Invoice {
   id                  String               @id @default(uuid()) @db.Uuid
   businessId          String               @map("business_id") @db.Uuid
+  branchId            String?              @map("branch_id") @db.Uuid
   appointmentId       String?              @map("appointment_id") @db.Uuid
   customerId          String               @map("customer_id") @db.Uuid
   invoiceNumber       String               @db.VarChar(80)
@@ -658,6 +703,7 @@ model Invoice {
   discountCents       Int                  @default(0) @map("discount_cents")
 
   business            Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branch              Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
   customer            Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
   appointment         Appointment?         @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   lineItems           InvoiceLineItem[]
@@ -670,6 +716,7 @@ model Invoice {
   @@index([appointmentId])
   @@index([businessId, status, issuedAt])
   @@index([businessId, issuedAt])
+  @@index([businessId, branchId, issuedAt])
   @@index([customerId])
   @@index([paymentMethod])
   @@map("invoices")

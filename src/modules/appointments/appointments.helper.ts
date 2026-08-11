@@ -150,6 +150,7 @@ export async function assertSegmentsAssignable(
   tx: TxClient,
   options: {
     businessId: string;
+    branchId?: string | null;
     businessTimezone: string;
     excludeAppointmentId: string;
     segments: Array<{
@@ -169,6 +170,22 @@ export async function assertSegmentsAssignable(
   } = options;
   if (segments.length === 0) return;
 
+  let branchId = options.branchId ?? null;
+  if (!branchId) {
+    const appointment = await tx.appointment.findFirst({
+      where: { id: excludeAppointmentId, businessId },
+      select: { branchId: true },
+    });
+    branchId = appointment?.branchId ?? null;
+  }
+  if (!branchId) {
+    throw invalidStateError(
+      "Appointment branch context is missing",
+      "BRANCH_CONTEXT_REQUIRED",
+      409,
+    );
+  }
+
   const segmentsRequiringEligibility = segments.filter(
     (segment) => segment.checkEligibility !== false,
   );
@@ -178,12 +195,12 @@ export async function assertSegmentsAssignable(
         where: {
           serviceId: segment.serviceId,
           staffId: segment.staffId,
-          service: { businessId },
-          staff: { businessId },
+          service: { businessId, branchId },
+          staff: { businessId, branchId },
         },
         include: {
-          staff: { select: { isActive: true, businessId: true } },
-          service: { select: { isActive: true, businessId: true } },
+          staff: { select: { isActive: true, businessId: true, branchId: true } },
+          service: { select: { isActive: true, businessId: true, branchId: true } },
         },
       }),
     ),
@@ -196,7 +213,9 @@ export async function assertSegmentsAssignable(
       !row.staff.isActive ||
       !row.service.isActive ||
       row.staff.businessId !== businessId ||
-      row.service.businessId !== businessId
+      row.service.businessId !== businessId ||
+      row.staff.branchId !== branchId ||
+      row.service.branchId !== branchId
     ) {
       const segment = segmentsRequiringEligibility[index];
       throw invalidStateError(

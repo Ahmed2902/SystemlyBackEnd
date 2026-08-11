@@ -26,7 +26,7 @@ let overrideBId: string;
 
 async function createBusinessFixture(label: string) {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return prisma.business.create({
+  const business = await prisma.business.create({
     data: {
       name: `Tenant ${label}`,
       slug: `tenant-${label.toLowerCase()}-${suffix}`,
@@ -37,6 +37,17 @@ async function createBusinessFixture(label: string) {
       trialUsedAt: new Date(),
     },
   });
+  const branch = await prisma.branch.create({
+    data: {
+      businessId: business.id,
+      name: "Main Branch",
+      slug: "main",
+      phone: business.phone,
+      timezone: business.timezone,
+      isActive: true,
+    },
+  });
+  return { ...business, branchId: branch.id };
 }
 
 function requestFor(
@@ -115,6 +126,7 @@ beforeEach(async () => {
     prisma.staff.create({
       data: {
         businessId: businessA.id,
+        branchId: businessA.branchId,
         name: "Public Staff",
         jobTitle: "Stylist",
         phone: "+201222222222",
@@ -125,6 +137,7 @@ beforeEach(async () => {
     prisma.staff.create({
       data: {
         businessId: businessB.id,
+        branchId: businessB.branchId,
         name: "Tenant B Staff",
         phone: "+201111111111",
         email: `tenant-b-${Date.now()}@example.com`,
@@ -134,6 +147,7 @@ beforeEach(async () => {
     prisma.service.create({
       data: {
         businessId: businessA.id,
+        branchId: businessA.branchId,
         name: "Tenant A Service",
         durationMin: 30,
         priceEgp: 90,
@@ -143,6 +157,7 @@ beforeEach(async () => {
     prisma.service.create({
       data: {
         businessId: businessB.id,
+        branchId: businessB.branchId,
         name: "Tenant B Service",
         durationMin: 30,
         priceEgp: 100,

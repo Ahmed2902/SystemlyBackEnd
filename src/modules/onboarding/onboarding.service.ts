@@ -44,6 +44,9 @@ class OnboardingService {
         throw buildErr("Business already exists for this user", 409, "CONFLICT");
       }
 
+      // Keep legacy Business location fields populated during the compatibility
+      // rollout. Branch becomes the operational source of location data as the
+      // remaining modules migrate.
       const business = await tx.business.create({
         data: {
           name: input.name,
@@ -60,9 +63,26 @@ class OnboardingService {
         },
       });
 
+      const branch = await tx.branch.create({
+        data: {
+          businessId: business.id,
+          name: input.branchName ?? "Main Branch",
+          slug: input.branchSlug ?? "main",
+          phone: input.phone,
+          city: input.city,
+          address: input.address,
+          timezone: input.timezone,
+          isActive: true,
+        },
+      });
+
       await tx.businessUser.update({
         where: { id: userId },
-        data: { businessId: business.id, role: Roles.BusinessAdmin },
+        data: {
+          businessId: business.id,
+          branchId: null,
+          role: Roles.BusinessAdmin,
+        },
       });
 
       await tx.websiteContent.create({
@@ -88,6 +108,7 @@ class OnboardingService {
           tx.service.create({
             data: {
               businessId: business.id,
+              branchId: branch.id,
               name: service.name,
               category: service.category,
               description: service.description,
@@ -109,6 +130,7 @@ class OnboardingService {
           tx.staff.create({
             data: {
               businessId: business.id,
+              branchId: branch.id,
               name: staff.name,
               role: staff.role as Roles,
               jobTitle: staff.jobTitle,

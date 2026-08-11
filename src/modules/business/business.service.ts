@@ -70,6 +70,20 @@ class BusinessService {
         include: { websiteContent: true },
       });
 
+      await tx.branch.create({
+        data: {
+          businessId: business.id,
+          name: "Main Branch",
+          slug: "main",
+          phone: business.phone,
+          address: business.address,
+          city: business.city,
+          lat: business.lat,
+          lng: business.lng,
+          timezone: business.timezone,
+        },
+      });
+
       const nextRole =
         userRole === Roles.SuperAdmin.toString()
           ? Roles.SuperAdmin
@@ -77,7 +91,7 @@ class BusinessService {
 
       const updatedUser = await tx.businessUser.update({
         where: { id: userId },
-        data: { businessId: business.id, role: nextRole },
+        data: { businessId: business.id, branchId: null, role: nextRole },
         select: {
           id: true,
           name: true,
@@ -129,7 +143,7 @@ class BusinessService {
     });
   }
 
-  async getPublicBySlug(slug: string) {
+  async getPublicBySlug(slug: string, branchSlug?: string) {
     const gate = await findPublicBusinessGateBySlug(slug);
     if (!gate || gate.deletedAt || !gate.isActive) return null;
 
@@ -155,30 +169,19 @@ class BusinessService {
         createdAt: true,
         updatedAt: true,
         websiteContent: true,
-        services: {
+        branches: {
           where: { isActive: true },
+          orderBy: { createdAt: "asc" },
           select: {
             id: true,
             name: true,
-            durationMin: true,
-            priceEgp: true,
-            description: true,
-            category: true,
-            serviceStaff: {
-              where: { staff: { isActive: true } },
-              select: { staffId: true },
-            },
-          },
-        },
-        staff: {
-          where: { isActive: true },
-          select: {
-            id: true,
-            name: true,
-            jobTitle: true,
-            yearsExperience: true,
-            bio: true,
-            photoUrl: true,
+            slug: true,
+            phone: true,
+            address: true,
+            city: true,
+            lat: true,
+            lng: true,
+            timezone: true,
           },
         },
         faqs: {
@@ -203,13 +206,77 @@ class BusinessService {
       },
     });
     if (!business || !business.isActive) return null;
+    if (business.branches.length === 0) {
+      throw buildErr("No active branch is available", 409, "NO_ACTIVE_BRANCH");
+    }
+
+    const selectedBranch = branchSlug
+      ? business.branches.find((branch) => branch.slug === branchSlug)
+      : business.branches[0];
+    if (!selectedBranch) {
+      throw buildErr("Branch not found", 404, "BRANCH_NOT_FOUND");
+    }
+
+    const [services, staff] = await Promise.all([
+      prisma.service.findMany({
+        where: {
+          businessId: business.id,
+          branchId: selectedBranch.id,
+          isActive: true,
+        },
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          branchId: true,
+          name: true,
+          durationMin: true,
+          priceEgp: true,
+          description: true,
+          category: true,
+          serviceStaff: {
+            where: {
+              staff: {
+                isActive: true,
+                branchId: selectedBranch.id,
+              },
+            },
+            select: { staffId: true },
+          },
+        },
+      }),
+      prisma.staff.findMany({
+        where: {
+          businessId: business.id,
+          branchId: selectedBranch.id,
+          isActive: true,
+        },
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          branchId: true,
+          name: true,
+          jobTitle: true,
+          yearsExperience: true,
+          bio: true,
+          photoUrl: true,
+        },
+      }),
+    ]);
 
     return {
       ...business,
-      services: business.services.map(({ serviceStaff, ...service }) => ({
+      phone: selectedBranch.phone ?? business.phone,
+      address: selectedBranch.address ?? business.address,
+      city: selectedBranch.city ?? business.city,
+      lat: selectedBranch.lat ?? business.lat,
+      lng: selectedBranch.lng ?? business.lng,
+      timezone: selectedBranch.timezone,
+      selectedBranch,
+      services: services.map(({ serviceStaff, ...service }) => ({
         ...service,
         staffIds: serviceStaff.map((entry) => entry.staffId),
       })),
+      staff,
     };
   }
 
