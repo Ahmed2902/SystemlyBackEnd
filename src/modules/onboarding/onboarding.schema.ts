@@ -91,4 +91,7 @@ export const completeOnboardingSchema = z
     }
   });
 
-export type CompleteOnboardingInput = z.infer<typeof completeOnboardingSchema>;
+// Input type keeps defaulted fields optional for internal callers/tests while
+// HTTP callers still receive fully-normalized output from Zod before service use.
+export type CompleteOnboardingInput = z.input<typeof completeOnboardingSchema>;
+export type CompleteOnboardingData = z.output<typeof completeOnboardingSchema>;
