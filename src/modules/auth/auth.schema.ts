@@ -34,6 +34,9 @@ export const registerBodySchema = z
       example: "ar",
       description: "Preferred language for the authenticated Systemly platform",
     }),
+    inviteToken: z.string().min(1).max(512).optional().openapi({
+      description: "Optional receptionist invitation token to continue after email verification",
+    }),
   })
   .openapi({ description: "User registration payload" });
 
@@ -53,6 +56,9 @@ export const verifyEmailQuerySchema = z
 export const emailBodySchema = z
   .object({
     email: normalizedEmailSchema.openapi({ example: "ahmed@example.com" }),
+    inviteToken: z.string().min(1).max(512).optional().openapi({
+      description: "Optional receptionist invitation token to preserve verification continuation",
+    }),
   })
   .openapi({ description: "Email address for password reset / verification" });
 
