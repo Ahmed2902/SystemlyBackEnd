@@ -30,6 +30,7 @@ const AUTH_USER_SELECT = {
   emailVerified: true,
   preferredLanguage: true,
   businessId: true,
+  branchId: true,
   role: true,
   provider: true,
   providerId: true,
@@ -53,6 +54,7 @@ function publicUser(user: AuthUser) {
     emailVerified: user.emailVerified,
     preferredLanguage: user.preferredLanguage,
     businessId: user.businessId,
+    branchId: user.branchId,
     role: user.role,
     provider: user.provider,
     lastLoginAt: user.lastLoginAt,
@@ -63,10 +65,13 @@ function publicUser(user: AuthUser) {
   };
 }
 
-function accessTokenFor(user: Pick<AuthUser, "id" | "businessId" | "role">) {
+function accessTokenFor(
+  user: Pick<AuthUser, "id" | "businessId" | "branchId" | "role">,
+) {
   return signAccessToken({
     userId: user.id,
     businessId: user.businessId,
+    branchId: user.branchId,
     role: user.role,
   });
 }
