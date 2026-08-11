@@ -12,17 +12,23 @@ const SLOT_INTERVAL_MIN = 15;
 
 export async function buildAvailabilitySlots(opts: {
   businessId: string;
+  branchId: string;
   date: string;
   timezone: string;
   selections: ServiceSelection[];
 }) {
-  const { businessId, date, timezone, selections } = opts;
+  const { businessId, branchId, date, timezone, selections } = opts;
 
   const serviceIds = selections.map((s) => s.serviceId);
   const uniqueServiceIds = [...new Set(serviceIds)];
 
   const serviceRows = await prisma.service.findMany({
-    where: { id: { in: uniqueServiceIds }, businessId, isActive: true },
+    where: {
+      id: { in: uniqueServiceIds },
+      businessId,
+      branchId,
+      isActive: true,
+    },
   });
 
   if (serviceRows.length !== uniqueServiceIds.length) {
@@ -37,6 +43,7 @@ export async function buildAvailabilitySlots(opts: {
     prisma,
     selections,
     businessId,
+    branchId,
   );
   if (eligibleByService.some((eligible) => eligible.length === 0)) {
     return [] as AvailableSlot[];
