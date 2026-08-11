@@ -150,6 +150,7 @@ export async function assertSegmentsAssignable(
   tx: TxClient,
   options: {
     businessId: string;
+    branchId?: string | null;
     businessTimezone: string;
     excludeAppointmentId: string;
     segments: Array<{
@@ -163,6 +164,7 @@ export async function assertSegmentsAssignable(
 ) {
   const {
     businessId,
+    branchId,
     businessTimezone,
     excludeAppointmentId,
     segments,
@@ -178,12 +180,18 @@ export async function assertSegmentsAssignable(
         where: {
           serviceId: segment.serviceId,
           staffId: segment.staffId,
-          service: { businessId },
-          staff: { businessId },
+          service: {
+            businessId,
+            ...(branchId ? { branchId } : {}),
+          },
+          staff: {
+            businessId,
+            ...(branchId ? { branchId } : {}),
+          },
         },
         include: {
-          staff: { select: { isActive: true, businessId: true } },
-          service: { select: { isActive: true, businessId: true } },
+          staff: { select: { isActive: true, businessId: true, branchId: true } },
+          service: { select: { isActive: true, businessId: true, branchId: true } },
         },
       }),
     ),
@@ -196,7 +204,9 @@ export async function assertSegmentsAssignable(
       !row.staff.isActive ||
       !row.service.isActive ||
       row.staff.businessId !== businessId ||
-      row.service.businessId !== businessId
+      row.service.businessId !== businessId ||
+      (branchId &&
+        (row.staff.branchId !== branchId || row.service.branchId !== branchId))
     ) {
       const segment = segmentsRequiringEligibility[index];
       throw invalidStateError(
