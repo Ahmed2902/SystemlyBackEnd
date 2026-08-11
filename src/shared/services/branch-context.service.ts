@@ -36,6 +36,24 @@ export async function requireOwnedBranch(
   return branch;
 }
 
+async function resolveSingleActiveBranch(businessId: string) {
+  const branches = await prisma.branch.findMany({
+    where: { businessId, isActive: true },
+    orderBy: { createdAt: "asc" },
+    take: 2,
+  });
+
+  if (branches.length === 1) return branches[0];
+  if (branches.length === 0) {
+    throw branchError("No active branch found", 409, "NO_ACTIVE_BRANCH");
+  }
+  throw branchError(
+    "Select a branch for this operation",
+    400,
+    "BRANCH_REQUIRED",
+  );
+}
+
 export async function resolveOperationalBranch(
   user: BranchUser,
   requestedBranchId?: string,
@@ -67,14 +85,9 @@ export async function resolveOperationalBranch(
     return { businessId: user.businessId, branchId: branch.id, branch };
   }
 
-  if (!requestedBranchId) {
-    throw branchError(
-      "Select a branch for this operation",
-      400,
-      "BRANCH_REQUIRED",
-    );
-  }
+  const branch = requestedBranchId
+    ? await requireOwnedBranch(user.businessId, requestedBranchId)
+    : await resolveSingleActiveBranch(user.businessId);
 
-  const branch = await requireOwnedBranch(user.businessId, requestedBranchId);
   return { businessId: user.businessId, branchId: branch.id, branch };
 }
