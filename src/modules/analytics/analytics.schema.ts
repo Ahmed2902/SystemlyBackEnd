@@ -22,11 +22,13 @@ const rawAnalyticsQuerySchema = z.object({
   count: z.coerce.number().int().optional(),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  branchId: z.string().uuid().optional(),
 });
 
 export const AnalyticsStatsQuerySchema = rawAnalyticsQuerySchema.transform(
-  (query, context): AnalyticsPeriodInput => {
+  (query, context): { period: AnalyticsPeriodInput; branchId?: string } => {
     const inferredMode = query.mode ?? (query.from || query.to ? "custom" : "rolling");
+    let period: AnalyticsPeriodInput;
 
     if (inferredMode === "rolling") {
       const preset = normalizeRollingPreset(
@@ -34,10 +36,8 @@ export const AnalyticsStatsQuerySchema = rawAnalyticsQuerySchema.transform(
           | RollingPreset
           | LegacyAnalyticsPreset,
       );
-      return { mode: "rolling", preset };
-    }
-
-    if (inferredMode === "completed") {
+      period = { mode: "rolling", preset };
+    } else if (inferredMode === "completed") {
       const count = query.count ?? 3;
       if (!(COMPLETED_PERIOD_COUNTS as readonly number[]).includes(count)) {
         context.addIssue({
@@ -49,23 +49,27 @@ export const AnalyticsStatsQuerySchema = rawAnalyticsQuerySchema.transform(
         });
         return z.NEVER;
       }
-      return {
+      period = {
         mode: "completed",
         unit: query.unit ?? "month",
         count: count as CompletedPeriodCount,
       };
+    } else {
+      if (!query.from || !query.to) {
+        context.addIssue({
+          code: "custom",
+          path: [!query.from ? "from" : "to"],
+          message: "Custom analytics require both from and to dates.",
+        });
+        return z.NEVER;
+      }
+      period = { mode: "custom", from: query.from, to: query.to };
     }
 
-    if (!query.from || !query.to) {
-      context.addIssue({
-        code: "custom",
-        path: [!query.from ? "from" : "to"],
-        message: "Custom analytics require both from and to dates.",
-      });
-      return z.NEVER;
-    }
-
-    return { mode: "custom", from: query.from, to: query.to };
+    return {
+      period,
+      ...(query.branchId ? { branchId: query.branchId } : {}),
+    };
   },
 );
 

@@ -26,7 +26,11 @@ export async function getBookingHeatmap(
   from: Date,
   toExclusive: Date,
   timezone: string,
+  branchId?: string,
 ): Promise<BookingHeatmapRow[]> {
+  const branchFilter = branchId
+    ? Prisma.sql`AND a.branch_id = ${branchId}::uuid`
+    : Prisma.empty;
   const rows = await prisma.$queryRaw<
     { weekday: number; hour: number; count: bigint }[]
   >(Prisma.sql`
@@ -40,6 +44,7 @@ export async function getBookingHeatmap(
       COUNT(*) AS count
     FROM appointments a
     WHERE a.business_id = ${businessId}::uuid
+      ${branchFilter}
       AND a.starts_at >= ${from}
       AND a.starts_at < ${toExclusive}
     GROUP BY weekday, hour
@@ -58,7 +63,11 @@ export async function getMostBookedServices(
   from: Date,
   toExclusive: Date,
   limit = 10,
+  branchId?: string,
 ): Promise<MostBookedServiceRow[]> {
+  const branchFilter = branchId
+    ? Prisma.sql`AND a.branch_id = ${branchId}::uuid`
+    : Prisma.empty;
   const rows = await prisma.$queryRaw<
     { id: string; name: string; category: string; count: bigint }[]
   >(Prisma.sql`
@@ -71,6 +80,7 @@ export async function getMostBookedServices(
     JOIN appointments a ON a.id = aps.appointment_id
     JOIN services s ON s.id = aps.service_id
     WHERE a.business_id = ${businessId}::uuid
+      ${branchFilter}
       AND aps.starts_at >= ${from}
       AND aps.starts_at < ${toExclusive}
     GROUP BY s.id, s.name, s.category
@@ -91,9 +101,14 @@ export async function computeBookingLeadTimes(
   from: Date,
   toExclusive: Date,
   timezone: string,
+  branchId?: string,
 ): Promise<BookingLeadTimeRow[]> {
   const appointments = await prisma.appointment.findMany({
-    where: { businessId, startsAt: { gte: from, lt: toExclusive } },
+    where: {
+      businessId,
+      ...(branchId ? { branchId } : {}),
+      startsAt: { gte: from, lt: toExclusive },
+    },
     select: { startsAt: true, createdAt: true },
   });
 

@@ -45,43 +45,70 @@ function sum<T>(rows: readonly T[], getter: (row: T) => number): number {
   return rows.reduce((total, row) => total + getter(row), 0);
 }
 
+function scopeKey(branchId?: string) {
+  return branchId ?? "all";
+}
+
+function businessMetaKey(businessId: string, branchId?: string) {
+  return `${businessId}:${scopeKey(branchId)}`;
+}
+
 function evictOldest<T>(cache: Map<string, T>, maximum: number) {
   if (cache.size < maximum) return;
   const oldestKey = cache.keys().next().value as string | undefined;
   if (oldestKey) cache.delete(oldestKey);
 }
 
-async function loadBusiness(businessId: string): Promise<BusinessMeta> {
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-    select: { id: true, name: true, createdAt: true, timezone: true },
-  });
+async function loadBusiness(
+  businessId: string,
+  branchId?: string,
+): Promise<BusinessMeta> {
+  const [business, branch] = await Promise.all([
+    prisma.business.findUnique({
+      where: { id: businessId },
+      select: { id: true, name: true, createdAt: true, timezone: true },
+    }),
+    branchId
+      ? prisma.branch.findFirst({
+          where: { id: branchId, businessId, isActive: true },
+          select: { timezone: true },
+        })
+      : Promise.resolve(null),
+  ]);
   if (!business) throw Errors.notFound("Business not found");
-  return business;
+  if (branchId && !branch) throw Errors.notFound("Branch not found");
+  return {
+    ...business,
+    timezone: branch?.timezone || business.timezone,
+  };
 }
 
-async function resolveBusiness(businessId: string): Promise<BusinessMeta> {
-  const cached = businessMetaCache.get(businessId);
+async function resolveBusiness(
+  businessId: string,
+  branchId?: string,
+): Promise<BusinessMeta> {
+  const key = businessMetaKey(businessId, branchId);
+  const cached = businessMetaCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
-  if (cached) businessMetaCache.delete(businessId);
+  if (cached) businessMetaCache.delete(key);
 
-  const existing = businessMetaInFlight.get(businessId);
+  const existing = businessMetaInFlight.get(key);
   if (existing) return existing;
 
-  const loading = loadBusiness(businessId)
+  const loading = loadBusiness(businessId, branchId)
     .then((value) => {
-      if (!businessMetaCache.has(businessId)) {
+      if (!businessMetaCache.has(key)) {
         evictOldest(businessMetaCache, MAX_BUSINESS_META_ENTRIES);
       }
-      businessMetaCache.set(businessId, {
+      businessMetaCache.set(key, {
         value,
         expiresAt: Date.now() + BUSINESS_META_TTL_MS,
       });
       return value;
     })
-    .finally(() => businessMetaInFlight.delete(businessId));
+    .finally(() => businessMetaInFlight.delete(key));
 
-  businessMetaInFlight.set(businessId, loading);
+  businessMetaInFlight.set(key, loading);
   return loading;
 }
 
@@ -108,9 +135,10 @@ async function getCacheKey(
   businessId: string,
   domain: string,
   input: AnalyticsPeriodInput,
+  branchId?: string,
 ) {
   const version = await analyticsCacheVersion(businessId);
-  return `analytics:v${version}:${businessId}:${domain}:${periodCacheKey(input)}`;
+  return `analytics:v${version}:${businessId}:${scopeKey(branchId)}:${domain}:${periodCacheKey(input)}`;
 }
 
 async function readCached<T>(key: string): Promise<T | null> {
@@ -168,8 +196,12 @@ function resolvedPeriod(business: BusinessMeta, input: AnalyticsPeriodInput) {
   });
 }
 
-function metadata(period: ResolvedAnalyticsPeriod) {
+function metadata(period: ResolvedAnalyticsPeriod, branchId?: string) {
   return {
+    scope: {
+      mode: branchId ? ("branch" as const) : ("all" as const),
+      branchId: branchId ?? null,
+    },
     period: {
       mode: period.mode,
       input: period.input,
@@ -180,8 +212,6 @@ function metadata(period: ResolvedAnalyticsPeriod) {
       isComplete: period.isComplete,
     },
     comparisonPeriod: period.comparison,
-    // Backward-compatible range shape for the existing frontend during the
-    // selector migration. `to` now has explicit exclusive semantics.
     range: {
       from: period.from,
       to: period.toExclusive,
@@ -195,9 +225,13 @@ function metadata(period: ResolvedAnalyticsPeriod) {
 
 function getRevenueTrend(
   businessId: string,
-  period: Pick<ResolvedAnalyticsPeriod, "from" | "toExclusive" | "granularity" | "timezone">,
+  period: Pick<
+    ResolvedAnalyticsPeriod,
+    "from" | "toExclusive" | "granularity" | "timezone"
+  >,
+  branchId?: string,
 ) {
-  const key = `revenue-trend:${businessId}:${period.from.toISOString()}:${period.toExclusive.toISOString()}:${period.granularity}:${period.timezone}`;
+  const key = `revenue-trend:${businessId}:${scopeKey(branchId)}:${period.from.toISOString()}:${period.toExclusive.toISOString()}:${period.granularity}:${period.timezone}`;
   return coalesceAnalyticsQuery(key, () =>
     revenueQueries.getRevenueTrend(
       businessId,
@@ -205,19 +239,26 @@ function getRevenueTrend(
       period.toExclusive,
       period.granularity,
       period.timezone,
+      branchId,
     ),
   );
 }
 
-function getAcquisitionSources(businessId: string) {
-  return coalesceAnalyticsQuery(`acquisition:${businessId}`, () =>
-    customerQueries.getAcquisitionSources(businessId),
+function getAcquisitionSources(businessId: string, branchId?: string) {
+  return coalesceAnalyticsQuery(
+    `acquisition:${businessId}:${scopeKey(branchId)}`,
+    () => customerQueries.getAcquisitionSources(businessId, branchId),
   );
 }
 
-function getRetentionCohorts(businessId: string, timezone: string) {
-  return coalesceAnalyticsQuery(`retention:${businessId}:${timezone}`, () =>
-    customerQueries.computeRetentionCohorts(businessId, timezone),
+function getRetentionCohorts(
+  businessId: string,
+  timezone: string,
+  branchId?: string,
+) {
+  return coalesceAnalyticsQuery(
+    `retention:${businessId}:${scopeKey(branchId)}:${timezone}`,
+    () => customerQueries.computeRetentionCohorts(businessId, timezone, branchId),
   );
 }
 
@@ -225,6 +266,7 @@ async function revenueTotals(
   businessId: string,
   boundary: { from: Date; toExclusive: Date },
   timezone: string,
+  branchId?: string,
 ) {
   const [trend, customItems] = await Promise.all([
     revenueQueries.getRevenueTrend(
@@ -233,11 +275,14 @@ async function revenueTotals(
       boundary.toExclusive,
       "month",
       timezone,
+      branchId,
     ),
     summaryQueries.getCustomItemRevenue(
       businessId,
       boundary.from,
       boundary.toExclusive,
+      12,
+      branchId,
     ),
   ]);
   const revenueCents = sum(trend, (row) => row.totalCents);
@@ -295,35 +340,51 @@ class AnalyticsService {
   async getRevenueAnalytics(
     businessId: string,
     input: AnalyticsPeriodInput,
+    branchId?: string,
   ) {
-    const key = await getCacheKey(businessId, "revenue", input);
+    const key = await getCacheKey(businessId, "revenue", input, branchId);
     return withCache(key, async () => {
-      const business = await resolveBusiness(businessId);
+      const business = await resolveBusiness(businessId, branchId);
       const period = resolvedPeriod(business, input);
-      const [trend, byCategory, byWeekday, customItems, currentTotals, previousTotals] =
-        await Promise.all([
-          getRevenueTrend(businessId, period),
-          revenueQueries.getRevenueByCategory(
-            businessId,
-            period.from,
-            period.toExclusive,
-          ),
-          revenueQueries.getRevenueByWeekday(
-            businessId,
-            period.from,
-            period.toExclusive,
-            period.timezone,
-          ),
-          summaryQueries.getCustomItemRevenue(
-            businessId,
-            period.from,
-            period.toExclusive,
-          ),
-          revenueTotals(businessId, period, period.timezone),
-          period.comparison
-            ? revenueTotals(businessId, period.comparison, period.timezone)
-            : Promise.resolve(null),
-        ]);
+      const [
+        trend,
+        byCategory,
+        byWeekday,
+        customItems,
+        currentTotals,
+        previousTotals,
+      ] = await Promise.all([
+        getRevenueTrend(businessId, period, branchId),
+        revenueQueries.getRevenueByCategory(
+          businessId,
+          period.from,
+          period.toExclusive,
+          branchId,
+        ),
+        revenueQueries.getRevenueByWeekday(
+          businessId,
+          period.from,
+          period.toExclusive,
+          period.timezone,
+          branchId,
+        ),
+        summaryQueries.getCustomItemRevenue(
+          businessId,
+          period.from,
+          period.toExclusive,
+          12,
+          branchId,
+        ),
+        revenueTotals(businessId, period, period.timezone, branchId),
+        period.comparison
+          ? revenueTotals(
+              businessId,
+              period.comparison,
+              period.timezone,
+              branchId,
+            )
+          : Promise.resolve(null),
+      ]);
 
       const averageInvoiceValueTrend = trend.map((row) => ({
         bucket: row.bucket,
@@ -344,7 +405,7 @@ class AnalyticsService {
       )[0];
 
       return {
-        ...metadata(period),
+        ...metadata(period, branchId),
         comparison: revenueComparisons(currentTotals, previousTotals),
         summary: {
           ...currentTotals,
@@ -373,10 +434,11 @@ class AnalyticsService {
   async getCustomerAnalytics(
     businessId: string,
     input: AnalyticsPeriodInput,
+    branchId?: string,
   ) {
-    const key = await getCacheKey(businessId, "customers", input);
+    const key = await getCacheKey(businessId, "customers", input, branchId);
     return withCache(key, async () => {
-      const business = await resolveBusiness(businessId);
+      const business = await resolveBusiness(businessId, branchId);
       const period = resolvedPeriod(business, input);
       const lapsedThreshold = DateTime.now()
         .setZone(period.timezone)
@@ -400,12 +462,14 @@ class AnalyticsService {
           businessId,
           period.from,
           period.toExclusive,
+          branchId,
         ),
         period.comparison
           ? summaryQueries.getCustomerRangeSummary(
               businessId,
               period.comparison.from,
               period.comparison.toExclusive,
+              branchId,
             )
           : Promise.resolve(null),
         customerQueries.getNewVsReturningCustomers(
@@ -414,30 +478,43 @@ class AnalyticsService {
           period.toExclusive,
           period.granularity,
           period.timezone,
+          branchId,
         ),
         customerQueries.getCustomerLifetimeValue(
           businessId,
           period.from,
           period.toExclusive,
+          20,
+          branchId,
         ),
-        customerQueries.getCustomerLifetimeValue(businessId),
-        getAcquisitionSources(businessId),
+        customerQueries.getCustomerLifetimeValue(
+          businessId,
+          undefined,
+          undefined,
+          20,
+          branchId,
+        ),
+        getAcquisitionSources(businessId, branchId),
         customerQueries.getLapsedCustomers(
           businessId,
           lapsedThreshold,
           10,
           period.timezone,
+          branchId,
         ),
-        prisma.customer.count({
-          where: { businessId, lastVisitAt: { lte: lapsedThreshold } },
-        }),
-        getRetentionCohorts(businessId, period.timezone),
+        customerQueries.countLapsedCustomers(
+          businessId,
+          lapsedThreshold,
+          branchId,
+        ),
+        getRetentionCohorts(businessId, period.timezone, branchId),
         customerQueries.getCancellationRateOverTime(
           businessId,
           period.from,
           period.toExclusive,
           period.granularity,
           period.timezone,
+          branchId,
         ),
       ]);
 
@@ -460,7 +537,7 @@ class AnalyticsService {
         completedCount + noShowCount + cancellationCount;
 
       return {
-        ...metadata(period),
+        ...metadata(period, branchId),
         comparison: previousRangeSummary
           ? {
               activeCustomers: calculateChange(
@@ -534,28 +611,35 @@ class AnalyticsService {
     });
   }
 
-  async getStaffAnalytics(businessId: string, input: AnalyticsPeriodInput) {
-    const key = await getCacheKey(businessId, "staff", input);
+  async getStaffAnalytics(
+    businessId: string,
+    input: AnalyticsPeriodInput,
+    branchId?: string,
+  ) {
+    const key = await getCacheKey(businessId, "staff", input, branchId);
     return withCache(key, async () => {
-      const business = await resolveBusiness(businessId);
+      const business = await resolveBusiness(businessId, branchId);
       const period = resolvedPeriod(business, input);
       const [revenueGenerated, utilization, previousRevenue] = await Promise.all([
         staffQueries.getStaffRevenue(
           businessId,
           period.from,
           period.toExclusive,
+          branchId,
         ),
         staffQueries.computeStaffUtilization(
           businessId,
           period.from,
           period.toExclusive,
           period.timezone,
+          branchId,
         ),
         period.comparison
           ? staffQueries.getStaffRevenue(
               businessId,
               period.comparison.from,
               period.comparison.toExclusive,
+              branchId,
             )
           : Promise.resolve(null),
       ]);
@@ -565,10 +649,7 @@ class AnalyticsService {
       const utilizationById = new Map(
         utilization.map((row) => [row.id, row]),
       );
-      const ids = new Set([
-        ...revenueById.keys(),
-        ...utilizationById.keys(),
-      ]);
+      const ids = new Set([...revenueById.keys(), ...utilizationById.keys()]);
       const staffPerformance = [...ids]
         .map((id) => {
           const revenue = revenueById.get(id);
@@ -593,7 +674,7 @@ class AnalyticsService {
         : null;
 
       return {
-        ...metadata(period),
+        ...metadata(period, branchId),
         comparison:
           previousRevenueCents === null
             ? null
@@ -624,10 +705,11 @@ class AnalyticsService {
   async getOperationsAnalytics(
     businessId: string,
     input: AnalyticsPeriodInput,
+    branchId?: string,
   ) {
-    const key = await getCacheKey(businessId, "operations", input);
+    const key = await getCacheKey(businessId, "operations", input, branchId);
     return withCache(key, async () => {
-      const business = await resolveBusiness(businessId);
+      const business = await resolveBusiness(businessId, branchId);
       const period = resolvedPeriod(business, input);
       const [heatmap, mostBookedServices, leadTimes, previousHeatmap] =
         await Promise.all([
@@ -636,17 +718,21 @@ class AnalyticsService {
             period.from,
             period.toExclusive,
             period.timezone,
+            branchId,
           ),
           operationsQueries.getMostBookedServices(
             businessId,
             period.from,
             period.toExclusive,
+            10,
+            branchId,
           ),
           operationsQueries.computeBookingLeadTimes(
             businessId,
             period.from,
             period.toExclusive,
             period.timezone,
+            branchId,
           ),
           period.comparison
             ? operationsQueries.getBookingHeatmap(
@@ -654,6 +740,7 @@ class AnalyticsService {
                 period.comparison.from,
                 period.comparison.toExclusive,
                 period.timezone,
+                branchId,
               )
             : Promise.resolve(null),
         ]);
@@ -661,7 +748,7 @@ class AnalyticsService {
         [...heatmap].sort((left, right) => right.count - left.count)[0] ?? null;
       const bookingCount = sum(heatmap, (row) => row.count);
       return {
-        ...metadata(period),
+        ...metadata(period, branchId),
         comparison: previousHeatmap
           ? {
               bookingCount: calculateChange(
@@ -683,21 +770,35 @@ class AnalyticsService {
     });
   }
 
-  async getGrowthAnalytics(businessId: string, input: AnalyticsPeriodInput) {
-    const key = await getCacheKey(businessId, "growth", input);
+  async getGrowthAnalytics(
+    businessId: string,
+    input: AnalyticsPeriodInput,
+    branchId?: string,
+  ) {
+    const key = await getCacheKey(businessId, "growth", input, branchId);
     return withCache(key, async () => {
-      const business = await resolveBusiness(businessId);
+      const business = await resolveBusiness(businessId, branchId);
       const period = resolvedPeriod(business, input);
-      const [trend, currentTotals, previousTotals, acquisitionSources, retentionCohorts] =
-        await Promise.all([
-          getRevenueTrend(businessId, period),
-          revenueTotals(businessId, period, period.timezone),
-          period.comparison
-            ? revenueTotals(businessId, period.comparison, period.timezone)
-            : Promise.resolve(null),
-          getAcquisitionSources(businessId),
-          getRetentionCohorts(businessId, period.timezone),
-        ]);
+      const [
+        trend,
+        currentTotals,
+        previousTotals,
+        acquisitionSources,
+        retentionCohorts,
+      ] = await Promise.all([
+        getRevenueTrend(businessId, period, branchId),
+        revenueTotals(businessId, period, period.timezone, branchId),
+        period.comparison
+          ? revenueTotals(
+              businessId,
+              period.comparison,
+              period.timezone,
+              branchId,
+            )
+          : Promise.resolve(null),
+        getAcquisitionSources(businessId, branchId),
+        getRetentionCohorts(businessId, period.timezone, branchId),
+      ]);
 
       const bucketGrowth =
         period.mode === "completed"
@@ -718,14 +819,13 @@ class AnalyticsService {
         : null;
 
       return {
-        ...metadata(period),
+        ...metadata(period, branchId),
         summary: {
           currentPeriodRevenueCents: currentTotals.revenueCents,
           previousPeriodRevenueCents: previousTotals?.revenueCents ?? null,
           periodGrowthPct: comparison?.percentageChange ?? null,
           periodComparisonState: comparison?.comparisonState ?? null,
           bestGrowthPeriod,
-          // Compatibility fields until the frontend period selector lands.
           currentMonthRevenueCents: currentTotals.revenueCents,
           previousMonthRevenueCents: previousTotals?.revenueCents ?? 0,
           monthOverMonthGrowthPct: comparison?.percentageChange ?? null,
@@ -744,18 +844,23 @@ class AnalyticsService {
   async getDashboardOverview(
     businessId: string,
     input: AnalyticsPeriodInput,
+    branchId?: string,
   ) {
-    const business = await resolveBusiness(businessId);
+    const business = await resolveBusiness(businessId, branchId);
     const [revenue, customers, staff, operations, growth] = await Promise.all([
-      this.getRevenueAnalytics(businessId, input),
-      this.getCustomerAnalytics(businessId, input),
-      this.getStaffAnalytics(businessId, input),
-      this.getOperationsAnalytics(businessId, input),
-      this.getGrowthAnalytics(businessId, input),
+      this.getRevenueAnalytics(businessId, input, branchId),
+      this.getCustomerAnalytics(businessId, input, branchId),
+      this.getStaffAnalytics(businessId, input, branchId),
+      this.getOperationsAnalytics(businessId, input, branchId),
+      this.getGrowthAnalytics(businessId, input, branchId),
     ]);
     return {
       businessId: business.id,
       businessName: business.name,
+      scope: {
+        mode: branchId ? ("branch" as const) : ("all" as const),
+        branchId: branchId ?? null,
+      },
       timezone: business.timezone,
       generatedAt: new Date().toISOString(),
       revenue,
