@@ -14,6 +14,10 @@ Before editing backend code, read:
 6. `docs/agent/CODING_RULES.md`
 7. `docs/agent/TASK_TEMPLATE.md` if the user gives a complex task
 
+For every commit or PR that touches the multi-branch rollout, also read:
+
+8. `docs/agent/BRANCHES_IMPLEMENTATION_PLAN.md`
+
 Also read shared product context if copied into this repo:
 
 - `docs/agent/PROJECT_CONTEXT.md`
