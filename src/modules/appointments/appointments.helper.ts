@@ -164,12 +164,27 @@ export async function assertSegmentsAssignable(
 ) {
   const {
     businessId,
-    branchId,
     businessTimezone,
     excludeAppointmentId,
     segments,
   } = options;
   if (segments.length === 0) return;
+
+  let branchId = options.branchId ?? null;
+  if (!branchId) {
+    const appointment = await tx.appointment.findFirst({
+      where: { id: excludeAppointmentId, businessId },
+      select: { branchId: true },
+    });
+    branchId = appointment?.branchId ?? null;
+  }
+  if (!branchId) {
+    throw invalidStateError(
+      "Appointment branch context is missing",
+      "BRANCH_CONTEXT_REQUIRED",
+      409,
+    );
+  }
 
   const segmentsRequiringEligibility = segments.filter(
     (segment) => segment.checkEligibility !== false,
@@ -180,14 +195,8 @@ export async function assertSegmentsAssignable(
         where: {
           serviceId: segment.serviceId,
           staffId: segment.staffId,
-          service: {
-            businessId,
-            ...(branchId ? { branchId } : {}),
-          },
-          staff: {
-            businessId,
-            ...(branchId ? { branchId } : {}),
-          },
+          service: { businessId, branchId },
+          staff: { businessId, branchId },
         },
         include: {
           staff: { select: { isActive: true, businessId: true, branchId: true } },
@@ -205,8 +214,8 @@ export async function assertSegmentsAssignable(
       !row.service.isActive ||
       row.staff.businessId !== businessId ||
       row.service.businessId !== businessId ||
-      (branchId &&
-        (row.staff.branchId !== branchId || row.service.branchId !== branchId))
+      row.staff.branchId !== branchId ||
+      row.service.branchId !== branchId
     ) {
       const segment = segmentsRequiringEligibility[index];
       throw invalidStateError(
