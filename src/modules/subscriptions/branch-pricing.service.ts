@@ -1,5 +1,3 @@
-import { prisma } from "../../shared/db/prisma";
-
 export const INCLUDED_BRANCH_COUNT = 1;
 export const ADDITIONAL_BRANCH_PRICE_CENTS = 30_000;
 
@@ -14,14 +12,11 @@ export type BranchPricingSummary = {
   currency: string;
 };
 
-export async function getBranchPricingSummary(
-  businessId: string,
+export function calculateBranchPricing(
   basePriceCents: number,
+  activeBranchCount: number,
   currency = "EGP",
-): Promise<BranchPricingSummary> {
-  const activeBranchCount = await prisma.branch.count({
-    where: { businessId, isActive: true },
-  });
+): BranchPricingSummary {
   const additionalBranchCount = Math.max(
     activeBranchCount - INCLUDED_BRANCH_COUNT,
     0,
