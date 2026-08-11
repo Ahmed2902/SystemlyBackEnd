@@ -91,7 +91,14 @@ export const completeOnboardingSchema = z
     }
   });
 
-// Input type keeps defaulted fields optional for internal callers/tests while
-// HTTP callers still receive fully-normalized output from Zod before service use.
-export type CompleteOnboardingInput = z.input<typeof completeOnboardingSchema>;
 export type CompleteOnboardingData = z.output<typeof completeOnboardingSchema>;
+// Legacy/internal callers may omit only the new branch fields. Zod supplies
+// their defaults at the HTTP boundary, and the service also keeps the same
+// fallback so the staged rollout is backwards-compatible.
+export type CompleteOnboardingInput = Omit<
+  CompleteOnboardingData,
+  "branchName" | "branchSlug"
+> & {
+  branchName?: string;
+  branchSlug?: string;
+};
