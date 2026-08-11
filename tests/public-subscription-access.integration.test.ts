@@ -56,6 +56,23 @@ function responseDouble() {
   return response as unknown as Response;
 }
 
+async function createMainBranch(business: {
+  id: string;
+  phone: string;
+  timezone: string;
+}) {
+  return prisma.branch.create({
+    data: {
+      businessId: business.id,
+      name: "Main Branch",
+      slug: "main",
+      phone: business.phone,
+      timezone: business.timezone,
+      isActive: true,
+    },
+  });
+}
+
 afterEach(async () => {
   if (createdBusinessIds.length === 0) return;
   await prisma.business.deleteMany({
@@ -199,6 +216,7 @@ describe("public website and booking integration", () => {
       },
     });
     createdBusinessIds.push(business.id);
+    await createMainBranch(business);
 
     await prisma.subscription.create({
       data: {
@@ -235,6 +253,7 @@ describe("public website and booking integration", () => {
       },
     });
     createdBusinessIds.push(business.id);
+    await createMainBranch(business);
 
     await prisma.subscription.create({
       data: {
