@@ -52,6 +52,14 @@ export const completeOnboardingSchema = z
     templateId: z.string().min(1).max(80),
     name: z.string().min(1).max(255),
     slug: z.string().min(1).max(120).regex(/^[a-z0-9-]+$/),
+    branchName: z.string().trim().min(1).max(120).default("Main Branch"),
+    branchSlug: z
+      .string()
+      .trim()
+      .min(1)
+      .max(120)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+      .default("main"),
     phone: z.string().min(1).max(30),
     city: z.string().max(120).optional(),
     address: z.string().optional(),
@@ -83,4 +91,14 @@ export const completeOnboardingSchema = z
     }
   });
 
-export type CompleteOnboardingInput = z.infer<typeof completeOnboardingSchema>;
+export type CompleteOnboardingData = z.output<typeof completeOnboardingSchema>;
+// Legacy/internal callers may omit only the new branch fields. Zod supplies
+// their defaults at the HTTP boundary, and the service also keeps the same
+// fallback so the staged rollout is backwards-compatible.
+export type CompleteOnboardingInput = Omit<
+  CompleteOnboardingData,
+  "branchName" | "branchSlug"
+> & {
+  branchName?: string;
+  branchSlug?: string;
+};
