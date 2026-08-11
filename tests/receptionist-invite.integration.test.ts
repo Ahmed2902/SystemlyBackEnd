@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 describe("receptionist invitations", () => {
-  test("attaches an existing registered user without creating a staff profile", async () => {
+  test("resolves the invited account state and attaches the verified user", async () => {
     const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const email = `reception-${suffix}@example.com`;
     const token = crypto.randomBytes(32).toString("hex");
@@ -41,6 +41,26 @@ describe("receptionist invitations", () => {
     });
     businessId = business.id;
 
+    await prisma.staffInvite.create({
+      data: {
+        businessId: business.id,
+        email,
+        role: Roles.Receptionist,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    await expect(staffInviteService.resolve(token)).resolves.toMatchObject({
+      email,
+      accountExists: false,
+      businessName: business.name,
+    });
+
+    await expect(
+      staffInviteService.validateForEmail(token, `wrong-${email}`),
+    ).rejects.toMatchObject({ code: "INVITE_EMAIL_MISMATCH" });
+
     const user = await prisma.businessUser.create({
       data: {
         name: "Reception User",
@@ -52,14 +72,10 @@ describe("receptionist invitations", () => {
     });
     userId = user.id;
 
-    await prisma.staffInvite.create({
-      data: {
-        businessId: business.id,
-        email,
-        role: Roles.Receptionist,
-        tokenHash: hashToken(token),
-        expiresAt: new Date(Date.now() + 60_000),
-      },
+    await expect(staffInviteService.resolve(token)).resolves.toMatchObject({
+      email,
+      accountExists: true,
+      businessName: business.name,
     });
 
     const accepted = await staffInviteService.accept(token, user.id);
