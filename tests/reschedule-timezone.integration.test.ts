@@ -29,13 +29,28 @@ test("reschedule interprets bare local input in the business timezone and persis
     },
   });
   businessId = business.id;
+  const branch = await prisma.branch.create({
+    data: {
+      businessId: business.id,
+      name: "Main Branch",
+      slug: "main",
+      timezone: business.timezone,
+      isActive: true,
+    },
+  });
 
   const staff = await prisma.staff.create({
-    data: { businessId: business.id, name: "Staff", isActive: true },
+    data: {
+      businessId: business.id,
+      branchId: branch.id,
+      name: "Staff",
+      isActive: true,
+    },
   });
   const service = await prisma.service.create({
     data: {
       businessId: business.id,
+      branchId: branch.id,
       name: "Service",
       durationMin: 30,
       priceEgp: 100,
@@ -69,6 +84,7 @@ test("reschedule interprets bare local input in the business timezone and persis
   const appointment = await prisma.appointment.create({
     data: {
       businessId: business.id,
+      branchId: branch.id,
       staffId: staff.id,
       customerId: customer.id,
       startsAt: oldStart,
