@@ -42,6 +42,7 @@ router.get(
   },
 );
 
+router.get("/public/sitemap", businessController.getPublicSitemapEntries);
 router.get("/public/:slug", businessController.getPublicBySlug);
 
 router.patch(

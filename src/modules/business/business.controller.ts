@@ -43,6 +43,14 @@ class BusinessController {
     }
   }
 
+  async getPublicSitemapEntries(_req: Request, res: Response, next: NextFunction) {
+    try {
+      return ok(res, await businessService.getPublicSitemapEntries());
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const parsed = updateBusinessSchema.safeParse(req.body);

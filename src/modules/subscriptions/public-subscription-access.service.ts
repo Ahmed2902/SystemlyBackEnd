@@ -12,12 +12,13 @@ const FULL_PUBLIC_STATUSES = new Set<SubscriptionStatus>([
   SubscriptionStatus.PAST_DUE,
 ]);
 
-const publicBusinessGateSelect = {
+export const publicBusinessGateSelect = {
   id: true,
   slug: true,
   timezone: true,
   isActive: true,
   deletedAt: true,
+  updatedAt: true,
   subscription: {
     select: {
       status: true,

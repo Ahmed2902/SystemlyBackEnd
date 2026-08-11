@@ -71,6 +71,8 @@ class OnboardingService {
           template: input.templateId,
           tagline: input.tagline,
           aboutText: input.aboutText,
+          heroDescription: input.heroDescription,
+          heroCardText: input.heroCardText,
           primaryColor: input.primaryColor,
           secondaryColor: input.secondaryColor,
           sectionOrder: input.sectionOrder,

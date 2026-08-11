@@ -59,6 +59,8 @@ export const completeOnboardingSchema = z
     language: z.enum(["en", "ar"]).default("en"),
     tagline: z.string().optional(),
     aboutText: z.string().optional(),
+    heroDescription: z.string().max(500).optional(),
+    heroCardText: z.string().max(180).optional(),
     heroPhotoUrl: z.string().url().optional(),
     logoUrl: z.string().url().optional(),
     galleryPhotoUrls: z.array(z.string().url()).default([]),

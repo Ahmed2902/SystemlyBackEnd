@@ -7,6 +7,8 @@ import { prisma } from "../../shared/db/prisma";
 import { signAccessToken } from "../../shared/utils/token.util";
 import {
   findPublicBusinessGateBySlug,
+  hasPublicFeature,
+  publicBusinessGateSelect,
   requirePublicFeature,
 } from "../subscriptions/public-subscription-access.service";
 import { ENTITLEMENTS } from "../subscriptions/subscription.catalog";
@@ -209,6 +211,18 @@ class BusinessService {
         staffIds: serviceStaff.map((entry) => entry.staffId),
       })),
     };
+  }
+
+  async getPublicSitemapEntries() {
+    const businesses = await prisma.business.findMany({
+      where: { deletedAt: null, isActive: true },
+      select: publicBusinessGateSelect,
+      orderBy: { updatedAt: "desc" },
+    });
+
+    return businesses
+      .filter((business) => hasPublicFeature(business, ENTITLEMENTS.PUBLIC_WEBSITE))
+      .map(({ slug, updatedAt }) => ({ slug, updatedAt }));
   }
 
   updateBusiness(id: string, payload: BusinessUpdateInput) {

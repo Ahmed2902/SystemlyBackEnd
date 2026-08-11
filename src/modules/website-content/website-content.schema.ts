@@ -3,6 +3,8 @@ import { z } from "zod";
 export const websiteContentSchema = z.object({
   tagline: z.string().optional(),
   aboutText: z.string().optional(),
+  heroDescription: z.string().max(500).optional(),
+  heroCardText: z.string().max(180).optional(),
   template: z.string().max(80).optional(),
   primaryColor: z.string().max(30).optional(),
   secondaryColor: z.string().max(30).optional(),

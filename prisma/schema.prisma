@@ -461,6 +461,8 @@ model WebsiteContent {
   businessId      String   @unique @map("business_id") @db.Uuid
   tagline         String?  @db.Text
   aboutText       String?  @map("about_text") @db.Text
+  heroDescription String?  @map("hero_description") @db.Text
+  heroCardText    String?  @map("hero_card_text") @db.Text
   template        String?  @db.VarChar(80)
   primaryColor    String?  @map("primary_color") @db.VarChar(30)
   secondaryColor  String?  @map("secondary_color") @db.VarChar(30)
