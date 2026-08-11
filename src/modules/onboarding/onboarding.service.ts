@@ -66,8 +66,8 @@ class OnboardingService {
       const branch = await tx.branch.create({
         data: {
           businessId: business.id,
-          name: input.branchName,
-          slug: input.branchSlug,
+          name: input.branchName ?? "Main Branch",
+          slug: input.branchSlug ?? "main",
           phone: input.phone,
           city: input.city,
           address: input.address,
