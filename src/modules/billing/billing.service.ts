@@ -17,7 +17,7 @@ import { billingProviderNotConfigured } from "./providers/easykash.adapter";
 
 const CHECKOUT_TTL_MS = 30 * 60 * 1000;
 const INCLUDED_BRANCH_COUNT = 1;
-const ADDITIONAL_BRANCH_PRICE_CENTS = 30_000;
+const ADDITIONAL_BRANCH_PRICE_CENTS = 35_000;
 const OPEN_PAYMENT_STATUSES: SubscriptionPaymentStatus[] = [
   SubscriptionPaymentStatus.PENDING,
   SubscriptionPaymentStatus.REQUIRES_ACTION,
