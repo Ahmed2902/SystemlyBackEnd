@@ -7,6 +7,10 @@ import {
   SubscriptionStatus,
 } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
+import {
+  calculateBranchPricing,
+  type BranchPricingSummary,
+} from "../subscriptions/branch-pricing.service";
 import { PLAN_CODES } from "../subscriptions/subscription.catalog";
 import { getBusinessSubscription } from "../subscriptions/subscription.service";
 import {
@@ -318,6 +322,25 @@ export class BillingService {
     return { plan, price };
   }
 
+  private async branchPricing(
+    businessId: string,
+    price: { amountCents: number; currency: string },
+  ): Promise<BranchPricingSummary> {
+    const activeBranchCount = await this.db.branch.count({
+      where: { businessId, isActive: true },
+    });
+    return calculateBranchPricing(
+      price.amountCents,
+      activeBranchCount,
+      price.currency,
+    );
+  }
+
+  async getPricingSummary(businessId: string) {
+    const { price } = await this.checkoutPlan();
+    return this.branchPricing(businessId, price);
+  }
+
   private findOpenPayment(subscriptionId: string, planId: string, now: Date) {
     return this.db.subscriptionPayment.findFirst({
       where: {
@@ -328,6 +351,27 @@ export class BillingService {
       },
       orderBy: { createdAt: "desc" },
     });
+  }
+
+  private async cancelStaleOpenPayment(
+    payment: { id: string; amountCents: number } | null,
+    expectedAmountCents: number,
+    now: Date,
+  ) {
+    if (!payment || payment.amountCents === expectedAmountCents) return payment;
+
+    await this.db.subscriptionPayment.updateMany({
+      where: { id: payment.id, status: { in: OPEN_PAYMENT_STATUSES } },
+      data: {
+        status: SubscriptionPaymentStatus.CANCELED,
+        failureCode: "PRICING_CHANGED",
+        failureReason:
+          "Checkout was replaced because the active branch count changed.",
+        failedAt: now,
+        checkoutUrl: null,
+      },
+    });
+    return null;
   }
 
   private async createPendingPayment(input: {
@@ -359,7 +403,7 @@ export class BillingService {
         input.planId,
         input.now,
       );
-      if (!existing) throw error;
+      if (!existing || existing.amountCents !== input.amountCents) throw error;
       return existing;
     }
   }
@@ -398,10 +442,18 @@ export class BillingService {
       );
     }
 
+    const pricing = await this.branchPricing(businessId, price);
     let payment = await this.findOpenPayment(subscription.id, plan.id, now);
+    payment = await this.cancelStaleOpenPayment(
+      payment,
+      pricing.nextRenewalAmountCents,
+      now,
+    );
+
     if (payment?.checkoutUrl) {
       return {
         payment,
+        pricing,
         checkoutUrl: payment.checkoutUrl,
         reused: true,
       };
@@ -412,18 +464,22 @@ export class BillingService {
       subscriptionId: subscription.id,
       planId: plan.id,
       priceId: price.id,
-      amountCents: price.amountCents,
-      currency: price.currency,
+      amountCents: pricing.nextRenewalAmountCents,
+      currency: pricing.currency,
       expiresAt,
       now,
     });
 
     try {
+      const branchLabel =
+        pricing.additionalBranchCount > 0
+          ? ` + ${pricing.additionalBranchCount} additional branch${pricing.additionalBranchCount === 1 ? "" : "es"}`
+          : "";
       const checkout = await adapter.createCheckout({
         internalPaymentId: payment.id,
         amountCents: payment.amountCents,
         currency: payment.currency,
-        description: `${plan.name} monthly subscription`,
+        description: `${plan.name} monthly subscription${branchLabel}`,
         customer: {
           name: owner.name,
           email: owner.email,
@@ -447,6 +503,7 @@ export class BillingService {
 
       return {
         payment: updatedPayment,
+        pricing,
         checkoutUrl: checkout.checkoutUrl,
         reused: false,
       };
