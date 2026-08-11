@@ -27,7 +27,11 @@ export async function getStaffRevenue(
   businessId: string,
   from: Date,
   toExclusive: Date,
+  branchId?: string,
 ): Promise<StaffRevenueRow[]> {
+  const branchFilter = branchId
+    ? Prisma.sql`AND i.branch_id = ${branchId}::uuid`
+    : Prisma.empty;
   const rows = await prisma.$queryRaw<
     {
       id: string;
@@ -47,6 +51,7 @@ export async function getStaffRevenue(
     JOIN invoices i ON i.id = li.invoice_id
     JOIN staff st ON st.id = li.staff_id
     WHERE i.business_id = ${businessId}::uuid
+      ${branchFilter}
       AND i.status = 'paid'
       AND i.paid_at >= ${from}
       AND i.paid_at < ${toExclusive}
@@ -69,6 +74,7 @@ export async function computeStaffUtilization(
   from: Date,
   toExclusive: Date,
   timezone: string,
+  branchId?: string,
 ): Promise<StaffUtilizationRow[]> {
   const localFrom = DateTime.fromJSDate(from).setZone(timezone);
   const localToExclusive = DateTime.fromJSDate(toExclusive).setZone(timezone);
@@ -76,14 +82,18 @@ export async function computeStaffUtilization(
   const rangeEndDate = new Date(
     `${localToExclusive.minus({ milliseconds: 1 }).toISODate()}T00:00:00.000Z`,
   );
+  const staffWhere = {
+    businessId,
+    ...(branchId ? { branchId } : {}),
+  };
 
   const [staff, availability, overrides, segmentsInRange] = await Promise.all([
     prisma.staff.findMany({
-      where: { businessId },
+      where: staffWhere,
       select: { id: true, name: true, isActive: true },
     }),
     prisma.availability.findMany({
-      where: { staff: { businessId } },
+      where: { staff: staffWhere },
       select: {
         staffId: true,
         dayOfWeek: true,
@@ -94,7 +104,7 @@ export async function computeStaffUtilization(
     }),
     prisma.availabilityOverride.findMany({
       where: {
-        staff: { businessId },
+        staff: staffWhere,
         overrideDate: { gte: rangeStartDate, lte: rangeEndDate },
       },
       select: {
@@ -107,7 +117,10 @@ export async function computeStaffUtilization(
     }),
     prisma.appointmentService.findMany({
       where: {
-        appointment: { businessId },
+        appointment: {
+          businessId,
+          ...(branchId ? { branchId } : {}),
+        },
         startsAt: { gte: from, lt: toExclusive },
       },
       select: {

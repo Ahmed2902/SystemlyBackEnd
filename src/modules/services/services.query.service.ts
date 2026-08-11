@@ -1,5 +1,6 @@
 import { Prisma, Roles } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
+import { resolveOperationalBranch } from "../../shared/services/branch-context.service";
 import {
   UNCATEGORIZED_FILTER,
   type ListServicesQuery,
@@ -28,6 +29,7 @@ const canManageMoney = (role?: string) =>
 const serviceSelect = {
   id: true,
   businessId: true,
+  branchId: true,
   name: true,
   description: true,
   category: true,
@@ -52,12 +54,15 @@ const serviceSelect = {
 
 class ServicesQueryService {
   async getCatalog(user: AuthUser, query: ListServicesQuery) {
-    const businessId = user.businessId;
-    if (!businessId) {
+    if (!user.businessId) {
       throw buildError("Business id missing", 400, "BAD_REQUEST");
     }
+    const scope = await resolveOperationalBranch(user, query.branchId);
 
-    const baseWhere: Prisma.ServiceWhereInput = { businessId };
+    const baseWhere: Prisma.ServiceWhereInput = {
+      businessId: scope.businessId,
+      branchId: scope.branchId,
+    };
     if (query.search) {
       baseWhere.OR = [
         { name: { contains: query.search, mode: "insensitive" } },
@@ -91,12 +96,13 @@ class ServicesQueryService {
         orderBy: { name: "asc" },
         select: {
           id: true,
+          branchId: true,
           name: true,
           durationMin: true,
           priceEgp: true,
           isActive: true,
           serviceStaff: {
-            where: { staff: { isActive: true } },
+            where: { staff: { isActive: true, branchId: scope.branchId } },
             orderBy: { staff: { name: "asc" } },
             select: {
               staff: {
@@ -114,6 +120,7 @@ class ServicesQueryService {
       });
 
       return {
+        branchId: scope.branchId,
         items: items.map(({ serviceStaff, priceEgp, ...service }) => ({
           ...service,
           priceEgp: showMoney ? Number(priceEgp) : undefined,
@@ -135,7 +142,11 @@ class ServicesQueryService {
         orderBy: [{ isActive: "desc" }, { category: "asc" }, { name: "asc" }],
       }),
       prisma.staff.findMany({
-        where: { businessId, isActive: true },
+        where: {
+          businessId: scope.businessId,
+          branchId: scope.branchId,
+          isActive: true,
+        },
         select: { id: true, name: true, photoUrl: true },
         orderBy: { name: "asc" },
       }),
@@ -192,6 +203,7 @@ class ServicesQueryService {
     });
 
     return {
+      branchId: scope.branchId,
       items: visibleItems.map((service) => ({
         ...mapService(service),
         category: normalizeCategory(service.category),

@@ -26,6 +26,15 @@ async function invoiceFixture() {
     },
   });
   businessIds.push(business.id);
+  const branch = await prisma.branch.create({
+    data: {
+      businessId: business.id,
+      name: "Main Branch",
+      slug: "main",
+      timezone: business.timezone,
+      isActive: true,
+    },
+  });
 
   const owner = await prisma.businessUser.create({
     data: {
@@ -38,11 +47,17 @@ async function invoiceFixture() {
     },
   });
   const staff = await prisma.staff.create({
-    data: { businessId: business.id, name: "Staff", isActive: true },
+    data: {
+      businessId: business.id,
+      branchId: branch.id,
+      name: "Staff",
+      isActive: true,
+    },
   });
   const service = await prisma.service.create({
     data: {
       businessId: business.id,
+      branchId: branch.id,
       name: "Service",
       durationMin: 30,
       priceEgp: 250,
@@ -64,6 +79,7 @@ async function invoiceFixture() {
   const appointment = await prisma.appointment.create({
     data: {
       businessId: business.id,
+      branchId: branch.id,
       staffId: staff.id,
       customerId: customer.id,
       startsAt,
@@ -84,7 +100,7 @@ async function invoiceFixture() {
     },
   });
 
-  return { business, owner, customer, appointment };
+  return { business, branch, owner, customer, appointment };
 }
 
 async function cleanupBusinesses() {

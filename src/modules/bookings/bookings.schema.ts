@@ -17,6 +17,7 @@ const optionalDateOfBirth = z
 export const availabilityQuerySchema = z
   .object({
     businessId: z.string().min(1).openapi({ example: "biz-123" }),
+    branchId: z.string().uuid().optional(),
     services: z.preprocess(
       (val) => (typeof val === "string" ? JSON.parse(val) : val),
       z.array(serviceSelectionSchema).min(1),
@@ -26,12 +27,13 @@ export const availabilityQuerySchema = z
   })
   .openapi({
     description:
-      "Query parameters for checking staff availability. Times are interpreted in the business timezone.",
+      "Query parameters for checking staff availability in one business branch.",
   });
 
 export const createBookingSchema = z
   .object({
     businessId: z.string().min(1).openapi({ example: "biz-123" }),
+    branchId: z.string().uuid().optional(),
     services: z.array(serviceSelectionSchema).min(1),
     staffId: z.string().optional().nullable().openapi({ example: "staff-789" }),
     startsAt: z.string().min(1).openapi({ example: "2026-03-20T10:00:00" }),
@@ -47,7 +49,7 @@ export const createBookingSchema = z
   })
   .openapi({
     description:
-      "Create a confirmed public booking. Local times are interpreted in the business timezone and persisted as UTC instants.",
+      "Create a confirmed public booking in one branch. Local times use the branch timezone and are persisted as UTC instants.",
   });
 
 export const bookingTokenParamsSchema = z

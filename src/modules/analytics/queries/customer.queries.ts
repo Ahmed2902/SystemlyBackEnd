@@ -60,8 +60,12 @@ export async function getNewVsReturningCustomers(
   toExclusive: Date,
   granularity: Granularity,
   timezone: string,
+  branchId?: string,
 ): Promise<NewVsReturningRow[]> {
   const safeGranularity = assertSafeGranularity(granularity);
+  const branchFilter = branchId
+    ? Prisma.sql`AND a.branch_id = ${branchId}::uuid`
+    : Prisma.empty;
   const rows = await prisma.$queryRaw<
     { bucket: Date; new_customers: bigint; returning_customers: bigint }[]
   >(Prisma.sql`
@@ -95,6 +99,7 @@ export async function getNewVsReturningCustomers(
            a.starts_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone}
          ) = buckets.bucket
       AND a.business_id = ${businessId}::uuid
+      ${branchFilter}
       AND a.starts_at >= ${from}
       AND a.starts_at < ${toExclusive}
     LEFT JOIN customers c ON c.id = a.customer_id
@@ -114,6 +119,7 @@ export async function getCustomerLifetimeValue(
   from?: Date,
   toExclusive?: Date,
   limit = 20,
+  branchId?: string,
 ): Promise<CustomerLifetimeValueRow[]> {
   const dateFilter =
     from && toExclusive
@@ -122,6 +128,9 @@ export async function getCustomerLifetimeValue(
           AND i.paid_at < ${toExclusive}
         `
       : Prisma.empty;
+  const branchFilter = branchId
+    ? Prisma.sql`AND i.branch_id = ${branchId}::uuid`
+    : Prisma.empty;
 
   const rows = await prisma.$queryRaw<
     { id: string; name: string; total_cents: bigint; invoice_count: bigint }[]
@@ -134,6 +143,7 @@ export async function getCustomerLifetimeValue(
     FROM invoices i
     JOIN customers c ON c.id = i.customer_id
     WHERE i.business_id = ${businessId}::uuid
+      ${branchFilter}
       AND i.status = 'paid'
       ${dateFilter}
     GROUP BY c.id, c.name
@@ -151,19 +161,31 @@ export async function getCustomerLifetimeValue(
 
 export async function getAcquisitionSources(
   businessId: string,
+  branchId?: string,
 ): Promise<AcquisitionSourceRow[]> {
-  const rows = await prisma.customer.groupBy({
-    by: ["acquisitionSource"],
-    where: { businessId },
-    _count: true,
-  });
-
-  return rows
-    .map((row) => ({
-      source: row.acquisitionSource ?? "other",
-      count: row._count,
-    }))
-    .sort((left, right) => right.count - left.count);
+  const branchFilter = branchId
+    ? Prisma.sql`
+        AND EXISTS (
+          SELECT 1
+          FROM appointments a
+          WHERE a.customer_id = c.id
+            AND a.business_id = ${businessId}::uuid
+            AND a.branch_id = ${branchId}::uuid
+        )
+      `
+    : Prisma.empty;
+  const rows = await prisma.$queryRaw<
+    { source: string; count: bigint }[]
+  >(Prisma.sql`
+    SELECT COALESCE(c.acquisition_source, 'other') AS source,
+           COUNT(DISTINCT c.id)::bigint AS count
+    FROM customers c
+    WHERE c.business_id = ${businessId}::uuid
+      ${branchFilter}
+    GROUP BY COALESCE(c.acquisition_source, 'other')
+    ORDER BY count DESC
+  `);
+  return rows.map((row) => ({ source: row.source, count: Number(row.count) }));
 }
 
 export async function getLapsedCustomers(
@@ -171,34 +193,104 @@ export async function getLapsedCustomers(
   lapsedThreshold: Date,
   limit = 10,
   timezone = "Africa/Cairo",
+  branchId?: string,
 ): Promise<LapsedCustomerRow[]> {
-  const customers = await prisma.customer.findMany({
-    where: { businessId, lastVisitAt: { lte: lapsedThreshold } },
-    orderBy: { lastVisitAt: "asc" },
-    take: limit,
-    select: { id: true, name: true, lastVisitAt: true },
-  });
+  if (!branchId) {
+    const customers = await prisma.customer.findMany({
+      where: { businessId, lastVisitAt: { lte: lapsedThreshold } },
+      orderBy: { lastVisitAt: "asc" },
+      take: limit,
+      select: { id: true, name: true, lastVisitAt: true },
+    });
+    const now = DateTime.now().setZone(timezone);
+    return customers.map((customer) => ({
+      id: customer.id,
+      name: customer.name,
+      lastVisitAt: customer.lastVisitAt,
+      daysSinceLastVisit: customer.lastVisitAt
+        ? Math.floor(
+            now.diff(
+              DateTime.fromJSDate(customer.lastVisitAt).setZone(timezone),
+              "days",
+            ).days,
+          )
+        : 0,
+    }));
+  }
 
+  const rows = await prisma.$queryRaw<
+    { id: string; name: string; last_visit_at: Date }[]
+  >(Prisma.sql`
+    SELECT c.id, c.name, MAX(a.starts_at) AS last_visit_at
+    FROM customers c
+    JOIN appointments a ON a.customer_id = c.id
+    WHERE c.business_id = ${businessId}::uuid
+      AND a.business_id = ${businessId}::uuid
+      AND a.branch_id = ${branchId}::uuid
+      AND a.status = 'completed'
+    GROUP BY c.id, c.name
+    HAVING MAX(a.starts_at) <= ${lapsedThreshold}
+    ORDER BY last_visit_at ASC
+    LIMIT ${limit}
+  `);
   const now = DateTime.now().setZone(timezone);
-  return customers.map((customer) => ({
-    id: customer.id,
-    name: customer.name,
-    lastVisitAt: customer.lastVisitAt,
-    daysSinceLastVisit: customer.lastVisitAt
-      ? Math.floor(
-          now.diff(
-            DateTime.fromJSDate(customer.lastVisitAt).setZone(timezone),
-            "days",
-          ).days,
-        )
-      : 0,
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    lastVisitAt: row.last_visit_at,
+    daysSinceLastVisit: Math.floor(
+      now.diff(DateTime.fromJSDate(row.last_visit_at).setZone(timezone), "days")
+        .days,
+    ),
   }));
+}
+
+export async function countLapsedCustomers(
+  businessId: string,
+  lapsedThreshold: Date,
+  branchId?: string,
+) {
+  if (!branchId) {
+    return prisma.customer.count({
+      where: { businessId, lastVisitAt: { lte: lapsedThreshold } },
+    });
+  }
+  const [row] = await prisma.$queryRaw<{ count: bigint }[]>(Prisma.sql`
+    SELECT COUNT(*)::bigint AS count
+    FROM (
+      SELECT c.id
+      FROM customers c
+      JOIN appointments a ON a.customer_id = c.id
+      WHERE c.business_id = ${businessId}::uuid
+        AND a.business_id = ${businessId}::uuid
+        AND a.branch_id = ${branchId}::uuid
+        AND a.status = 'completed'
+      GROUP BY c.id
+      HAVING MAX(a.starts_at) <= ${lapsedThreshold}
+    ) lapsed
+  `);
+  return Number(row?.count ?? 0);
 }
 
 export async function computeRetentionCohorts(
   businessId: string,
   timezone = "Africa/Cairo",
+  branchId?: string,
 ): Promise<RetentionCohortRow[]> {
+  const customerBranchFilter = branchId
+    ? Prisma.sql`
+        AND EXISTS (
+          SELECT 1 FROM appointments first_branch_visit
+          WHERE first_branch_visit.customer_id = c.id
+            AND first_branch_visit.business_id = ${businessId}::uuid
+            AND first_branch_visit.branch_id = ${branchId}::uuid
+        )
+      `
+    : Prisma.empty;
+  const retentionBranchFilter = branchId
+    ? Prisma.sql`AND a.branch_id = ${branchId}::uuid`
+    : Prisma.empty;
+
   const rows = await prisma.$queryRaw<
     {
       cohort_start: Date;
@@ -220,6 +312,8 @@ export async function computeRetentionCohorts(
         WHERE EXISTS (
           SELECT 1 FROM appointments a
           WHERE a.customer_id = c.id
+            AND a.business_id = ${businessId}::uuid
+            ${retentionBranchFilter}
             AND a.starts_at > c.created_at
             AND a.starts_at <= c.created_at + INTERVAL '30 days'
         )
@@ -228,6 +322,8 @@ export async function computeRetentionCohorts(
         WHERE EXISTS (
           SELECT 1 FROM appointments a
           WHERE a.customer_id = c.id
+            AND a.business_id = ${businessId}::uuid
+            ${retentionBranchFilter}
             AND a.starts_at > c.created_at
             AND a.starts_at <= c.created_at + INTERVAL '60 days'
         )
@@ -236,12 +332,15 @@ export async function computeRetentionCohorts(
         WHERE EXISTS (
           SELECT 1 FROM appointments a
           WHERE a.customer_id = c.id
+            AND a.business_id = ${businessId}::uuid
+            ${retentionBranchFilter}
             AND a.starts_at > c.created_at
             AND a.starts_at <= c.created_at + INTERVAL '90 days'
         )
       ) AS retained_90
     FROM customers c
     WHERE c.business_id = ${businessId}::uuid
+      ${customerBranchFilter}
     GROUP BY cohort_start
     ORDER BY cohort_start
   `);
@@ -261,8 +360,12 @@ async function getOutcomeRates(
   toExclusive: Date,
   granularity: Granularity,
   timezone: string,
+  branchId?: string,
 ): Promise<CancellationRateRow[]> {
   const safeGranularity = assertSafeGranularity(granularity);
+  const branchFilter = branchId
+    ? Prisma.sql`AND a.branch_id = ${branchId}::uuid`
+    : Prisma.empty;
   const rows = await prisma.$queryRaw<
     {
       bucket: Date;
@@ -300,6 +403,7 @@ async function getOutcomeRates(
            a.starts_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone}
          ) = buckets.bucket
       AND a.business_id = ${businessId}::uuid
+      ${branchFilter}
       AND a.starts_at >= ${from}
       AND a.starts_at < ${toExclusive}
     GROUP BY buckets.bucket
@@ -332,6 +436,7 @@ export async function getNoShowRateOverTime(
   toExclusive: Date,
   granularity: Granularity,
   timezone = "Africa/Cairo",
+  branchId?: string,
 ): Promise<NoShowRateRow[]> {
   const outcomes = await getOutcomeRates(
     businessId,
@@ -339,6 +444,7 @@ export async function getNoShowRateOverTime(
     toExclusive,
     granularity,
     timezone,
+    branchId,
   );
   return outcomes.map((row) => {
     const denominator = row.noShowCount + row.completedCount;
@@ -357,6 +463,7 @@ export function getCancellationRateOverTime(
   toExclusive: Date,
   granularity: Granularity,
   timezone = "Africa/Cairo",
+  branchId?: string,
 ): Promise<CancellationRateRow[]> {
   return getOutcomeRates(
     businessId,
@@ -364,5 +471,6 @@ export function getCancellationRateOverTime(
     toExclusive,
     granularity,
     timezone,
+    branchId,
   );
 }

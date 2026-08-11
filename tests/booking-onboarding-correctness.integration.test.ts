@@ -23,8 +23,17 @@ async function createBusinessFixture(timezone = "Africa/Cairo") {
       trialUsedAt: new Date(),
     },
   });
+  const branch = await prisma.branch.create({
+    data: {
+      businessId: business.id,
+      name: "Main Branch",
+      slug: "main",
+      timezone,
+      isActive: true,
+    },
+  });
   createdBusinessIds.push(business.id);
-  return business;
+  return { ...business, branchId: branch.id };
 }
 
 async function enablePublicBooking(businessId: string) {
@@ -45,6 +54,7 @@ async function createAppointmentFixture(status: AppointmentStatus) {
   const staff = await prisma.staff.create({
     data: {
       businessId: business.id,
+      branchId: business.branchId,
       name: "Lifecycle Staff",
       isActive: true,
     },
@@ -63,6 +73,7 @@ async function createAppointmentFixture(status: AppointmentStatus) {
   const appointment = await prisma.appointment.create({
     data: {
       businessId: business.id,
+      branchId: business.branchId,
       staffId: staff.id,
       customerId: customer.id,
       startsAt: new Date("2030-01-07T10:00:00.000Z"),
@@ -173,6 +184,7 @@ describe("booking lifecycle correctness", () => {
     await prisma.appointment.create({
       data: {
         businessId: business.id,
+        branchId: business.branchId,
         staffId: staff.id,
         customerId: customer.id,
         startsAt: new Date("2029-12-01T10:00:00.000Z"),
@@ -311,11 +323,17 @@ describe("business timezone scheduling", () => {
     await enablePublicBooking(business.id);
 
     const staff = await prisma.staff.create({
-      data: { businessId: business.id, name: "Cairo Staff", isActive: true },
+      data: {
+        businessId: business.id,
+        branchId: business.branchId,
+        name: "Cairo Staff",
+        isActive: true,
+      },
     });
     const service = await prisma.service.create({
       data: {
         businessId: business.id,
+        branchId: business.branchId,
         name: "Cairo Service",
         durationMin: 30,
         priceEgp: 100,

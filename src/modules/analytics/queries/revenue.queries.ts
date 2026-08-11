@@ -40,8 +40,12 @@ export async function getRevenueTrend(
   toExclusive: Date,
   granularity: Granularity,
   timezone = DEFAULT_TIMEZONE,
+  branchId?: string,
 ): Promise<RevenueTrendRow[]> {
   const safeGranularity = assertSafeGranularity(granularity);
+  const branchFilter = branchId
+    ? Prisma.sql`AND i.branch_id = ${branchId}::uuid`
+    : Prisma.empty;
   const rows = await prisma.$queryRaw<
     { bucket: Date; total_cents: bigint; invoice_count: bigint }[]
   >(Prisma.sql`
@@ -66,6 +70,7 @@ export async function getRevenueTrend(
       AND (i.paid_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})
           < buckets.bucket + ${`1 ${safeGranularity}`}::interval
       AND i.business_id = ${businessId}::uuid
+      ${branchFilter}
       AND i.status = 'paid'
       AND i.paid_at >= ${from}
       AND i.paid_at < ${toExclusive}
@@ -84,7 +89,11 @@ export async function getRevenueByCategory(
   businessId: string,
   from: Date,
   toExclusive: Date,
+  branchId?: string,
 ): Promise<RevenueCategoryRow[]> {
+  const branchFilter = branchId
+    ? Prisma.sql`AND i.branch_id = ${branchId}::uuid`
+    : Prisma.empty;
   const rows = await prisma.$queryRaw<
     { category: string; total_cents: bigint; item_count: bigint }[]
   >(Prisma.sql`
@@ -99,6 +108,7 @@ export async function getRevenueByCategory(
     JOIN invoices i ON i.id = li.invoice_id
     LEFT JOIN services s ON s.id = li.service_id
     WHERE i.business_id = ${businessId}::uuid
+      ${branchFilter}
       AND i.status = 'paid'
       AND i.paid_at >= ${from}
       AND i.paid_at < ${toExclusive}
@@ -121,7 +131,11 @@ export async function getRevenueByWeekday(
   from: Date,
   toExclusive: Date,
   timezone = DEFAULT_TIMEZONE,
+  branchId?: string,
 ): Promise<RevenueWeekdayRow[]> {
+  const branchFilter = branchId
+    ? Prisma.sql`AND i.branch_id = ${branchId}::uuid`
+    : Prisma.empty;
   const rows = await prisma.$queryRaw<
     { weekday: number; total_cents: bigint; invoice_count: bigint }[]
   >(Prisma.sql`
@@ -133,6 +147,7 @@ export async function getRevenueByWeekday(
       COUNT(*) AS invoice_count
     FROM invoices i
     WHERE i.business_id = ${businessId}::uuid
+      ${branchFilter}
       AND i.status = 'paid'
       AND i.paid_at >= ${from}
       AND i.paid_at < ${toExclusive}
@@ -151,10 +166,12 @@ export async function getAverageInvoiceValue(
   businessId: string,
   from: Date,
   toExclusive: Date,
+  branchId?: string,
 ): Promise<AverageInvoiceValue> {
   const result = await prisma.invoice.aggregate({
     where: {
       businessId,
+      ...(branchId ? { branchId } : {}),
       status: "paid",
       paidAt: { gte: from, lt: toExclusive },
     },
@@ -174,8 +191,12 @@ export async function getAverageInvoiceValueTrend(
   toExclusive: Date,
   granularity: Granularity,
   timezone = DEFAULT_TIMEZONE,
+  branchId?: string,
 ): Promise<AverageInvoiceValueTrendRow[]> {
   const safeGranularity = assertSafeGranularity(granularity);
+  const branchFilter = branchId
+    ? Prisma.sql`AND i.branch_id = ${branchId}::uuid`
+    : Prisma.empty;
   const rows = await prisma.$queryRaw<
     { bucket: Date; average_cents: number | null; invoice_count: bigint }[]
   >(Prisma.sql`
@@ -200,6 +221,7 @@ export async function getAverageInvoiceValueTrend(
       AND (i.paid_at AT TIME ZONE 'UTC' AT TIME ZONE ${timezone})
           < buckets.bucket + ${`1 ${safeGranularity}`}::interval
       AND i.business_id = ${businessId}::uuid
+      ${branchFilter}
       AND i.status = 'paid'
       AND i.paid_at >= ${from}
       AND i.paid_at < ${toExclusive}

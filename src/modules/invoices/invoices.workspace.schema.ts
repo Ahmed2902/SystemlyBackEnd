@@ -8,6 +8,7 @@ export const invoiceStatusFilterSchema = z.enum([
 ]);
 
 export const listInvoicesQuerySchema = z.object({
+  branchId: z.string().uuid().optional(),
   search: z.string().trim().max(255).optional(),
   status: invoiceStatusFilterSchema.optional(),
   paymentMethod: z.nativeEnum(PaymentMethod).optional(),
