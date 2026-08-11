@@ -24,6 +24,25 @@ function hashToken(token: string) {
 }
 
 class StaffInviteService {
+  private async getAvailableInvite(token: string) {
+    const invite = await prisma.staffInvite.findUnique({
+      where: { tokenHash: hashToken(token) },
+    });
+
+    if (!invite) throw buildError("Invalid invitation", 400, "INVALID_INVITE");
+    if (invite.acceptedAt) {
+      throw buildError("Invitation already used", 409, "INVITE_ALREADY_USED");
+    }
+    if (invite.expiresAt.getTime() <= Date.now()) {
+      throw buildError("Invitation expired", 410, "INVITE_EXPIRED");
+    }
+    if (invite.role !== Roles.Receptionist) {
+      throw buildError("Invalid invitation role", 400, "INVALID_INVITE_ROLE");
+    }
+
+    return invite;
+  }
+
   async create(businessId: string, input: CreateInviteInput) {
     const email = normaliseEmail(input.email);
     const expiresInDays = input.expiresInDays ?? 7;
@@ -100,21 +119,41 @@ class StaffInviteService {
     };
   }
 
-  async accept(token: string, userId: string) {
-    const invite = await prisma.staffInvite.findUnique({
-      where: { tokenHash: hashToken(token) },
-    });
+  async resolve(token: string) {
+    const invite = await this.getAvailableInvite(token);
+    const [account, business] = await Promise.all([
+      prisma.businessUser.findUnique({
+        where: { email: normaliseEmail(invite.email) },
+        select: { id: true },
+      }),
+      prisma.business.findUnique({
+        where: { id: invite.businessId },
+        select: { name: true },
+      }),
+    ]);
 
-    if (!invite) throw buildError("Invalid invitation", 400, "INVALID_INVITE");
-    if (invite.acceptedAt) {
-      throw buildError("Invitation already used", 409, "INVITE_ALREADY_USED");
+    return {
+      email: normaliseEmail(invite.email),
+      accountExists: Boolean(account),
+      businessName: business?.name ?? "Systemly business",
+      expiresAt: invite.expiresAt,
+    };
+  }
+
+  async validateForEmail(token: string, email: string) {
+    const invite = await this.getAvailableInvite(token);
+    if (normaliseEmail(invite.email) !== normaliseEmail(email)) {
+      throw buildError(
+        "Use the email address that received the invitation",
+        403,
+        "INVITE_EMAIL_MISMATCH",
+      );
     }
-    if (invite.expiresAt.getTime() <= Date.now()) {
-      throw buildError("Invitation expired", 410, "INVITE_EXPIRED");
-    }
-    if (invite.role !== Roles.Receptionist) {
-      throw buildError("Invalid invitation role", 400, "INVALID_INVITE_ROLE");
-    }
+    return invite;
+  }
+
+  async accept(token: string, userId: string) {
+    const invite = await this.getAvailableInvite(token);
 
     const user = await prisma.businessUser.findUnique({
       where: { id: userId },
