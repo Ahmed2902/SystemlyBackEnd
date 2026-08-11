@@ -7,6 +7,12 @@ function singleParameter(value: string | string[] | undefined): string | undefin
   return Array.isArray(value) ? value[0] : value;
 }
 
+function requestedBranchHeader(req: Request) {
+  const value = req.headers["x-branch-id"];
+  if (Array.isArray(value)) return value[0]?.trim() || undefined;
+  return typeof value === "string" ? value.trim() || undefined : undefined;
+}
+
 export const requireAuth = (
   req: Request,
   res: Response,
@@ -47,6 +53,7 @@ export const requireAuth = (
         typeof payload.businessId === "string" ? payload.businessId : undefined,
       branchId:
         typeof payload.branchId === "string" ? payload.branchId : undefined,
+      requestedBranchId: requestedBranchHeader(req),
       role: typeof payload.role === "string" ? payload.role : undefined,
       email: typeof payload.email === "string" ? payload.email : undefined,
     };
