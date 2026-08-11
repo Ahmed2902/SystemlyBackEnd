@@ -1,6 +1,7 @@
 import { Router } from "express";
 import authRoutes from "../modules/auth/auth.routes";
 import businessRoutes from "../modules/business/business.routes";
+import branchRoutes from "../modules/branches/branches.routes";
 import websiteContentRoutes from "../modules/website-content/website-content.routes";
 import staffRoutes from "../modules/staff/staff.routes";
 import servicesRoutes from "../modules/services/services.routes";
@@ -31,6 +32,7 @@ router.get("/health", (_req, res) => {
 
 router.use("/auth", authRoutes);
 router.use("/businesses", businessRoutes);
+router.use("/branches", branchRoutes);
 router.use("/website-content", websiteContentRoutes);
 router.use("/staff", staffRoutes);
 router.use("/services", servicesRoutes);
