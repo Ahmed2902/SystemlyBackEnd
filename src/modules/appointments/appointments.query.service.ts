@@ -1,16 +1,17 @@
 import { Prisma, Roles } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
+import { resolveOperationalBranch } from "../../shared/services/branch-context.service";
 import { getBusinessDayRange } from "../../shared/utils/timezone";
 import { getCachedBusinessTimezone } from "../calendar/calendar.query.service";
 import appointmentPhotoService from "./appointment-photo.service";
 import type { ListAppointmentsQuery } from "./appointments.schema";
 
-type ListAppointmentsInput = ListAppointmentsQuery & {
-  user: NonNullable<Express.Request["user"]>;
-};
+type AuthUser = NonNullable<Express.Request["user"]>;
+type ListAppointmentsInput = ListAppointmentsQuery & { user: AuthUser };
 
 const APPOINTMENT_LIST_SELECT = {
   id: true,
+  branchId: true,
   customerId: true,
   startsAt: true,
   endsAt: true,
@@ -54,6 +55,7 @@ const APPOINTMENT_LIST_SELECT = {
 } satisfies Prisma.AppointmentSelect;
 
 const APPOINTMENT_DETAIL_INCLUDE = {
+  branch: true,
   customer: true,
   appointmentServices: { include: { service: true, staff: true } },
   staff: true,
@@ -76,17 +78,30 @@ function withCurrentInvoice<T extends { invoices: unknown[] }>({
 
 class AppointmentsQueryService {
   async listAppointments(opts: ListAppointmentsInput) {
-    const { user, date, from, to, page = 1, perPage = 20 } = opts;
+    const { user, branchId, date, from, to, page = 1, perPage = 20 } = opts;
     const where: Prisma.AppointmentWhereInput = {};
     let businessTimezone = "UTC";
+    let resolvedBranchId: string | undefined;
 
     if (user.role !== Roles.SuperAdmin) {
       if (!user.businessId) return { items: [], total: 0, page, perPage };
-      where.businessId = user.businessId;
-      if (date) businessTimezone = await getCachedBusinessTimezone(user.businessId);
+      const scope = await resolveOperationalBranch(user, branchId);
+      where.businessId = scope.businessId;
+      where.branchId = scope.branchId;
+      resolvedBranchId = scope.branchId;
+      if (date) businessTimezone = scope.branch.timezone;
+    } else if (branchId) {
+      const branch = await prisma.branch.findUnique({ where: { id: branchId } });
+      if (!branch) return { items: [], total: 0, page, perPage };
+      where.branchId = branch.id;
+      resolvedBranchId = branch.id;
+      businessTimezone = branch.timezone;
     }
 
     if (date) {
+      if (businessTimezone === "UTC" && user.businessId) {
+        businessTimezone = await getCachedBusinessTimezone(user.businessId);
+      }
       const { start, end } = getBusinessDayRange(businessTimezone, date);
       where.AND = [{ startsAt: { lt: end } }, { endsAt: { gt: start } }];
     } else if (from || to) {
@@ -110,6 +125,7 @@ class AppointmentsQueryService {
     ]);
 
     return {
+      branchId: resolvedBranchId,
       items: items.map(({ invoices, ...appointment }) => ({
         ...appointment,
         invoice: invoices[0] ?? null,
@@ -120,13 +136,17 @@ class AppointmentsQueryService {
     };
   }
 
-  async getAppointmentById(id: string, businessId: string) {
+  async getAppointmentById(id: string, businessId: string, user?: AuthUser) {
     const appointment = await prisma.appointment.findFirst({
       relationLoadStrategy: "join",
       where: { id, businessId },
       include: APPOINTMENT_DETAIL_INCLUDE,
     });
     if (!appointment) return null;
+    if (user) {
+      if (!appointment.branchId) return null;
+      await resolveOperationalBranch(user, appointment.branchId);
+    }
     return appointmentPhotoService.presentAppointment(
       withCurrentInvoice(appointment),
     );
