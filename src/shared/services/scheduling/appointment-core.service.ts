@@ -22,6 +22,7 @@ function schedulingError(message: string, statusCode: number, code?: string) {
 
 export interface CreateAppointmentCoreParams {
   businessId: string;
+  branchId?: string;
   selections: ServiceSelection[];
   startsAt: string;
   customerName: string;
@@ -50,6 +51,7 @@ export async function scheduleServiceSegments(
   startsAt: string,
   timezone: string,
   businessId: string,
+  branchId?: string,
 ): Promise<ScheduledSegment[]> {
   if (selections.length === 0) {
     throw schedulingError("At least one service is required", 400);
@@ -62,6 +64,7 @@ export async function scheduleServiceSegments(
     where: {
       id: { in: uniqueServiceIds },
       businessId,
+      ...(branchId ? { branchId } : {}),
       isActive: true,
     },
   });
@@ -84,6 +87,7 @@ export async function scheduleServiceSegments(
     tx,
     selections,
     businessId,
+    branchId,
   );
   const allCandidateStaffIds = [...new Set(eligibleBySelection.flat())];
   if (allCandidateStaffIds.length === 0) {
@@ -157,6 +161,7 @@ export async function createAppointmentCore(
     params.startsAt,
     timezone,
     business.id,
+    params.branchId,
   );
 
   const customer = await upsertCustomer(tx, {
@@ -171,6 +176,7 @@ export async function createAppointmentCore(
   const appointment = await tx.appointment.create({
     data: {
       businessId: business.id,
+      ...(params.branchId ? { branchId: params.branchId } : {}),
       staffId: segments[0].staffId,
       customerId: customer.id,
       startsAt: segments[0].start,

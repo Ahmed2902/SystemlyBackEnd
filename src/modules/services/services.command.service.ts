@@ -1,5 +1,6 @@
 import { Prisma, Roles } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
+import { resolveOperationalBranch } from "../../shared/services/branch-context.service";
 import type {
   CreateServiceBody,
   UpdateServiceBody,
@@ -27,17 +28,18 @@ const canManageMoney = (role?: string) =>
 
 class ServicesCommandService {
   async createService(user: AuthUser, payload: CreateServiceBody) {
-    const businessId = user.businessId;
-    if (!businessId) {
-      throw buildError("Business id missing", 400, "BAD_REQUEST");
-    }
-
-    await this.assertStaffBelongToBusiness(businessId, payload.staffIds);
+    const scope = await resolveOperationalBranch(user, payload.branchId);
+    await this.assertStaffBelongToBranch(
+      scope.businessId,
+      scope.branchId,
+      payload.staffIds,
+    );
 
     return prisma.$transaction(async (tx) => {
       const service = await tx.service.create({
         data: {
-          businessId,
+          businessId: scope.businessId,
+          branchId: scope.branchId,
           name: payload.name,
           description: payload.description || null,
           category: normalizeCategory(payload.category),
@@ -69,14 +71,19 @@ class ServicesCommandService {
 
     const existing = await prisma.service.findFirst({
       where: { id, businessId },
-      select: { id: true },
+      select: { id: true, branchId: true },
     });
-    if (!existing) {
+    if (!existing || !existing.branchId) {
       throw buildError("Service not found", 404, "NOT_FOUND");
     }
 
+    const scope = await resolveOperationalBranch(user, existing.branchId);
     if (payload.staffIds) {
-      await this.assertStaffBelongToBusiness(businessId, payload.staffIds);
+      await this.assertStaffBelongToBranch(
+        scope.businessId,
+        scope.branchId,
+        payload.staffIds,
+      );
     }
 
     const { staffIds, priceEgp, category, ...fields } = payload;
@@ -112,32 +119,37 @@ class ServicesCommandService {
       throw buildError("Business id missing", 400, "BAD_REQUEST");
     }
 
-    const result = await prisma.service.updateMany({
+    const existing = await prisma.service.findFirst({
       where: { id, businessId },
-      data: { isActive: false },
+      select: { branchId: true },
     });
-
-    if (result.count === 0) {
+    if (!existing?.branchId) {
       throw buildError("Service not found", 404, "NOT_FOUND");
     }
+    await resolveOperationalBranch(user, existing.branchId);
 
+    await prisma.service.update({
+      where: { id },
+      data: { isActive: false },
+    });
     return { id, isActive: false };
   }
 
-  private async assertStaffBelongToBusiness(
+  private async assertStaffBelongToBranch(
     businessId: string,
+    branchId: string,
     staffIds: string[],
   ) {
     if (staffIds.length === 0) return;
 
     const uniqueIds = [...new Set(staffIds)];
     const count = await prisma.staff.count({
-      where: { id: { in: uniqueIds }, businessId },
+      where: { id: { in: uniqueIds }, businessId, branchId },
     });
 
     if (count !== uniqueIds.length) {
       throw buildError(
-        "One or more selected staff members do not belong to this business",
+        "One or more selected staff members do not belong to this branch",
         400,
         "INVALID_STAFF_SELECTION",
       );

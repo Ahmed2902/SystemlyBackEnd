@@ -7,6 +7,7 @@ import {
 import { DateTime } from "luxon";
 import { getCachedBusinessTimezone } from "../calendar/calendar.query.service";
 import { prisma } from "../../shared/db/prisma";
+import { resolveOperationalBranch } from "../../shared/services/branch-context.service";
 import { timeOfDayToDate } from "../../shared/utils/timezone";
 import type {
   AvailabilityEntry,
@@ -46,17 +47,59 @@ const timeLabel = (value: Date) => value.toISOString().slice(11, 16);
 const dateOnly = (value: Date) => value.toISOString().slice(0, 10);
 
 class StaffWorkspaceService {
+  private async resolveStaffScope(staffId: string, user: AuthUser) {
+    if (!user.businessId) {
+      throw buildError("Business id missing", 400, "BAD_REQUEST");
+    }
+    const member = await prisma.staff.findFirst({
+      where: { id: staffId, businessId: user.businessId },
+      select: { id: true, branchId: true, isActive: true },
+    });
+    if (!member?.branchId) {
+      throw buildError("Staff member not found", 404, "NOT_FOUND");
+    }
+    const scope = await resolveOperationalBranch(user, member.branchId);
+    return { member, ...scope };
+  }
+
+  private async assertServicesBelongToBranch(
+    businessId: string,
+    branchId: string,
+    serviceIds: string[],
+  ) {
+    const uniqueIds = [...new Set(serviceIds)];
+    if (uniqueIds.length === 0) return;
+    const count = await prisma.service.count({
+      where: {
+        id: { in: uniqueIds },
+        businessId,
+        branchId,
+      },
+    });
+    if (count !== uniqueIds.length) {
+      throw buildError(
+        "One or more selected services do not belong to this branch",
+        400,
+        "INVALID_SERVICE_SELECTION",
+      );
+    }
+  }
+
   async getWorkspace(staffId: string, user: AuthUser) {
-    const businessId = user.businessId!;
-    const timezone = await getCachedBusinessTimezone(businessId);
+    const scope = await this.resolveStaffScope(staffId, user);
+    const timezone = await getCachedBusinessTimezone(scope.businessId);
     const ownerView = canManageMoney(user.role);
     const now = new Date();
     const todayLocal = DateTime.now().setZone(timezone);
     const todayDate = new Date(`${todayLocal.toISODate()}T00:00:00.000Z`);
 
     const [member, upcomingAppointments, serviceOptions] = await Promise.all([
-      prisma.staff.findUnique({
-        where: { id: staffId },
+      prisma.staff.findFirst({
+        where: {
+          id: staffId,
+          businessId: scope.businessId,
+          branchId: scope.branchId,
+        },
         include: {
           availability: {
             orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }],
@@ -96,7 +139,11 @@ class StaffWorkspaceService {
         where: {
           staffId,
           startsAt: { gte: now },
-          appointment: { status: { in: ACTIVE_APPOINTMENT_STATUSES } },
+          appointment: {
+            businessId: scope.businessId,
+            branchId: scope.branchId,
+            status: { in: ACTIVE_APPOINTMENT_STATUSES },
+          },
         },
         orderBy: { startsAt: "asc" },
         take: 20,
@@ -115,7 +162,7 @@ class StaffWorkspaceService {
         },
       }),
       prisma.service.findMany({
-        where: { businessId },
+        where: { businessId: scope.businessId, branchId: scope.branchId },
         select: {
           id: true,
           name: true,
@@ -131,6 +178,7 @@ class StaffWorkspaceService {
     if (!member) throw buildError("Staff member not found", 404, "NOT_FOUND");
 
     return {
+      branchId: scope.branchId,
       staff: {
         id: member.id,
         name: member.name,
@@ -207,13 +255,19 @@ class StaffWorkspaceService {
   }
 
   async createStaff(user: AuthUser, payload: StaffCreateInput) {
-    const businessId = user.businessId!;
-    const { serviceIds, ...profile } = payload;
+    const scope = await resolveOperationalBranch(user, payload.branchId);
+    const { branchId: _branchId, serviceIds, ...profile } = payload;
+    await this.assertServicesBelongToBranch(
+      scope.businessId,
+      scope.branchId,
+      serviceIds,
+    );
 
     return prisma.$transaction(async (tx) => {
       const member = await tx.staff.create({
         data: {
-          businessId,
+          businessId: scope.businessId,
+          branchId: scope.branchId,
           name: profile.name,
           role: profile.role,
           jobTitle: cleanOptional(profile.jobTitle),
@@ -242,18 +296,20 @@ class StaffWorkspaceService {
   }
 
   async updateStaff(staffId: string, user: AuthUser, payload: StaffUpdateInput) {
-    const businessId = user.businessId!;
-    const existing = await prisma.staff.findUnique({
-      where: { id: staffId },
-      select: { id: true, isActive: true },
-    });
-    if (!existing) throw buildError("Staff member not found", 404, "NOT_FOUND");
+    const scope = await this.resolveStaffScope(staffId, user);
 
-    if (payload.isActive === false && existing.isActive) {
-      await this.assertNoFutureAppointments(staffId, businessId);
+    if (payload.isActive === false && scope.member.isActive) {
+      await this.assertNoFutureAppointments(staffId, scope.businessId);
     }
 
     const { serviceIds, ...fields } = payload;
+    if (serviceIds) {
+      await this.assertServicesBelongToBranch(
+        scope.businessId,
+        scope.branchId,
+        serviceIds,
+      );
+    }
     const data: Prisma.StaffUpdateInput = {
       ...(fields.name !== undefined && { name: fields.name }),
       ...(fields.role !== undefined && { role: fields.role }),
@@ -299,16 +355,18 @@ class StaffWorkspaceService {
   }
 
   async deactivateStaff(staffId: string, user: AuthUser) {
-    await this.assertNoFutureAppointments(staffId, user.businessId!);
+    const scope = await this.resolveStaffScope(staffId, user);
+    await this.assertNoFutureAppointments(staffId, scope.businessId);
     await prisma.staff.update({ where: { id: staffId }, data: { isActive: false } });
     return { id: staffId, isActive: false };
   }
 
   async replaceAvailability(
     staffId: string,
-    _user: AuthUser,
+    user: AuthUser,
     entries: AvailabilityEntry[],
   ) {
+    await this.resolveStaffScope(staffId, user);
     const grouped = new Map<number, AvailabilityEntry[]>();
     for (const entry of entries) {
       const dayEntries = grouped.get(entry.dayOfWeek) ?? [];
@@ -348,10 +406,11 @@ class StaffWorkspaceService {
     });
   }
 
-  createBreak(staffId: string, user: AuthUser, input: StaffBreakInput) {
+  async createBreak(staffId: string, user: AuthUser, input: StaffBreakInput) {
+    const scope = await this.resolveStaffScope(staffId, user);
     return prisma.staffBreak.create({
       data: {
-        businessId: user.businessId!,
+        businessId: scope.businessId,
         staffId,
         breakDate: new Date(`${input.breakDate}T00:00:00.000Z`),
         startTime: timeOfDayToDate(input.startTime),
@@ -361,13 +420,17 @@ class StaffWorkspaceService {
     });
   }
 
-  async deleteBreak(_staffId: string, breakId: string, _user: AuthUser) {
-    await prisma.staffBreak.delete({ where: { id: breakId } });
+  async deleteBreak(staffId: string, breakId: string, user: AuthUser) {
+    await this.resolveStaffScope(staffId, user);
+    const deleted = await prisma.staffBreak.deleteMany({
+      where: { id: breakId, staffId },
+    });
+    if (deleted.count !== 1) throw buildError("Break not found", 404, "NOT_FOUND");
     return { success: true };
   }
 
   async createTimeOff(staffId: string, user: AuthUser, input: StaffTimeOffInput) {
-    const businessId = user.businessId!;
+    const scope = await this.resolveStaffScope(staffId, user);
     const startsOn = new Date(`${input.startsOn}T00:00:00.000Z`);
     const endsOn = new Date(`${input.endsOn}T00:00:00.000Z`);
 
@@ -390,7 +453,7 @@ class StaffWorkspaceService {
     return prisma.staffTimeOff.create({
       data: {
         staffId,
-        businessId,
+        businessId: scope.businessId,
         startsOn,
         endsOn,
         type: input.type,
@@ -400,8 +463,14 @@ class StaffWorkspaceService {
     });
   }
 
-  async deleteTimeOff(_staffId: string, timeOffId: string, _user: AuthUser) {
-    await prisma.staffTimeOff.delete({ where: { id: timeOffId } });
+  async deleteTimeOff(staffId: string, timeOffId: string, user: AuthUser) {
+    await this.resolveStaffScope(staffId, user);
+    const deleted = await prisma.staffTimeOff.deleteMany({
+      where: { id: timeOffId, staffId },
+    });
+    if (deleted.count !== 1) {
+      throw buildError("Time off not found", 404, "NOT_FOUND");
+    }
     return { success: true };
   }
 

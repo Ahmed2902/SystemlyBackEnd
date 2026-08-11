@@ -2,6 +2,7 @@ import { AppointmentStatus, Prisma, Roles } from "@prisma/client";
 import { DateTime } from "luxon";
 import { getCachedBusinessTimezone } from "../calendar/calendar.query.service";
 import { prisma } from "../../shared/db/prisma";
+import { resolveOperationalBranch } from "../../shared/services/branch-context.service";
 import type { StaffDirectoryQuery } from "./staff.schema";
 import staffService from "./staff.service";
 import staffWorkspaceService from "./staff.workspace.service";
@@ -51,8 +52,11 @@ function applyDirectoryFilters(
 
 class StaffQueryService {
   async listDirectory(user: AuthUser, query: StaffDirectoryQuery) {
-    const businessId = user.businessId!;
-    const baseWhere: Prisma.StaffWhereInput = { businessId };
+    const scope = await resolveOperationalBranch(user, query.branchId);
+    const baseWhere: Prisma.StaffWhereInput = {
+      businessId: scope.businessId,
+      branchId: scope.branchId,
+    };
     applyDirectoryFilters(baseWhere, query);
 
     if (query.view === "roster") {
@@ -62,6 +66,7 @@ class StaffQueryService {
         orderBy: { name: "asc" },
         select: {
           id: true,
+          branchId: true,
           name: true,
           role: true,
           photoUrl: true,
@@ -70,6 +75,7 @@ class StaffQueryService {
       });
 
       return {
+        branchId: scope.branchId,
         items: members.map(({ serviceStaff, ...member }) => ({
           ...member,
           serviceIds: serviceStaff.map((relation) => relation.serviceId),
@@ -81,8 +87,8 @@ class StaffQueryService {
     }
 
     const business = {
-      id: businessId,
-      timezone: await getCachedBusinessTimezone(businessId),
+      id: scope.businessId,
+      timezone: await getCachedBusinessTimezone(scope.businessId),
     };
     const ownerView = canManageMoney(user.role);
     const todayLocal = DateTime.now().setZone(business.timezone);
@@ -107,6 +113,7 @@ class StaffQueryService {
         orderBy: [{ isActive: "desc" }, { name: "asc" }],
         select: {
           id: true,
+          branchId: true,
           name: true,
           role: true,
           jobTitle: true,
@@ -147,7 +154,10 @@ class StaffQueryService {
       }),
       prisma.staff.count({ where }),
       prisma.service.findMany({
-        where: { businessId: business.id },
+        where: {
+          businessId: business.id,
+          branchId: scope.branchId,
+        },
         select: { id: true, name: true, category: true, isActive: true },
         orderBy: [{ isActive: "desc" }, { name: "asc" }],
       }),
@@ -182,6 +192,7 @@ class StaffQueryService {
           )::bigint AS "onTimeOff"
         FROM "staff" s
         WHERE s."business_id" = CAST(${business.id} AS uuid)
+          AND s."branch_id" = CAST(${scope.branchId} AS uuid)
       `),
     ]);
 
@@ -193,6 +204,7 @@ class StaffQueryService {
       );
       return {
         id: member.id,
+        branchId: member.branchId,
         name: member.name,
         role: member.role,
         jobTitle: member.jobTitle,
@@ -225,6 +237,7 @@ class StaffQueryService {
     });
 
     return {
+      branchId: scope.branchId,
       items,
       total,
       page: query.page,
