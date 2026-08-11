@@ -115,6 +115,7 @@ class StaffInviteService {
     return {
       id: invite.id,
       expiresAt: invite.expiresAt,
+      acceptUrl,
       delivery: "queued" as const,
     };
   }
