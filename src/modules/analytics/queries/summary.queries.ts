@@ -17,7 +17,11 @@ export async function getCustomerRangeSummary(
   businessId: string,
   from: Date,
   toExclusive: Date,
+  branchId?: string,
 ): Promise<CustomerRangeSummary> {
+  const branchFilter = branchId
+    ? Prisma.sql`AND a.branch_id = ${branchId}::uuid`
+    : Prisma.empty;
   const [row] = await prisma.$queryRaw<
     {
       active_customers: bigint;
@@ -37,6 +41,7 @@ export async function getCustomerRangeSummary(
     FROM appointments a
     JOIN customers c ON c.id = a.customer_id
     WHERE a.business_id = ${businessId}::uuid
+      ${branchFilter}
       AND a.starts_at >= ${from}
       AND a.starts_at < ${toExclusive}
   `);
@@ -53,7 +58,11 @@ export async function getCustomItemRevenue(
   from: Date,
   toExclusive: Date,
   limit = 12,
+  branchId?: string,
 ): Promise<CustomItemRevenueRow[]> {
+  const branchFilter = branchId
+    ? Prisma.sql`AND i.branch_id = ${branchId}::uuid`
+    : Prisma.empty;
   const rows = await prisma.$queryRaw<
     { description: string; quantity: bigint; total_cents: bigint }[]
   >(Prisma.sql`
@@ -64,6 +73,7 @@ export async function getCustomItemRevenue(
     FROM invoice_line_items li
     JOIN invoices i ON i.id = li.invoice_id
     WHERE i.business_id = ${businessId}::uuid
+      ${branchFilter}
       AND i.status = 'paid'
       AND i.paid_at >= ${from}
       AND i.paid_at < ${toExclusive}
