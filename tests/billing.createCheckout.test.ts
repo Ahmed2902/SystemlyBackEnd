@@ -163,7 +163,7 @@ describe("billing.createCheckout", () => {
     expect(db.subscription.upsert).not.toHaveBeenCalled();
   });
 
-  it("adds 300 EGP for every active branch after the first", async () => {
+  it("adds 350 EGP for every active branch after the first", async () => {
     const adapter = configuredAdapter();
     const { service, db } = setup(adapter);
     db.branch.count.mockResolvedValue(3);
@@ -175,16 +175,16 @@ describe("billing.createCheckout", () => {
       includedBranchCount: 1,
       activeBranchCount: 3,
       additionalBranchCount: 2,
-      additionalBranchUnitPriceCents: 30_000,
-      additionalBranchTotalCents: 60_000,
-      nextRenewalAmountCents: 139_900,
+      additionalBranchUnitPriceCents: 35_000,
+      additionalBranchTotalCents: 70_000,
+      nextRenewalAmountCents: 149_900,
       currency: "EGP",
     });
     expect(db.subscriptionPayment.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ amountCents: 139_900 }),
+      data: expect.objectContaining({ amountCents: 149_900 }),
     });
     expect(adapter.createCheckout).toHaveBeenCalledWith(
-      expect.objectContaining({ amountCents: 139_900 }),
+      expect.objectContaining({ amountCents: 149_900 }),
     );
   });
 
@@ -225,9 +225,9 @@ describe("billing.createCheckout", () => {
       }),
     });
     expect(result.reused).toBe(false);
-    expect(result.payment.amountCents).toBe(109_900);
+    expect(result.payment.amountCents).toBe(114_900);
     expect(adapter.createCheckout).toHaveBeenCalledWith(
-      expect.objectContaining({ amountCents: 109_900 }),
+      expect.objectContaining({ amountCents: 114_900 }),
     );
   });
 
@@ -241,9 +241,9 @@ describe("billing.createCheckout", () => {
       includedBranchCount: 1,
       activeBranchCount: 2,
       additionalBranchCount: 1,
-      additionalBranchUnitPriceCents: 30_000,
-      additionalBranchTotalCents: 30_000,
-      nextRenewalAmountCents: 109_900,
+      additionalBranchUnitPriceCents: 35_000,
+      additionalBranchTotalCents: 35_000,
+      nextRenewalAmountCents: 114_900,
       currency: "EGP",
     });
   });
