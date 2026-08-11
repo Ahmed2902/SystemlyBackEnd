@@ -45,6 +45,11 @@ interface UpsertCustomerParams {
   gender?: "male" | "female";
 }
 
+type SchedulingResult = {
+  branchId: string;
+  segments: ScheduledSegment[];
+};
+
 export async function scheduleServiceSegments(
   tx: TxClient,
   selections: ServiceSelection[],
@@ -52,7 +57,7 @@ export async function scheduleServiceSegments(
   timezone: string,
   businessId: string,
   branchId?: string,
-): Promise<ScheduledSegment[]> {
+): Promise<SchedulingResult> {
   if (selections.length === 0) {
     throw schedulingError("At least one service is required", 400);
   }
@@ -73,6 +78,21 @@ export async function scheduleServiceSegments(
     throw schedulingError("One or more services not found", 404);
   }
 
+  const serviceBranchIds = [
+    ...new Set(services.map((service) => service.branchId).filter(Boolean)),
+  ] as string[];
+  if (serviceBranchIds.length !== 1) {
+    throw schedulingError(
+      "Selected services must belong to one branch",
+      400,
+      "MIXED_BRANCH_SERVICES",
+    );
+  }
+  const resolvedBranchId = serviceBranchIds[0];
+  if (branchId && resolvedBranchId !== branchId) {
+    throw schedulingError("Selected services do not belong to this branch", 400, "BRANCH_MISMATCH");
+  }
+
   const serviceById = new Map(services.map((service) => [service.id, service]));
   const startInstant = toUtcFromBusinessTime(startsAt, timezone);
   let segmentStart: DateTime<boolean> = DateTime.fromJSDate(startInstant).setZone(
@@ -87,7 +107,7 @@ export async function scheduleServiceSegments(
     tx,
     selections,
     businessId,
-    branchId,
+    resolvedBranchId,
   );
   const allCandidateStaffIds = [...new Set(eligibleBySelection.flat())];
   if (allCandidateStaffIds.length === 0) {
@@ -146,7 +166,7 @@ export async function scheduleServiceSegments(
     segmentStart = segmentEnd;
   }
 
-  return segments;
+  return { branchId: resolvedBranchId, segments };
 }
 
 export async function createAppointmentCore(
@@ -155,7 +175,7 @@ export async function createAppointmentCore(
   params: CreateAppointmentCoreParams,
 ) {
   const timezone = business.timezone || "UTC";
-  const segments = await scheduleServiceSegments(
+  const scheduled = await scheduleServiceSegments(
     tx,
     params.selections,
     params.startsAt,
@@ -163,6 +183,7 @@ export async function createAppointmentCore(
     business.id,
     params.branchId,
   );
+  const { segments } = scheduled;
 
   const customer = await upsertCustomer(tx, {
     businessId: business.id,
@@ -176,7 +197,7 @@ export async function createAppointmentCore(
   const appointment = await tx.appointment.create({
     data: {
       businessId: business.id,
-      ...(params.branchId ? { branchId: params.branchId } : {}),
+      branchId: scheduled.branchId,
       staffId: segments[0].staffId,
       customerId: customer.id,
       startsAt: segments[0].start,

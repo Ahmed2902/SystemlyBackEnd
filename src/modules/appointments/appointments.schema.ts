@@ -15,16 +15,12 @@ const clinicVisitInputSchema = z
     diagnosisAssessment: z.string().max(2000).optional(),
     clinicalSessionNotes: z.string().max(5000).optional(),
     planAndPrescription: z.string().max(5000).optional(),
-    // Temporary aliases keep the backend-first rollout compatible with the
-    // currently deployed frontend. They are normalized to text before the
-    // command service reaches Prisma.
     diagnosis: z.string().max(2000).optional(),
     notes: z.string().max(5000).optional(),
     prescriptionJson: legacyPrescriptionSchema.optional(),
   })
   .transform((clinical) => ({
-    diagnosis:
-      clinical.diagnosisAssessment ?? clinical.diagnosis ?? undefined,
+    diagnosis: clinical.diagnosisAssessment ?? clinical.diagnosis ?? undefined,
     notes: clinical.clinicalSessionNotes ?? clinical.notes ?? undefined,
     prescriptionJson:
       clinical.planAndPrescription ??
@@ -73,6 +69,7 @@ export type UpdateAppointmentInput = z.infer<typeof updateAppointmentSchema>;
 
 export const listAppointmentsQuerySchema = z
   .object({
+    branchId: z.string().uuid().optional(),
     date: z.string().optional().openapi({
       example: "2026-03-15",
       description: "Filter by specific date",
@@ -112,6 +109,7 @@ export const updateAppointmentNotesSchema = z
 
 export const createManualAppointmentSchema = z
   .object({
+    branchId: z.string().uuid().optional(),
     services: z.array(manualServiceSelectionSchema).min(1),
     startsAt: z.string().min(1).openapi({ example: "2026-03-20T10:00:00Z" }),
     customerName: z.string().min(1).openapi({ example: "Mona Ahmed" }),
