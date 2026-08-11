@@ -21,6 +21,7 @@ const serviceDurationSchema = z
 
 // #region Query schemas
 export const listServicesQuerySchema = z.object({
+  branchId: z.string().uuid().optional(),
   search: z.string().trim().optional(),
   category: z.string().trim().optional(),
   status: z.enum(["all", "active", "inactive"]).default("all"),
@@ -31,6 +32,7 @@ export const listServicesQuerySchema = z.object({
 // #region Command schemas
 export const createServiceSchema = z
   .object({
+    branchId: z.string().uuid().optional(),
     name: z.string().trim().min(1).max(255).openapi({ example: "Teeth Whitening" }),
     durationMin: serviceDurationSchema.openapi({ example: 60 }),
     priceEgp: z.number().nonnegative().optional().openapi({ example: 500 }),

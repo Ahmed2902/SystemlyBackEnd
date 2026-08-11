@@ -35,6 +35,7 @@ const validateCommission = (data: {
 };
 
 export const staffDirectoryQuerySchema = z.object({
+  branchId: z.string().uuid().optional(),
   search: z.string().trim().optional(),
   status: z.enum(["all", "active", "inactive"]).default("all"),
   role: roleEnum.optional(),
@@ -53,6 +54,7 @@ export const staffPaginationSchema = z.object({
 });
 
 export const createStaffSchema = z.object({
+  branchId: z.string().uuid().optional(),
   name: z.string().trim().min(1).max(255).openapi({ example: "Dr. Mona Ahmed" }),
   role: z.literal(Roles.Staff).optional().default(Roles.Staff),
   jobTitle: optionalText(120).openapi({ example: "Lead Therapist" }),
