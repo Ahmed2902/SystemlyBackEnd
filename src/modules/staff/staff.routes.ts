@@ -19,7 +19,9 @@ import {
   requireStaffTimeOffAccess,
 } from "../../shared/middleware/tenant-resource.middleware";
 import validate from "../../shared/middleware/validate.middleware";
+import { fail, ok } from "../../shared/utils/response.util";
 import staffController from "./staff.controller";
+import staffInviteService from "./staff-invite.service";
 import {
   acceptInviteSchema,
   assignServiceSchema,
@@ -46,6 +48,16 @@ const removeCommissionForOperationalUsers = (req: any, _res: any, next: any) => 
   }
   next();
 };
+
+router.get("/invites/resolve", async (req, res, next) => {
+  try {
+    const token = typeof req.query.token === "string" ? req.query.token.trim() : "";
+    if (!token) return fail(res, "Invitation token is required", 400, "INVALID_INVITE");
+    return ok(res, await staffInviteService.resolve(token));
+  } catch (error) {
+    return next(error);
+  }
+});
 
 router.use(requireAuth);
 

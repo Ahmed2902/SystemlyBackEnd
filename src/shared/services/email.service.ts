@@ -11,6 +11,10 @@ type LocalizedUser = {
   preferredLanguage?: string | null;
 };
 
+type VerificationEmailOptions = EmailJobOptions & {
+  nextPath?: string;
+};
+
 function localeFromUser(user: LocalizedUser): EmailLocale {
   return normalizeEmailLocale(user.preferredLanguage);
 }
@@ -35,20 +39,25 @@ function frontendUrl(): string {
 export async function enqueueVerificationEmail(
   user: LocalizedUser,
   token: string,
-  options: EmailJobOptions = {},
+  options: VerificationEmailOptions = {},
 ) {
   const localizedUser = await resolveLocalizedUser(user);
+  const { nextPath, ...jobOptions } = options;
+  const nextQuery = nextPath
+    ? `&next=${encodeURIComponent(nextPath)}`
+    : "";
+
   return enqueueSendEmail(
     {
       type: "verification",
       to: localizedUser.email,
       data: {
         name: localizedUser.name,
-        verificationUrl: `${frontendUrl()}/verify-email?token=${encodeURIComponent(token)}`,
+        verificationUrl: `${frontendUrl()}/verify-email?token=${encodeURIComponent(token)}${nextQuery}`,
         locale: localeFromUser(localizedUser),
       },
     },
-    options,
+    jobOptions,
   );
 }
 

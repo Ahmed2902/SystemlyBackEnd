@@ -5,6 +5,7 @@ import { prisma } from "../../shared/db/prisma";
 import { Errors } from "../../shared/errors/application-error";
 import * as emailService from "../../shared/services/email.service";
 import { hashOpaqueToken, signAccessToken } from "../../shared/utils/token.util";
+import staffInviteService from "../staff/staff-invite.service";
 import { authActionTokens } from "./action-token.service";
 import { refreshTokens } from "./refresh-token.service";
 import type {
@@ -70,8 +71,18 @@ function accessTokenFor(user: Pick<AuthUser, "id" | "businessId" | "role">) {
   });
 }
 
+function inviteNextPath(inviteToken?: string) {
+  return inviteToken
+    ? `/invite?token=${encodeURIComponent(inviteToken)}`
+    : undefined;
+}
+
 class AuthService {
   async register(payload: RegisterBody) {
+    if (payload.inviteToken) {
+      await staffInviteService.validateForEmail(payload.inviteToken, payload.email);
+    }
+
     const existing = await prisma.businessUser.findUnique({
       where: { email: payload.email },
       select: { id: true },
@@ -107,6 +118,7 @@ class AuthService {
     );
     await emailService.enqueueVerificationEmail(user, token, {
       idempotencyKey: `verification:${user.id}:${hashOpaqueToken(token)}`,
+      nextPath: inviteNextPath(payload.inviteToken),
     });
 
     return { userId: user.id };
@@ -216,7 +228,11 @@ class AuthService {
     };
   }
 
-  async resendVerificationEmail({ email }: EmailBody) {
+  async resendVerificationEmail({ email, inviteToken }: EmailBody) {
+    if (inviteToken) {
+      await staffInviteService.validateForEmail(inviteToken, email);
+    }
+
     const user = await prisma.businessUser.findUnique({
       where: { email },
       select: {
@@ -249,6 +265,7 @@ class AuthService {
         );
         await emailService.enqueueVerificationEmail(user, token, {
           idempotencyKey: `verification:${user.id}:${hashOpaqueToken(token)}`,
+          nextPath: inviteNextPath(inviteToken),
         });
       }
     }
