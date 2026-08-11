@@ -10,6 +10,7 @@ const makeTx = (conflict = false) => ({
       {
         id: "svc1",
         businessId: "b1",
+        branchId: "branch1",
         isActive: true,
         durationMin: 45,
         priceEgp: 100,
