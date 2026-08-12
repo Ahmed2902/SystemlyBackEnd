@@ -17,6 +17,7 @@ import {
   toUtcFromBusinessTime,
 } from "../../shared/utils/timezone";
 import { isModuleEnabled } from "../../shared/config/verticals.config";
+import { lockBranchLifecycle } from "../../shared/services/branch-lifecycle-lock.service";
 import { createAppointmentCore } from "../../shared/services/scheduling/appointment-core.service";
 import {
   getOwnedAppointmentOrThrow,
@@ -69,6 +70,22 @@ async function transitionAppointmentStatus(
   return result.count === 1;
 }
 
+async function requireActiveAppointmentBranch(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  branchId: string,
+) {
+  await lockBranchLifecycle(tx, businessId, branchId);
+  const branch = await tx.branch.findFirst({
+    where: { id: branchId, businessId, isActive: true },
+    select: { timezone: true },
+  });
+  if (!branch) {
+    throw invalidStateError("Branch not found", "BRANCH_NOT_FOUND", 404);
+  }
+  return branch;
+}
+
 export async function updateAppointmentInTransaction(
   tx: Prisma.TransactionClient,
   id: string,
@@ -87,6 +104,11 @@ export async function updateAppointmentInTransaction(
   });
 
   assertEditable(appt);
+  const activeBranch = await requireActiveAppointmentBranch(
+    tx,
+    businessId,
+    appt.branchId,
+  );
 
   assertSegmentsDoNotOverlap(
     payload.segments.map((segment) => ({
@@ -101,7 +123,7 @@ export async function updateAppointmentInTransaction(
   await assertSegmentsAssignable(tx, {
     businessId,
     branchId: appt.branchId,
-    businessTimezone: appt.branch.timezone,
+    businessTimezone: activeBranch.timezone,
     excludeAppointmentId: id,
     segments: payload.segments.map((segment) => {
       const existingSegment = segment.id
@@ -430,12 +452,17 @@ class AppointmentsCommandService {
         appointmentServices: { orderBy: { order: "asc" } },
         branch: true,
       });
+      const activeBranch = await requireActiveAppointmentBranch(
+        tx,
+        businessId,
+        appt.branchId,
+      );
 
       if (appt.appointmentServices.length === 0) {
         throw notFoundError("Appointment has no services");
       }
 
-      let segmentStart = toUtcFromBusinessTime(startsAt, appt.branch.timezone);
+      let segmentStart = toUtcFromBusinessTime(startsAt, activeBranch.timezone);
       const newSegments: {
         id: string;
         staffId: string;
@@ -459,7 +486,7 @@ class AppointmentsCommandService {
       await assertSegmentsAssignable(tx, {
         businessId,
         branchId: appt.branchId,
-        businessTimezone: appt.branch.timezone,
+        businessTimezone: activeBranch.timezone,
         excludeAppointmentId: id,
         segments: appt.appointmentServices.map((seg, i) => ({
           serviceId: seg.serviceId,
