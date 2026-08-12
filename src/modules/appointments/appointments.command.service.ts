@@ -372,6 +372,10 @@ class AppointmentsCommandService {
         );
       }
 
+      if (status !== AppointmentStatus.no_show) {
+        await requireActiveAppointmentBranch(tx, businessId, appt.branchId);
+      }
+
       const transitioned = await transitionAppointmentStatus(
         tx,
         id,
@@ -701,6 +705,7 @@ class AppointmentsCommandService {
       if (!isCancelled(appt.status)) {
         throw invalidStateError("Appointment is not cancelled");
       }
+      await requireActiveAppointmentBranch(tx, businessId, appt.branchId);
 
       const transitioned = await transitionAppointmentStatus(
         tx,
@@ -732,6 +737,7 @@ class AppointmentsCommandService {
           "Cannot revert a cancelled appointment — it was never completed or paid",
         );
       }
+      await requireActiveAppointmentBranch(tx, businessId, appt.branchId);
 
       const wasNoShow = appt.status === AppointmentStatus.no_show;
       const wasCompleted = appt.status === AppointmentStatus.completed;
