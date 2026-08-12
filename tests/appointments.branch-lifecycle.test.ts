@@ -4,12 +4,14 @@ const appointmentId = "appointment-1";
 const businessId = "business-1";
 const branchId = "branch-1";
 
-function buildTx() {
+function buildTx(status: AppointmentStatus = AppointmentStatus.confirmed) {
   const appointment = {
     id: appointmentId,
     businessId,
     branchId,
-    status: AppointmentStatus.confirmed,
+    customerId: "customer-1",
+    customer: { noShowCount: 1, visitCount: 1 },
+    status,
     startsAt: new Date("2026-08-10T08:00:00.000Z"),
     endsAt: new Date("2026-08-10T08:30:00.000Z"),
     branch: { timezone: "Africa/Cairo" },
@@ -33,8 +35,18 @@ function buildTx() {
     appointment: {
       findFirst: jest.fn().mockResolvedValue(appointment),
       update: jest.fn(),
+      updateMany: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
     },
   };
+}
+
+function mockDatabase(tx: ReturnType<typeof buildTx>) {
+  jest.doMock("../src/shared/db/prisma", () => ({
+    prisma: {
+      $transaction: (callback: (client: typeof tx) => unknown) => callback(tx),
+    },
+  }));
 }
 
 describe("appointment branch lifecycle safety", () => {
@@ -44,11 +56,7 @@ describe("appointment branch lifecycle safety", () => {
 
   it("rejects rescheduling after the branch becomes inactive inside the mutation transaction", async () => {
     const tx = buildTx();
-    jest.doMock("../src/shared/db/prisma", () => ({
-      prisma: {
-        $transaction: (callback: (client: typeof tx) => unknown) => callback(tx),
-      },
-    }));
+    mockDatabase(tx);
 
     const service = require("../src/modules/appointments/appointments.command.service")
       .default;
@@ -74,11 +82,7 @@ describe("appointment branch lifecycle safety", () => {
 
   it("rejects editing appointment segments after the branch becomes inactive", async () => {
     const tx = buildTx();
-    jest.doMock("../src/shared/db/prisma", () => ({
-      prisma: {
-        $transaction: (callback: (client: typeof tx) => unknown) => callback(tx),
-      },
-    }));
+    mockDatabase(tx);
 
     const service = require("../src/modules/appointments/appointments.command.service")
       .default;
@@ -107,5 +111,63 @@ describe("appointment branch lifecycle safety", () => {
       select: { timezone: true },
     });
     expect(tx.appointment.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects uncancelling into an inactive branch", async () => {
+    const tx = buildTx(AppointmentStatus.cancelled_by_business);
+    mockDatabase(tx);
+
+    const service = require("../src/modules/appointments/appointments.command.service")
+      .default;
+
+    await expect(
+      service.uncancelAppointment(appointmentId, businessId),
+    ).rejects.toMatchObject({
+      code: "BRANCH_NOT_FOUND",
+      statusCode: 404,
+    });
+
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.appointment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects reverting a completed appointment into an inactive branch", async () => {
+    const tx = buildTx(AppointmentStatus.completed);
+    mockDatabase(tx);
+
+    const service = require("../src/modules/appointments/appointments.command.service")
+      .default;
+
+    await expect(
+      service.revertAppointment(appointmentId, businessId),
+    ).rejects.toMatchObject({
+      code: "BRANCH_NOT_FOUND",
+      statusCode: 404,
+    });
+
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.appointment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects changing no-show back to an active status on an inactive branch", async () => {
+    const tx = buildTx(AppointmentStatus.no_show);
+    mockDatabase(tx);
+
+    const service = require("../src/modules/appointments/appointments.command.service")
+      .default;
+
+    await expect(
+      service.updateStatus(
+        appointmentId,
+        AppointmentStatus.confirmed,
+        businessId,
+      ),
+    ).rejects.toMatchObject({
+      code: "BRANCH_NOT_FOUND",
+      statusCode: 404,
+    });
+
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(tx.appointment.updateMany).not.toHaveBeenCalled();
   });
 });
