@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { AppointmentStatus, Prisma } from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
 import type { CreateBranchInput, UpdateBranchInput } from "./branches.schema";
 
@@ -108,6 +108,29 @@ class BranchesService {
           "A business must keep at least one active branch",
           409,
           "LAST_ACTIVE_BRANCH",
+        );
+      }
+
+      const blockingAppointment = await tx.appointment.findFirst({
+        where: {
+          businessId,
+          branchId,
+          status: {
+            in: [
+              AppointmentStatus.pending,
+              AppointmentStatus.confirmed,
+              AppointmentStatus.in_progress,
+            ],
+          },
+          endsAt: { gt: new Date() },
+        },
+        select: { id: true },
+      });
+      if (blockingAppointment) {
+        throw branchError(
+          "Move or cancel active and upcoming appointments before deactivating this branch",
+          409,
+          "BRANCH_HAS_ACTIVE_APPOINTMENTS",
         );
       }
 
