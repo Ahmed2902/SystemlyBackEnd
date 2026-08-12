@@ -146,6 +146,18 @@ For V1:
 - never hard-delete a branch that has historical operational data
 - checkout/payment records must store enough pricing snapshot information to explain the charged amount
 
+## V1 release hardening
+
+Before exposing multi-branch publicly, the transitional compatibility rules are tightened:
+
+- `Staff.branchId`, `Service.branchId`, `Appointment.branchId`, `Invoice.branchId`, and `StaffInvite.branchId` are required after a final repair/backfill migration. `BusinessUser.branchId` remains nullable because BusinessAdmin is intentionally business-scoped.
+- Appointment-backed invoices inherit `branchId` from the appointment; clients do not choose the invoice branch.
+- A branch cannot be deactivated while it has a pending, confirmed, or in-progress appointment that has not ended yet. The owner must move/cancel those visits first.
+- Global Business Settings must not edit branch location/contact data. Legacy Business location columns remain compatibility data until a later cleanup migration, while Branch is the operational/public source of truth.
+- V1 is Egypt-only. New onboarding/branch writes accept `Africa/Cairo`; scheduling, rescheduling, staff-day calculations, public availability, and invoice local-year behavior use the selected/appointment Branch timezone. Legacy Business timezone is only a compatibility fallback where still required.
+- If Add Branch creates the branch record but later service/staff/availability/invitation setup fails, the frontend attempts to deactivate that incomplete branch and restores the previous operational branch so an incomplete location is not intentionally left public/billable.
+- Billing UI and checkout must use the same branch-pricing calculation. A stale hosted checkout with an old branch count is canceled and recreated at the current amount.
+
 ## Production rollout safety
 
 The repository production workflow deploys only successful push-triggered CI runs whose head branch is `main` and only when `AZURE_DEPLOY_ENABLED == 'true'`.
