@@ -53,19 +53,11 @@ class SettingsService {
       where: { id: businessId },
       data: {
         name: input.name.trim(),
-        phone: input.phone.trim(),
-        address: cleanNullable(input.address),
-        city: cleanNullable(input.city),
-        timezone: input.timezone.trim(),
         language: input.language,
       },
       select: {
         id: true,
         name: true,
-        phone: true,
-        address: true,
-        city: true,
-        timezone: true,
         language: true,
       },
     });
