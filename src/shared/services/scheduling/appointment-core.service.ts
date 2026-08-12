@@ -1,5 +1,6 @@
 import { BookingChannel, Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
+import { lockBranchLifecycle } from "../branch-lifecycle-lock.service";
 import { generateCancelToken } from "../../utils/token.util";
 import { toUtcFromBusinessTime } from "../../utils/timezone";
 import { resolveEligibleStaffBySelection } from "./eligibility.service";
@@ -95,6 +96,7 @@ export async function scheduleServiceSegments(
     );
   }
 
+  await lockBranchLifecycle(tx, businessId, resolvedBranchId);
   const branch = await tx.branch.findFirst({
     where: { id: resolvedBranchId, businessId, isActive: true },
     select: { timezone: true },
