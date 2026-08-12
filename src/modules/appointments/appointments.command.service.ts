@@ -83,6 +83,7 @@ export async function updateAppointmentInTransaction(
       take: 1,
     },
     business: true,
+    branch: true,
   });
 
   assertEditable(appt);
@@ -99,7 +100,8 @@ export async function updateAppointmentInTransaction(
   );
   await assertSegmentsAssignable(tx, {
     businessId,
-    businessTimezone: appt.business.timezone,
+    branchId: appt.branchId,
+    businessTimezone: appt.branch.timezone,
     excludeAppointmentId: id,
     segments: payload.segments.map((segment) => {
       const existingSegment = segment.id
@@ -133,20 +135,28 @@ export async function updateAppointmentInTransaction(
   }
 
   const services = await tx.service.findMany({
-    where: { id: { in: payload.segments.map((segment) => segment.serviceId) } },
+    where: {
+      id: { in: payload.segments.map((segment) => segment.serviceId) },
+      businessId,
+      branchId: appt.branchId,
+    },
   });
   const serviceById = new Map(services.map((service) => [service.id, service]));
 
   for (let index = 0; index < payload.segments.length; index++) {
     const segment = payload.segments[index];
     const service = serviceById.get(segment.serviceId);
-    const durationMin = service
-      ? Math.round(
-          (new Date(segment.endsAt).getTime() -
-            new Date(segment.startsAt).getTime()) /
-            60000,
-        )
-      : 0;
+    if (!service) {
+      throw invalidStateError(
+        "Selected service does not belong to this branch",
+        "BRANCH_MISMATCH",
+      );
+    }
+    const durationMin = Math.round(
+      (new Date(segment.endsAt).getTime() -
+        new Date(segment.startsAt).getTime()) /
+        60000,
+    );
 
     if (segment.id) {
       await tx.appointmentService.update({
@@ -170,7 +180,7 @@ export async function updateAppointmentInTransaction(
           endsAt: new Date(segment.endsAt),
           order: index,
           durationMinSnapshot: durationMin,
-          priceEgpSnapshot: service?.priceEgp ?? 0,
+          priceEgpSnapshot: service.priceEgp,
         },
       });
     }
@@ -396,6 +406,7 @@ class AppointmentsCommandService {
     return prisma.$transaction((tx) =>
       createAppointmentCore(tx, business, {
         businessId,
+        branchId: payload.branchId,
         selections,
         startsAt,
         customerName: payload.customerName,
@@ -417,17 +428,14 @@ class AppointmentsCommandService {
     return prisma.$transaction(async (tx) => {
       const appt = await getOwnedAppointmentOrThrow(tx, id, businessId, {
         appointmentServices: { orderBy: { order: "asc" } },
-        business: true,
+        branch: true,
       });
 
       if (appt.appointmentServices.length === 0) {
         throw notFoundError("Appointment has no services");
       }
 
-      let segmentStart = toUtcFromBusinessTime(
-        startsAt,
-        appt.business.timezone,
-      );
+      let segmentStart = toUtcFromBusinessTime(startsAt, appt.branch.timezone);
       const newSegments: {
         id: string;
         staffId: string;
@@ -450,7 +458,8 @@ class AppointmentsCommandService {
 
       await assertSegmentsAssignable(tx, {
         businessId,
-        businessTimezone: appt.business.timezone,
+        branchId: appt.branchId,
+        businessTimezone: appt.branch.timezone,
         excludeAppointmentId: id,
         segments: appt.appointmentServices.map((seg, i) => ({
           serviceId: seg.serviceId,
