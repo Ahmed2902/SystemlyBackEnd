@@ -110,26 +110,26 @@ model Business {
   timezone            String          @default("Africa/Cairo") @db.VarChar(80)
   language            String          @default("ar") @db.VarChar(10)
   isActive            Boolean         @default(false) @map("is_active")
-  trialUsedAt         DateTime?       @map("trial_used_at")
-  deletedAt           DateTime?       @map("deleted_at")
-  createdAt           DateTime        @default(now()) @map("created_at")
-  updatedAt           DateTime        @updatedAt @map("updated_at")
-  branches            Branch[]
-  staffInvite         StaffInvite[]
-  appointments        Appointment[]
-  businessUsers       BusinessUser[]
-  customers           Customer[]
-  faqs                Faq[]
-  services            Service[]
-  staff               Staff[]
-  subscription        Subscription?
-  websiteContent      WebsiteContent?
-  photos              Photo[]
-  invoices            Invoice[]
-  invoiceCounters     InvoiceCounter[]
-  loyaltyAccounts     LoyaltyAccount[]
-  staffBreaks         StaffBreak[]
-  staffTimeOff        StaffTimeOff[]
+  trialUsedAt        DateTime?       @map("trial_used_at")
+  deletedAt          DateTime?       @map("deleted_at")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+  branches           Branch[]
+  staffInvite        StaffInvite[]
+  appointments       Appointment[]
+  businessUsers      BusinessUser[]
+  customers          Customer[]
+  faqs               Faq[]
+  services           Service[]
+  staff              Staff[]
+  subscription       Subscription?
+  websiteContent     WebsiteContent?
+  photos             Photo[]
+  invoices           Invoice[]
+  invoiceCounters    InvoiceCounter[]
+  loyaltyAccounts    LoyaltyAccount[]
+  staffBreaks        StaffBreak[]
+  staffTimeOff       StaffTimeOff[]
 
   @@index([city])
   @@index([deletedAt])
@@ -697,7 +697,7 @@ model Invoice {
   paymentReference    String?              @map("payment_reference") @db.VarChar(255)
   paidByUserId        String?              @map("paid_by_user_id") @db.Uuid
   voidedByUserId      String?              @map("voided_by_user_id") @db.Uuid
-  voidReason          String?              @db.Text
+  voidReason          String?              @map("void_reason") @db.Text
   createdAt           DateTime             @default(now()) @map("created_at")
   updatedAt           DateTime             @updatedAt
   discountCents       Int                  @default(0) @map("discount_cents")
