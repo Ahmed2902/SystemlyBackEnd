@@ -10,7 +10,6 @@ import validate from "../../shared/middleware/validate.middleware";
 import branchesController from "./branches.controller";
 import {
   branchIdParamsSchema,
-  createBranchSchema,
   setupBranchSchema,
   updateBranchSchema,
 } from "./branches.schema";
@@ -31,12 +30,6 @@ router.get(
   "/:branchId",
   validate.validateParams(branchIdParamsSchema),
   branchesController.get.bind(branchesController),
-);
-router.post(
-  "/",
-  requireSubscriptionAccess,
-  validate.validateBody(createBranchSchema),
-  branchesController.create.bind(branchesController),
 );
 router.patch(
   "/:branchId",
