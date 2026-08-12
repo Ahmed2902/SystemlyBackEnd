@@ -7,6 +7,7 @@ describe("branch deactivation safety", () => {
 
   it("rejects deactivation while active or upcoming appointments remain", async () => {
     const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
       branch: {
         findFirst: jest.fn().mockResolvedValue({
           id: "branch-1",
@@ -33,6 +34,7 @@ describe("branch deactivation safety", () => {
       code: "BRANCH_HAS_ACTIVE_APPOINTMENTS",
       statusCode: 409,
     });
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
     expect(tx.appointment.findFirst).toHaveBeenCalledWith({
       where: {
         businessId: "business-1",
@@ -58,6 +60,7 @@ describe("branch deactivation safety", () => {
       isActive: false,
     };
     const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
       branch: {
         findFirst: jest.fn().mockResolvedValue({
           ...updated,
@@ -80,6 +83,7 @@ describe("branch deactivation safety", () => {
     const service = require("../src/modules/branches/branches.service").default;
 
     await expect(service.deactivate("business-1", "branch-1")).resolves.toEqual(updated);
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2);
     expect(tx.branch.update).toHaveBeenCalledWith({
       where: { id: "branch-1" },
       data: { isActive: false },
