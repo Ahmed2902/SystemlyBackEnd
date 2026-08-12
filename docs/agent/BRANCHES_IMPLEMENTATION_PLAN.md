@@ -127,15 +127,15 @@ Customers are shared across the Business.
 
 Systemly Core remains the base subscription and includes one active branch.
 
-Proposed pricing:
+Pricing:
 
 - 1 active branch: 799 EGP/month
-- each additional active branch: +300 EGP/month
+- each additional active branch: +350 EGP/month
 
 Billing formula in cents:
 
 ```ts
-basePriceCents + Math.max(0, activeBranchCount - 1) * 30_000
+basePriceCents + Math.max(0, activeBranchCount - 1) * 35_000
 ```
 
 For V1:
@@ -313,7 +313,7 @@ Add Branch wizard:
 - location/contact
 - services
 - team/receptionist
-- availability
+- per-staff availability
 - review/create
 - no business identity fields
 - no website preview
@@ -321,7 +321,7 @@ Add Branch wizard:
 
 Billing:
 - first branch included
-- +300 EGP/month per additional active branch
+- +350 EGP/month per additional active branch
 - next-renewal pricing, no proration in V1
 - pricing snapshot/breakdown on payment
 - update billing UI/landing copy
