@@ -46,8 +46,9 @@ const makeTx = (conflict = false) => ({
         ? [
             {
               staffId: "st1",
-              startsAt: new Date("2026-04-20T06:15:00Z"),
-              endsAt: new Date("2026-04-20T07:00:00Z"),
+              // 09:00-09:45 Africa/Cairo on 2026-04-20 is 07:00-07:45 UTC.
+              startsAt: new Date("2026-04-20T07:00:00Z"),
+              endsAt: new Date("2026-04-20T07:45:00Z"),
             },
           ]
         : [],
