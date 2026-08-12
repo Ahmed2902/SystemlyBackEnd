@@ -55,11 +55,46 @@ function isUniqueViolation(error: unknown) {
   );
 }
 
+function pricingSnapshot(pricing: BranchPricing): Prisma.InputJsonObject {
+  return {
+    basePriceCents: pricing.basePriceCents,
+    includedBranchCount: pricing.includedBranchCount,
+    activeBranchCount: pricing.activeBranchCount,
+    additionalBranchCount: pricing.additionalBranchCount,
+    additionalBranchUnitPriceCents: pricing.additionalBranchUnitPriceCents,
+    additionalBranchTotalCents: pricing.additionalBranchTotalCents,
+    nextRenewalAmountCents: pricing.nextRenewalAmountCents,
+    currency: pricing.currency,
+  };
+}
+
+function snapshotMatchesPricing(
+  snapshot: Prisma.JsonValue | null,
+  pricing: BranchPricing,
+) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return false;
+  }
+  const value = snapshot as Record<string, unknown>;
+  return (
+    value.basePriceCents === pricing.basePriceCents &&
+    value.includedBranchCount === pricing.includedBranchCount &&
+    value.activeBranchCount === pricing.activeBranchCount &&
+    value.additionalBranchCount === pricing.additionalBranchCount &&
+    value.additionalBranchUnitPriceCents ===
+      pricing.additionalBranchUnitPriceCents &&
+    value.additionalBranchTotalCents === pricing.additionalBranchTotalCents &&
+    value.nextRenewalAmountCents === pricing.nextRenewalAmountCents &&
+    value.currency === pricing.currency
+  );
+}
+
 function paymentView(payment: {
   id: string;
   status: SubscriptionPaymentStatus;
   amountCents: number;
   currency: string;
+  pricingSnapshot: Prisma.JsonValue | null;
   checkoutUrl: string | null;
   failureCode: string | null;
   failureReason: string | null;
@@ -81,6 +116,7 @@ function paymentView(payment: {
     status: payment.status,
     amountCents: payment.amountCents,
     currency: payment.currency,
+    pricingSnapshot: payment.pricingSnapshot,
     checkoutUrl:
       payment.status === SubscriptionPaymentStatus.REQUIRES_ACTION
         ? payment.checkoutUrl
@@ -384,8 +420,7 @@ export class BillingService {
     subscriptionId: string;
     planId: string;
     priceId: string;
-    amountCents: number;
-    currency: string;
+    pricing: BranchPricing;
     expiresAt: Date;
     now: Date;
   }) {
@@ -397,8 +432,9 @@ export class BillingService {
           priceId: input.priceId,
           provider: BillingProvider.EASYKASH,
           status: SubscriptionPaymentStatus.PENDING,
-          amountCents: input.amountCents,
-          currency: input.currency,
+          amountCents: input.pricing.nextRenewalAmountCents,
+          currency: input.pricing.currency,
+          pricingSnapshot: pricingSnapshot(input.pricing),
           expiresAt: input.expiresAt,
         },
       });
@@ -460,14 +496,15 @@ export class BillingService {
     if (
       payment &&
       (payment.amountCents !== pricing.nextRenewalAmountCents ||
-        payment.currency.toUpperCase() !== pricing.currency.toUpperCase())
+        payment.currency.toUpperCase() !== pricing.currency.toUpperCase() ||
+        !snapshotMatchesPricing(payment.pricingSnapshot, pricing))
     ) {
       await this.db.subscriptionPayment.updateMany({
         where: { id: payment.id, status: { in: OPEN_PAYMENT_STATUSES } },
         data: {
           status: SubscriptionPaymentStatus.CANCELED,
           failureCode: "CHECKOUT_PRICE_CHANGED",
-          failureReason: "Branch count changed before checkout completion.",
+          failureReason: "Branch pricing changed before checkout completion.",
           failedAt: now,
         },
       });
@@ -488,8 +525,7 @@ export class BillingService {
       subscriptionId: subscription.id,
       planId: plan.id,
       priceId: price.id,
-      amountCents: pricing.nextRenewalAmountCents,
-      currency: pricing.currency,
+      pricing,
       expiresAt,
       now,
     });
