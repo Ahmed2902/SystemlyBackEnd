@@ -16,7 +16,7 @@ afterEach(async () => {
   await prisma.business.delete({ where: { id } });
 });
 
-test("reschedule interprets bare local input in the business timezone and persists UTC", async () => {
+test("reschedule interprets bare local input in the appointment branch timezone and persists UTC", async () => {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const business = await prisma.business.create({
     data: {
@@ -24,7 +24,7 @@ test("reschedule interprets bare local input in the business timezone and persis
       slug: `timezone-reschedule-${suffix}`,
       vertical: "salon",
       phone: "+201234567890",
-      timezone: "Africa/Cairo",
+      timezone: "UTC",
       isActive: true,
     },
   });
@@ -34,7 +34,7 @@ test("reschedule interprets bare local input in the business timezone and persis
       businessId: business.id,
       name: "Main Branch",
       slug: "main",
-      timezone: business.timezone,
+      timezone: "Africa/Cairo",
       isActive: true,
     },
   });
