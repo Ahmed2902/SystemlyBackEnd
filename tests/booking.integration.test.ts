@@ -5,6 +5,9 @@ import { prisma } from "../src/shared/db/prisma";
 
 const makeTx = (conflict = false) => ({
   $executeRaw: async () => 1,
+  branch: {
+    findFirst: async () => ({ timezone: "Africa/Cairo" }),
+  },
   service: {
     findMany: async () => [
       {
@@ -43,8 +46,8 @@ const makeTx = (conflict = false) => ({
         ? [
             {
               staffId: "st1",
-              startsAt: new Date("2026-04-20T09:15:00Z"),
-              endsAt: new Date("2026-04-20T10:00:00Z"),
+              startsAt: new Date("2026-04-20T06:15:00Z"),
+              endsAt: new Date("2026-04-20T07:00:00Z"),
             },
           ]
         : [],
@@ -89,7 +92,7 @@ const activeBranch = {
   city: null,
   lat: null,
   lng: null,
-  timezone: "UTC",
+  timezone: "Africa/Cairo",
   isActive: true,
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
   updatedAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -112,7 +115,7 @@ describe("booking integration (mocked prisma)", () => {
     const result = await bookingsService.createBooking({
       businessId: "b1",
       services: [{ serviceId: "svc1" }],
-      startsAt: "2026-04-20T09:00:00Z",
+      startsAt: "2026-04-20T09:00:00",
       customerName: "Alice",
       customerPhone: "+2012345",
     });
@@ -130,7 +133,7 @@ describe("booking integration (mocked prisma)", () => {
       bookingsService.createBooking({
         businessId: "b1",
         services: [{ serviceId: "svc1" }],
-        startsAt: "2026-04-20T09:00:00Z",
+        startsAt: "2026-04-20T09:00:00",
         customerName: "Bob",
         customerPhone: "+2012345",
       }),
