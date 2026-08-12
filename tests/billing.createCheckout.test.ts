@@ -30,6 +30,17 @@ const subscription = {
   business: { id: "bus1", name: "Test Clinic" },
 };
 
+const oneBranchPricing = {
+  basePriceCents: 79_900,
+  includedBranchCount: 1,
+  activeBranchCount: 1,
+  additionalBranchCount: 0,
+  additionalBranchUnitPriceCents: 35_000,
+  additionalBranchTotalCents: 0,
+  nextRenewalAmountCents: 79_900,
+  currency: "EGP",
+};
+
 function configuredAdapter(): BillingProviderAdapter {
   return {
     provider: BillingProvider.EASYKASH,
@@ -58,6 +69,7 @@ function setup(adapter: BillingProviderAdapter, overrides: Record<string, unknow
     status: SubscriptionPaymentStatus.PENDING,
     amountCents: 79_900,
     currency: "EGP",
+    pricingSnapshot: oneBranchPricing,
     checkoutUrl: null,
     expiresAt: new Date("2026-08-02T12:30:00.000Z"),
   };
@@ -67,6 +79,7 @@ function setup(adapter: BillingProviderAdapter, overrides: Record<string, unknow
     providerCheckoutId: "ek-checkout-1",
     checkoutUrl: "https://checkout.example/ek-checkout-1",
   };
+  let persistedPayment = { ...pendingPayment };
 
   const db = {
     plan: {
@@ -84,11 +97,20 @@ function setup(adapter: BillingProviderAdapter, overrides: Record<string, unknow
         phone: "0123",
       }),
     },
+    branch: {
+      count: jest.fn().mockResolvedValue(1),
+    },
     subscriptionPayment: {
       findFirst: jest.fn().mockResolvedValue(null),
-      create: jest.fn().mockResolvedValue(pendingPayment),
-      update: jest.fn().mockResolvedValue(readyPayment),
-      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      create: jest.fn().mockImplementation(({ data }) => {
+        persistedPayment = { ...pendingPayment, ...data };
+        return Promise.resolve(persistedPayment);
+      }),
+      update: jest.fn().mockImplementation(({ data }) => {
+        persistedPayment = { ...persistedPayment, ...data };
+        return Promise.resolve(persistedPayment);
+      }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     ...overrides,
   };
@@ -118,16 +140,19 @@ describe("billing.createCheckout", () => {
     expect(db.subscription.upsert).not.toHaveBeenCalled();
   });
 
-  it("creates a pending payment and never changes subscription access", async () => {
+  it("creates a pending payment with an auditable pricing snapshot", async () => {
     const adapter = configuredAdapter();
-    const { service, db, readyPayment } = setup(adapter);
+    const { service, db } = setup(adapter);
 
     const result = await service.createCheckout("bus1", "plan1", now);
 
-    expect(result).toEqual({
-      payment: readyPayment,
-      checkoutUrl: "https://checkout.example/ek-checkout-1",
-      reused: false,
+    expect(result.reused).toBe(false);
+    expect(result.checkoutUrl).toBe("https://checkout.example/ek-checkout-1");
+    expect(result.payment.amountCents).toBe(79_900);
+    expect(result.pricing).toMatchObject({
+      activeBranchCount: 1,
+      additionalBranchCount: 0,
+      nextRenewalAmountCents: 79_900,
     });
     expect(db.subscriptionPayment.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -136,6 +161,7 @@ describe("billing.createCheckout", () => {
         priceId: "price1",
         amountCents: 79_900,
         currency: "EGP",
+        pricingSnapshot: oneBranchPricing,
         status: SubscriptionPaymentStatus.PENDING,
       }),
     });
@@ -150,7 +176,36 @@ describe("billing.createCheckout", () => {
     expect(db.subscription.upsert).not.toHaveBeenCalled();
   });
 
-  it("reuses a live hosted checkout instead of creating another payment", async () => {
+  it("adds 350 EGP for every active branch after the first", async () => {
+    const adapter = configuredAdapter();
+    const { service, db } = setup(adapter);
+    db.branch.count.mockResolvedValue(3);
+
+    const result = await service.createCheckout("bus1", "plan1", now);
+
+    const expectedPricing = {
+      basePriceCents: 79_900,
+      includedBranchCount: 1,
+      activeBranchCount: 3,
+      additionalBranchCount: 2,
+      additionalBranchUnitPriceCents: 35_000,
+      additionalBranchTotalCents: 70_000,
+      nextRenewalAmountCents: 149_900,
+      currency: "EGP",
+    };
+    expect(result.pricing).toEqual(expectedPricing);
+    expect(db.subscriptionPayment.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        amountCents: 149_900,
+        pricingSnapshot: expectedPricing,
+      }),
+    });
+    expect(adapter.createCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 149_900 }),
+    );
+  });
+
+  it("reuses a live hosted checkout when the current branch pricing snapshot still matches", async () => {
     const adapter = configuredAdapter();
     const { service, db, readyPayment } = setup(adapter);
     db.subscriptionPayment.findFirst.mockResolvedValue(readyPayment);
@@ -161,6 +216,75 @@ describe("billing.createCheckout", () => {
     expect(result.checkoutUrl).toBe(readyPayment.checkoutUrl);
     expect(db.subscriptionPayment.create).not.toHaveBeenCalled();
     expect(adapter.createCheckout).not.toHaveBeenCalled();
+  });
+
+  it("replaces a live checkout with no auditable pricing snapshot", async () => {
+    const adapter = configuredAdapter();
+    const { service, db, readyPayment } = setup(adapter);
+    db.subscriptionPayment.findFirst.mockResolvedValue({
+      ...readyPayment,
+      pricingSnapshot: null,
+    });
+
+    const result = await service.createCheckout("bus1", "plan1", now);
+
+    expect(result.reused).toBe(false);
+    expect(db.subscriptionPayment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: readyPayment.id }),
+        data: expect.objectContaining({
+          status: SubscriptionPaymentStatus.CANCELED,
+          failureCode: "CHECKOUT_PRICE_CHANGED",
+        }),
+      }),
+    );
+  });
+
+  it("cancels a stale hosted checkout when the active branch count changes", async () => {
+    const adapter = configuredAdapter();
+    const { service, db, readyPayment } = setup(adapter);
+    db.branch.count.mockResolvedValue(2);
+    db.subscriptionPayment.findFirst.mockResolvedValueOnce(readyPayment);
+
+    const result = await service.createCheckout("bus1", "plan1", now);
+
+    expect(db.subscriptionPayment.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: readyPayment.id,
+        status: {
+          in: [
+            SubscriptionPaymentStatus.PENDING,
+            SubscriptionPaymentStatus.REQUIRES_ACTION,
+          ],
+        },
+      },
+      data: expect.objectContaining({
+        status: SubscriptionPaymentStatus.CANCELED,
+        failureCode: "CHECKOUT_PRICE_CHANGED",
+      }),
+    });
+    expect(result.reused).toBe(false);
+    expect(result.payment.amountCents).toBe(114_900);
+    expect(adapter.createCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 114_900 }),
+    );
+  });
+
+  it("returns the same branch pricing breakdown used by checkout", async () => {
+    const adapter = configuredAdapter();
+    const { service, db } = setup(adapter);
+    db.branch.count.mockResolvedValue(2);
+
+    await expect(service.getBranchPricing("bus1", "plan1")).resolves.toEqual({
+      basePriceCents: 79_900,
+      includedBranchCount: 1,
+      activeBranchCount: 2,
+      additionalBranchCount: 1,
+      additionalBranchUnitPriceCents: 35_000,
+      additionalBranchTotalCents: 35_000,
+      nextRenewalAmountCents: 114_900,
+      currency: "EGP",
+    });
   });
 
   it("rejects a plan without an active monthly price", async () => {

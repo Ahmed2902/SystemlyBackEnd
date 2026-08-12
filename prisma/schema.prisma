@@ -104,12 +104,12 @@ model Business {
   address            String?         @db.Text
   city               String?         @db.VarChar(120)
   lat                Decimal?        @db.Decimal(10, 7)
-  lng                Decimal?        @db.Decimal(10, 7)
-  logoUrl            String?         @map("logo_url") @db.Text
-  coverUrl           String?         @map("cover_url") @db.Text
-  timezone           String          @default("Africa/Cairo") @db.VarChar(80)
-  language           String          @default("ar") @db.VarChar(10)
-  isActive           Boolean         @default(false) @map("is_active")
+  lng                 Decimal?        @db.Decimal(10, 7)
+  logoUrl             String?         @map("logo_url") @db.Text
+  coverUrl            String?         @map("cover_url") @db.Text
+  timezone            String          @default("Africa/Cairo") @db.VarChar(80)
+  language            String          @default("ar") @db.VarChar(10)
+  isActive            Boolean         @default(false) @map("is_active")
   trialUsedAt        DateTime?       @map("trial_used_at")
   deletedAt          DateTime?       @map("deleted_at")
   createdAt          DateTime        @default(now()) @map("created_at")
@@ -137,27 +137,27 @@ model Business {
 }
 
 model Branch {
-  id           String   @id @default(uuid()) @db.Uuid
-  businessId   String   @map("business_id") @db.Uuid
-  name         String   @db.VarChar(120)
-  slug         String   @db.VarChar(120)
-  phone        String?  @db.VarChar(30)
-  address      String?  @db.Text
-  city         String?  @db.VarChar(120)
-  lat          Decimal? @db.Decimal(10, 7)
-  lng          Decimal? @db.Decimal(10, 7)
-  timezone     String   @default("Africa/Cairo") @db.VarChar(80)
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(uuid()) @db.Uuid
+  businessId    String   @map("business_id") @db.Uuid
+  name          String   @db.VarChar(120)
+  slug          String   @db.VarChar(120)
+  phone         String?  @db.VarChar(30)
+  address       String?  @db.Text
+  city          String?  @db.VarChar(120)
+  lat           Decimal? @db.Decimal(10, 7)
+  lng           Decimal? @db.Decimal(10, 7)
+  timezone      String   @default("Africa/Cairo") @db.VarChar(80)
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
-  business     Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
   businessUsers BusinessUser[]
-  staffInvites StaffInvite[]
-  staff        Staff[]
-  services     Service[]
-  appointments Appointment[]
-  invoices     Invoice[]
+  staffInvites  StaffInvite[]
+  staff         Staff[]
+  services      Service[]
+  appointments  Appointment[]
+  invoices      Invoice[]
 
   @@unique([businessId, slug])
   @@index([businessId, isActive])
@@ -211,31 +211,31 @@ model AuthActionToken {
 }
 
 model Staff {
-  id                    String                 @id @default(uuid()) @db.Uuid
-  businessId            String                 @map("business_id") @db.Uuid
-  branchId              String?                @map("branch_id") @db.Uuid
-  name                  String                 @db.VarChar(255)
-  role                  Roles                  @default(Staff)
-  jobTitle              String?                @map("job_title") @db.VarChar(120)
-  yearsExperience       Int?                   @map("years_experience")
-  bio                   String?                @db.Text
-  phone                 String?                @db.VarChar(30)
-  email                 String?                @db.VarChar(255)
-  photoUrl              String?                @map("photo_url") @db.Text
-  isActive              Boolean                @default(true) @map("is_active")
-  createdAt             DateTime               @default(now()) @map("created_at")
-  updatedAt             DateTime               @updatedAt @map("updated_at")
+  id                    String                @id @default(uuid()) @db.Uuid
+  businessId            String                @map("business_id") @db.Uuid
+  branchId              String                @map("branch_id") @db.Uuid
+  name                  String                @db.VarChar(255)
+  role                  Roles                 @default(Staff)
+  jobTitle              String?               @map("job_title") @db.VarChar(120)
+  yearsExperience       Int?                  @map("years_experience")
+  bio                   String?               @db.Text
+  phone                 String?               @db.VarChar(30)
+  email                 String?               @db.VarChar(255)
+  photoUrl              String?               @map("photo_url") @db.Text
+  isActive              Boolean               @default(true) @map("is_active")
+  createdAt             DateTime              @default(now()) @map("created_at")
+  updatedAt             DateTime              @updatedAt @map("updated_at")
 
-  appointmentServices    AppointmentService[]
-  appointments           Appointment[]
-  availability           Availability[]
-  availabilityOverrides  AvailabilityOverride[]
-  business               Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  branch                 Branch?                @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  serviceStaff           ServiceStaff[]
-  InvoiceLineItems       InvoiceLineItem[]
-  staffBreaks            StaffBreak[]
-  timeOff                StaffTimeOff[]
+  appointmentServices   AppointmentService[]
+  appointments          Appointment[]
+  availability          Availability[]
+  availabilityOverrides AvailabilityOverride[]
+  business              Business              @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branch                Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  serviceStaff          ServiceStaff[]
+  InvoiceLineItems      InvoiceLineItem[]
+  staffBreaks           StaffBreak[]
+  timeOff               StaffTimeOff[]
 
   @@unique([businessId, email])
   @@index([businessId, isActive])
@@ -319,7 +319,7 @@ model LoyaltyTransaction {
 model StaffInvite {
   id         String    @id @default(uuid()) @db.Uuid
   businessId String    @map("business_id") @db.Uuid
-  branchId   String?   @map("branch_id") @db.Uuid
+  branchId   String    @map("branch_id") @db.Uuid
   email      String    @db.VarChar(255)
   role       Roles
   tokenHash  String    @unique @map("token_hash")
@@ -328,7 +328,7 @@ model StaffInvite {
   createdAt  DateTime  @default(now()) @map("created_at")
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  branch   Branch?  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
 
   @@index([businessId])
   @@index([businessId, branchId])
@@ -338,7 +338,7 @@ model StaffInvite {
 model Service {
   id                  String               @id @default(uuid()) @db.Uuid
   businessId          String               @map("business_id") @db.Uuid
-  branchId            String?              @map("branch_id") @db.Uuid
+  branchId            String               @map("branch_id") @db.Uuid
   name                String               @db.VarChar(255)
   durationMin         Int                  @map("duration_min")
   priceEgp            Decimal              @map("price_egp") @db.Decimal(10, 2)
@@ -349,7 +349,7 @@ model Service {
   category            String?              @db.VarChar(80) @map("category")
 
   business            Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  branch              Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  branch              Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
   serviceStaff        ServiceStaff[]
   invoiceLineItems    InvoiceLineItem[]
   appointmentServices AppointmentService[]
@@ -435,7 +435,7 @@ model Customer {
 model Appointment {
   id                  String            @id @default(uuid()) @db.Uuid
   businessId          String            @map("business_id") @db.Uuid
-  branchId            String?           @map("branch_id") @db.Uuid
+  branchId            String            @map("branch_id") @db.Uuid
   staffId             String            @map("staff_id") @db.Uuid
   customerId          String            @map("customer_id") @db.Uuid
   startsAt            DateTime          @map("starts_at")
@@ -449,7 +449,7 @@ model Appointment {
   discountCents       Int               @default(0) @map("discount_cents")
 
   business            Business          @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  branch              Branch?           @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  branch              Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
   customer            Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
   staff               Staff             @relation(fields: [staffId], references: [id], onDelete: Restrict)
   customItems         AppointmentCustomItem[]
@@ -603,14 +603,14 @@ model Subscription {
   priceId                 String?            @map("price_id") @db.Uuid
   status                  SubscriptionStatus
   renewalMode             RenewalMode        @default(MANUAL) @map("renewal_mode")
-  trialStartedAt          DateTime?          @map("trial_started_at")
-  trialEndsAt             DateTime?          @map("trial_ends_at")
-  currentPeriodStart      DateTime?          @map("current_period_start")
-  currentPeriodEnd        DateTime?          @map("current_period_end")
-  graceEndsAt             DateTime?          @map("grace_ends_at")
+  trialStartedAt          DateTime?           @map("trial_started_at")
+  trialEndsAt             DateTime?           @map("trial_ends_at")
+  currentPeriodStart      DateTime?           @map("current_period_start")
+  currentPeriodEnd        DateTime?           @map("current_period_end")
+  graceEndsAt             DateTime?           @map("grace_ends_at")
   cancelAtPeriodEnd       Boolean            @default(false) @map("cancel_at_period_end")
-  canceledAt              DateTime?          @map("canceled_at")
-  endedAt                 DateTime?          @map("ended_at")
+  canceledAt              DateTime?           @map("canceled_at")
+  endedAt                 DateTime?           @map("ended_at")
   provider                BillingProvider?
   providerCustomerId      String?            @map("provider_customer_id") @db.VarChar(255)
   providerSubscriptionId  String?            @map("provider_subscription_id") @db.VarChar(255)
@@ -641,6 +641,7 @@ model SubscriptionPayment {
   status             SubscriptionPaymentStatus @default(PENDING)
   amountCents        Int                       @map("amount_cents")
   currency           String                    @db.VarChar(10)
+  pricingSnapshot    Json?                     @map("pricing_snapshot")
   providerCheckoutId String?                   @map("provider_checkout_id") @db.VarChar(255)
   providerPaymentId  String?                   @map("provider_payment_id") @db.VarChar(255)
   checkoutUrl        String?                   @map("checkout_url") @db.Text
@@ -680,7 +681,7 @@ model BillingWebhookEvent {
 model Invoice {
   id                  String               @id @default(uuid()) @db.Uuid
   businessId          String               @map("business_id") @db.Uuid
-  branchId            String?              @map("branch_id") @db.Uuid
+  branchId            String               @map("branch_id") @db.Uuid
   appointmentId       String?              @map("appointment_id") @db.Uuid
   customerId          String               @map("customer_id") @db.Uuid
   invoiceNumber       String               @db.VarChar(80)
@@ -703,7 +704,7 @@ model Invoice {
   discountCents       Int                  @default(0) @map("discount_cents")
 
   business            Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  branch              Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  branch              Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
   customer            Customer             @relation(fields: [customerId], references: [id], onDelete: Restrict)
   appointment         Appointment?         @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   lineItems           InvoiceLineItem[]

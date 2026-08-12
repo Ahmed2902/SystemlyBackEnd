@@ -132,10 +132,12 @@ class InvoicesCommandService {
               select: {
                 id: true,
                 businessId: true,
+                branchId: true,
                 customerId: true,
                 startsAt: true,
                 status: true,
                 business: { select: { timezone: true } },
+                branch: { select: { timezone: true } },
                 customItems: {
                   select: {
                     description: true,
@@ -157,6 +159,13 @@ class InvoicesCommandService {
 
             if (!appointment) {
               throw buildError("Appointment not found", 404, "NOT_FOUND");
+            }
+            if (!appointment.branchId) {
+              throw buildError(
+                "Appointment branch context is missing",
+                409,
+                "BRANCH_CONTEXT_REQUIRED",
+              );
             }
             if (
               appointment.status === AppointmentStatus.cancelled_by_business ||
@@ -260,7 +269,7 @@ class InvoicesCommandService {
 
             const issuedAt = new Date();
             const localYear = DateTime.fromJSDate(issuedAt)
-              .setZone(appointment.business.timezone)
+              .setZone(appointment.branch?.timezone ?? appointment.business.timezone)
               .year;
             const counter = await tx.invoiceCounter.upsert({
               where: {
@@ -276,6 +285,7 @@ class InvoicesCommandService {
             const created = await tx.invoice.create({
               data: {
                 businessId,
+                branchId: appointment.branchId,
                 appointmentId: appointment.id,
                 customerId: appointment.customerId,
                 invoiceNumber,

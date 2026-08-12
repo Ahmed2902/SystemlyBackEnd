@@ -16,6 +16,8 @@ import {
 import { billingProviderNotConfigured } from "./providers/easykash.adapter";
 
 const CHECKOUT_TTL_MS = 30 * 60 * 1000;
+const INCLUDED_BRANCH_COUNT = 1;
+const ADDITIONAL_BRANCH_PRICE_CENTS = 35_000;
 const OPEN_PAYMENT_STATUSES: SubscriptionPaymentStatus[] = [
   SubscriptionPaymentStatus.PENDING,
   SubscriptionPaymentStatus.REQUIRES_ACTION,
@@ -24,6 +26,17 @@ const CANCELLABLE_STATUSES: SubscriptionStatus[] = [
   SubscriptionStatus.ACTIVE,
   SubscriptionStatus.PAST_DUE,
 ];
+
+export type BranchPricing = {
+  basePriceCents: number;
+  includedBranchCount: number;
+  activeBranchCount: number;
+  additionalBranchCount: number;
+  additionalBranchUnitPriceCents: number;
+  additionalBranchTotalCents: number;
+  nextRenewalAmountCents: number;
+  currency: string;
+};
 
 function billingError(message: string, statusCode: number, code: string) {
   const error = new Error(message) as Error & {
@@ -42,11 +55,46 @@ function isUniqueViolation(error: unknown) {
   );
 }
 
+function pricingSnapshot(pricing: BranchPricing): Prisma.InputJsonObject {
+  return {
+    basePriceCents: pricing.basePriceCents,
+    includedBranchCount: pricing.includedBranchCount,
+    activeBranchCount: pricing.activeBranchCount,
+    additionalBranchCount: pricing.additionalBranchCount,
+    additionalBranchUnitPriceCents: pricing.additionalBranchUnitPriceCents,
+    additionalBranchTotalCents: pricing.additionalBranchTotalCents,
+    nextRenewalAmountCents: pricing.nextRenewalAmountCents,
+    currency: pricing.currency,
+  };
+}
+
+function snapshotMatchesPricing(
+  snapshot: Prisma.JsonValue | null,
+  pricing: BranchPricing,
+) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    return false;
+  }
+  const value = snapshot as Record<string, unknown>;
+  return (
+    value.basePriceCents === pricing.basePriceCents &&
+    value.includedBranchCount === pricing.includedBranchCount &&
+    value.activeBranchCount === pricing.activeBranchCount &&
+    value.additionalBranchCount === pricing.additionalBranchCount &&
+    value.additionalBranchUnitPriceCents ===
+      pricing.additionalBranchUnitPriceCents &&
+    value.additionalBranchTotalCents === pricing.additionalBranchTotalCents &&
+    value.nextRenewalAmountCents === pricing.nextRenewalAmountCents &&
+    value.currency === pricing.currency
+  );
+}
+
 function paymentView(payment: {
   id: string;
   status: SubscriptionPaymentStatus;
   amountCents: number;
   currency: string;
+  pricingSnapshot: Prisma.JsonValue | null;
   checkoutUrl: string | null;
   failureCode: string | null;
   failureReason: string | null;
@@ -68,6 +116,7 @@ function paymentView(payment: {
     status: payment.status,
     amountCents: payment.amountCents,
     currency: payment.currency,
+    pricingSnapshot: payment.pricingSnapshot,
     checkoutUrl:
       payment.status === SubscriptionPaymentStatus.REQUIRES_ACTION
         ? payment.checkoutUrl
@@ -95,6 +144,30 @@ const paymentInclude = {
     },
   },
 } satisfies Prisma.SubscriptionPaymentInclude;
+
+function calculateBranchPricing(
+  basePriceCents: number,
+  currency: string,
+  activeBranchCount: number,
+): BranchPricing {
+  const additionalBranchCount = Math.max(
+    0,
+    activeBranchCount - INCLUDED_BRANCH_COUNT,
+  );
+  const additionalBranchTotalCents =
+    additionalBranchCount * ADDITIONAL_BRANCH_PRICE_CENTS;
+
+  return {
+    basePriceCents,
+    includedBranchCount: INCLUDED_BRANCH_COUNT,
+    activeBranchCount,
+    additionalBranchCount,
+    additionalBranchUnitPriceCents: ADDITIONAL_BRANCH_PRICE_CENTS,
+    additionalBranchTotalCents,
+    nextRenewalAmountCents: basePriceCents + additionalBranchTotalCents,
+    currency,
+  };
+}
 
 export class BillingService {
   constructor(
@@ -138,6 +211,19 @@ export class BillingService {
       price: plan.prices[0] ?? null,
       entitlements: plan.entitlements,
     }));
+  }
+
+  async getBranchPricing(businessId: string, planId?: string) {
+    const [{ price }, activeBranchCount] = await Promise.all([
+      this.checkoutPlan(planId),
+      this.db.branch.count({ where: { businessId, isActive: true } }),
+    ]);
+
+    return calculateBranchPricing(
+      price.amountCents,
+      price.currency,
+      activeBranchCount,
+    );
   }
 
   async listPayments(businessId: string, page = 1, perPage = 20) {
@@ -334,8 +420,7 @@ export class BillingService {
     subscriptionId: string;
     planId: string;
     priceId: string;
-    amountCents: number;
-    currency: string;
+    pricing: BranchPricing;
     expiresAt: Date;
     now: Date;
   }) {
@@ -347,8 +432,9 @@ export class BillingService {
           priceId: input.priceId,
           provider: BillingProvider.EASYKASH,
           status: SubscriptionPaymentStatus.PENDING,
-          amountCents: input.amountCents,
-          currency: input.currency,
+          amountCents: input.pricing.nextRenewalAmountCents,
+          currency: input.pricing.currency,
+          pricingSnapshot: pricingSnapshot(input.pricing),
           expiresAt: input.expiresAt,
         },
       });
@@ -370,18 +456,20 @@ export class BillingService {
       throw billingProviderNotConfigured();
     }
 
-    const [{ plan, price }, subscription, owner] = await Promise.all([
-      this.checkoutPlan(planId),
-      this.db.subscription.findUnique({
-        where: { businessId },
-        include: { business: true },
-      }),
-      this.db.businessUser.findFirst({
-        where: { businessId, role: Roles.BusinessAdmin },
-        orderBy: { createdAt: "asc" },
-        select: { name: true, email: true, phone: true },
-      }),
-    ]);
+    const [{ plan, price }, subscription, owner, activeBranchCount] =
+      await Promise.all([
+        this.checkoutPlan(planId),
+        this.db.subscription.findUnique({
+          where: { businessId },
+          include: { business: true },
+        }),
+        this.db.businessUser.findFirst({
+          where: { businessId, role: Roles.BusinessAdmin },
+          orderBy: { createdAt: "asc" },
+          select: { name: true, email: true, phone: true },
+        }),
+        this.db.branch.count({ where: { businessId, isActive: true } }),
+      ]);
 
     if (!subscription?.business) {
       throw billingError(
@@ -398,12 +486,37 @@ export class BillingService {
       );
     }
 
+    const pricing = calculateBranchPricing(
+      price.amountCents,
+      price.currency,
+      activeBranchCount,
+    );
+
     let payment = await this.findOpenPayment(subscription.id, plan.id, now);
+    if (
+      payment &&
+      (payment.amountCents !== pricing.nextRenewalAmountCents ||
+        payment.currency.toUpperCase() !== pricing.currency.toUpperCase() ||
+        !snapshotMatchesPricing(payment.pricingSnapshot, pricing))
+    ) {
+      await this.db.subscriptionPayment.updateMany({
+        where: { id: payment.id, status: { in: OPEN_PAYMENT_STATUSES } },
+        data: {
+          status: SubscriptionPaymentStatus.CANCELED,
+          failureCode: "CHECKOUT_PRICE_CHANGED",
+          failureReason: "Branch pricing changed before checkout completion.",
+          failedAt: now,
+        },
+      });
+      payment = null;
+    }
+
     if (payment?.checkoutUrl) {
       return {
         payment,
         checkoutUrl: payment.checkoutUrl,
         reused: true,
+        pricing,
       };
     }
 
@@ -412,8 +525,7 @@ export class BillingService {
       subscriptionId: subscription.id,
       planId: plan.id,
       priceId: price.id,
-      amountCents: price.amountCents,
-      currency: price.currency,
+      pricing,
       expiresAt,
       now,
     });
@@ -449,6 +561,7 @@ export class BillingService {
         payment: updatedPayment,
         checkoutUrl: checkout.checkoutUrl,
         reused: false,
+        pricing,
       };
     } catch (error) {
       await this.db.subscriptionPayment.updateMany({

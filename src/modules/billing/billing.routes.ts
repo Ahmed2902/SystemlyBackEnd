@@ -29,6 +29,7 @@ router.use(requireAuth, requireBusinessAccess, requireRole(OWNER_ROLES));
 
 router.get("/subscription", billingController.getSubscription);
 router.get("/plans", billingController.listPlans);
+router.get("/pricing", billingController.getPricing);
 router.get(
   "/payments",
   validate.validateQuery(billingPaymentsQuerySchema),

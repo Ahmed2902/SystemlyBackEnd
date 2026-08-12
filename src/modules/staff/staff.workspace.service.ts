@@ -5,7 +5,7 @@ import {
   Roles,
 } from "@prisma/client";
 import { DateTime } from "luxon";
-import { getCachedBusinessTimezone } from "../calendar/calendar.query.service";
+import { getCachedBranchTimezone } from "../calendar/calendar.query.service";
 import { prisma } from "../../shared/db/prisma";
 import { resolveOperationalBranch } from "../../shared/services/branch-context.service";
 import { timeOfDayToDate } from "../../shared/utils/timezone";
@@ -87,7 +87,10 @@ class StaffWorkspaceService {
 
   async getWorkspace(staffId: string, user: AuthUser) {
     const scope = await this.resolveStaffScope(staffId, user);
-    const timezone = await getCachedBusinessTimezone(scope.businessId);
+    const timezone = await getCachedBranchTimezone(
+      scope.businessId,
+      scope.branchId,
+    );
     const ownerView = canManageMoney(user.role);
     const now = new Date();
     const todayLocal = DateTime.now().setZone(timezone);

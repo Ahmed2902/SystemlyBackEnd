@@ -5,6 +5,7 @@ const appointmentId = "123e4567-e89b-12d3-a456-426614174000";
 const serviceId = "123e4567-e89b-12d3-a456-426614174001";
 const staffId = "123e4567-e89b-12d3-a456-426614174002";
 const segmentId = "123e4567-e89b-12d3-a456-426614174003";
+const branchId = "123e4567-e89b-12d3-a456-426614174004";
 
 const appointmentUpdate = {
   segments: [
@@ -42,7 +43,7 @@ describe("collect payment with pending appointment edits", () => {
     }
   });
 
-  it("applies the update before building the invoice", async () => {
+  it("applies the update before building a branch-scoped invoice", async () => {
     jest.resetModules();
 
     const calls: string[] = [];
@@ -62,10 +63,12 @@ describe("collect payment with pending appointment edits", () => {
           return {
             id: appointmentId,
             businessId: "business-1",
+            branchId,
             customerId: "customer-1",
             startsAt: new Date("2026-07-30T09:00:00.000Z"),
             status: AppointmentStatus.confirmed,
             business: { timezone: "UTC" },
+            branch: { timezone: "Africa/Cairo" },
             customItems: [
               {
                 description: "Custom item",
@@ -146,6 +149,7 @@ describe("collect payment with pending appointment edits", () => {
         discountCents: 0,
       },
     });
+    expect(invoice.branchId).toBe(branchId);
     expect(invoice.subtotalCents).toBe(35_000);
     expect(invoice.totalCents).toBe(35_000);
     expect(invoice.updatedAppointment).toMatchObject({

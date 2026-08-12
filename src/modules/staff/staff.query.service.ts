@@ -1,6 +1,6 @@
 import { AppointmentStatus, Prisma, Roles } from "@prisma/client";
 import { DateTime } from "luxon";
-import { getCachedBusinessTimezone } from "../calendar/calendar.query.service";
+import { getCachedBranchTimezone } from "../calendar/calendar.query.service";
 import { prisma } from "../../shared/db/prisma";
 import { resolveOperationalBranch } from "../../shared/services/branch-context.service";
 import type { StaffDirectoryQuery } from "./staff.schema";
@@ -88,7 +88,7 @@ class StaffQueryService {
 
     const business = {
       id: scope.businessId,
-      timezone: await getCachedBusinessTimezone(scope.businessId),
+      timezone: await getCachedBranchTimezone(scope.businessId, scope.branchId),
     };
     const ownerView = canManageMoney(user.role);
     const todayLocal = DateTime.now().setZone(business.timezone);

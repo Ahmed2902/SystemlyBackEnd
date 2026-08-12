@@ -1,5 +1,6 @@
 import { BookingChannel, Prisma } from "@prisma/client";
 import { DateTime } from "luxon";
+import { lockBranchLifecycle } from "../branch-lifecycle-lock.service";
 import { generateCancelToken } from "../../utils/token.util";
 import { toUtcFromBusinessTime } from "../../utils/timezone";
 import { resolveEligibleStaffBySelection } from "./eligibility.service";
@@ -54,7 +55,7 @@ export async function scheduleServiceSegments(
   tx: TxClient,
   selections: ServiceSelection[],
   startsAt: string,
-  timezone: string,
+  fallbackTimezone: string,
   businessId: string,
   branchId?: string,
 ): Promise<SchedulingResult> {
@@ -78,9 +79,7 @@ export async function scheduleServiceSegments(
     throw schedulingError("One or more services not found", 404);
   }
 
-  const serviceBranchIds = [
-    ...new Set(services.map((service) => service.branchId).filter(Boolean)),
-  ] as string[];
+  const serviceBranchIds = [...new Set(services.map((service) => service.branchId))];
   if (serviceBranchIds.length !== 1) {
     throw schedulingError(
       "Selected services must belong to one branch",
@@ -90,8 +89,22 @@ export async function scheduleServiceSegments(
   }
   const resolvedBranchId = serviceBranchIds[0];
   if (branchId && resolvedBranchId !== branchId) {
-    throw schedulingError("Selected services do not belong to this branch", 400, "BRANCH_MISMATCH");
+    throw schedulingError(
+      "Selected services do not belong to this branch",
+      400,
+      "BRANCH_MISMATCH",
+    );
   }
+
+  await lockBranchLifecycle(tx, businessId, resolvedBranchId);
+  const branch = await tx.branch.findFirst({
+    where: { id: resolvedBranchId, businessId, isActive: true },
+    select: { timezone: true },
+  });
+  if (!branch) {
+    throw schedulingError("Branch not found", 404, "BRANCH_NOT_FOUND");
+  }
+  const timezone = branch.timezone || fallbackTimezone || "UTC";
 
   const serviceById = new Map(services.map((service) => [service.id, service]));
   const startInstant = toUtcFromBusinessTime(startsAt, timezone);
@@ -174,12 +187,11 @@ export async function createAppointmentCore(
   business: { id: string; timezone?: string | null },
   params: CreateAppointmentCoreParams,
 ) {
-  const timezone = business.timezone || "UTC";
   const scheduled = await scheduleServiceSegments(
     tx,
     params.selections,
     params.startsAt,
-    timezone,
+    business.timezone || "UTC",
     business.id,
     params.branchId,
   );

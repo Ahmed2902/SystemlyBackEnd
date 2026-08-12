@@ -17,6 +17,7 @@ import {
   toUtcFromBusinessTime,
 } from "../../shared/utils/timezone";
 import { isModuleEnabled } from "../../shared/config/verticals.config";
+import { lockBranchLifecycle } from "../../shared/services/branch-lifecycle-lock.service";
 import { createAppointmentCore } from "../../shared/services/scheduling/appointment-core.service";
 import {
   getOwnedAppointmentOrThrow,
@@ -69,6 +70,22 @@ async function transitionAppointmentStatus(
   return result.count === 1;
 }
 
+async function requireActiveAppointmentBranch(
+  tx: Prisma.TransactionClient,
+  businessId: string,
+  branchId: string,
+) {
+  await lockBranchLifecycle(tx, businessId, branchId);
+  const branch = await tx.branch.findFirst({
+    where: { id: branchId, businessId, isActive: true },
+    select: { timezone: true },
+  });
+  if (!branch) {
+    throw invalidStateError("Branch not found", "BRANCH_NOT_FOUND", 404);
+  }
+  return branch;
+}
+
 export async function updateAppointmentInTransaction(
   tx: Prisma.TransactionClient,
   id: string,
@@ -83,9 +100,15 @@ export async function updateAppointmentInTransaction(
       take: 1,
     },
     business: true,
+    branch: true,
   });
 
   assertEditable(appt);
+  const activeBranch = await requireActiveAppointmentBranch(
+    tx,
+    businessId,
+    appt.branchId,
+  );
 
   assertSegmentsDoNotOverlap(
     payload.segments.map((segment) => ({
@@ -99,7 +122,8 @@ export async function updateAppointmentInTransaction(
   );
   await assertSegmentsAssignable(tx, {
     businessId,
-    businessTimezone: appt.business.timezone,
+    branchId: appt.branchId,
+    businessTimezone: activeBranch.timezone,
     excludeAppointmentId: id,
     segments: payload.segments.map((segment) => {
       const existingSegment = segment.id
@@ -133,20 +157,28 @@ export async function updateAppointmentInTransaction(
   }
 
   const services = await tx.service.findMany({
-    where: { id: { in: payload.segments.map((segment) => segment.serviceId) } },
+    where: {
+      id: { in: payload.segments.map((segment) => segment.serviceId) },
+      businessId,
+      branchId: appt.branchId,
+    },
   });
   const serviceById = new Map(services.map((service) => [service.id, service]));
 
   for (let index = 0; index < payload.segments.length; index++) {
     const segment = payload.segments[index];
     const service = serviceById.get(segment.serviceId);
-    const durationMin = service
-      ? Math.round(
-          (new Date(segment.endsAt).getTime() -
-            new Date(segment.startsAt).getTime()) /
-            60000,
-        )
-      : 0;
+    if (!service) {
+      throw invalidStateError(
+        "Selected service does not belong to this branch",
+        "BRANCH_MISMATCH",
+      );
+    }
+    const durationMin = Math.round(
+      (new Date(segment.endsAt).getTime() -
+        new Date(segment.startsAt).getTime()) /
+        60000,
+    );
 
     if (segment.id) {
       await tx.appointmentService.update({
@@ -170,7 +202,7 @@ export async function updateAppointmentInTransaction(
           endsAt: new Date(segment.endsAt),
           order: index,
           durationMinSnapshot: durationMin,
-          priceEgpSnapshot: service?.priceEgp ?? 0,
+          priceEgpSnapshot: service.priceEgp,
         },
       });
     }
@@ -340,6 +372,10 @@ class AppointmentsCommandService {
         );
       }
 
+      if (status !== AppointmentStatus.no_show) {
+        await requireActiveAppointmentBranch(tx, businessId, appt.branchId);
+      }
+
       const transitioned = await transitionAppointmentStatus(
         tx,
         id,
@@ -396,6 +432,7 @@ class AppointmentsCommandService {
     return prisma.$transaction((tx) =>
       createAppointmentCore(tx, business, {
         businessId,
+        branchId: payload.branchId,
         selections,
         startsAt,
         customerName: payload.customerName,
@@ -417,17 +454,25 @@ class AppointmentsCommandService {
     return prisma.$transaction(async (tx) => {
       const appt = await getOwnedAppointmentOrThrow(tx, id, businessId, {
         appointmentServices: { orderBy: { order: "asc" } },
-        business: true,
+        invoices: {
+          where: { status: { not: InvoiceStatus.voided } },
+          orderBy: { issuedAt: "desc" },
+          take: 1,
+        },
+        branch: true,
       });
+      assertEditable(appt);
+      const activeBranch = await requireActiveAppointmentBranch(
+        tx,
+        businessId,
+        appt.branchId,
+      );
 
       if (appt.appointmentServices.length === 0) {
         throw notFoundError("Appointment has no services");
       }
 
-      let segmentStart = toUtcFromBusinessTime(
-        startsAt,
-        appt.business.timezone,
-      );
+      let segmentStart = toUtcFromBusinessTime(startsAt, activeBranch.timezone);
       const newSegments: {
         id: string;
         staffId: string;
@@ -450,7 +495,8 @@ class AppointmentsCommandService {
 
       await assertSegmentsAssignable(tx, {
         businessId,
-        businessTimezone: appt.business.timezone,
+        branchId: appt.branchId,
+        businessTimezone: activeBranch.timezone,
         excludeAppointmentId: id,
         segments: appt.appointmentServices.map((seg, i) => ({
           serviceId: seg.serviceId,
@@ -665,6 +711,7 @@ class AppointmentsCommandService {
       if (!isCancelled(appt.status)) {
         throw invalidStateError("Appointment is not cancelled");
       }
+      await requireActiveAppointmentBranch(tx, businessId, appt.branchId);
 
       const transitioned = await transitionAppointmentStatus(
         tx,
@@ -696,6 +743,7 @@ class AppointmentsCommandService {
           "Cannot revert a cancelled appointment — it was never completed or paid",
         );
       }
+      await requireActiveAppointmentBranch(tx, businessId, appt.branchId);
 
       const wasNoShow = appt.status === AppointmentStatus.no_show;
       const wasCompleted = appt.status === AppointmentStatus.completed;

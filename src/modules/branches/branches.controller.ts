@@ -43,6 +43,18 @@ class BranchesController {
     }
   }
 
+  async setup(req: Request, res: Response, next: NextFunction) {
+    try {
+      return ok(
+        res,
+        await branchesService.setup(req.user.businessId!, req.body),
+        201,
+      );
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       return ok(

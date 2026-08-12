@@ -89,6 +89,8 @@ If a Business has exactly one active branch, select it automatically and preserv
 
 Public booking carries `branchId` from selection through availability and appointment creation. The backend validates the branch belongs to the requested business and that every selected service/staff member belongs to that branch.
 
+Once a Branch is selected, public location/contact output comes only from that Branch. Do not fall back to legacy Business location fields because doing so can show another location's address or phone.
+
 ## Analytics semantics
 
 Introduce a shared scope concept:
@@ -127,24 +129,39 @@ Customers are shared across the Business.
 
 Systemly Core remains the base subscription and includes one active branch.
 
-Proposed pricing:
+Pricing:
 
 - 1 active branch: 799 EGP/month
-- each additional active branch: +300 EGP/month
+- each additional active branch: +350 EGP/month
 
 Billing formula in cents:
 
 ```ts
-basePriceCents + Math.max(0, activeBranchCount - 1) * 30_000
+basePriceCents + Math.max(0, activeBranchCount - 1) * 35_000
 ```
 
 For V1:
-- adding a branch activates it immediately
+- Add Branch is one validated API request and one database transaction; the Branch, services, staff, assignments, staff availability and optional receptionist invite record commit together or none of them exist
+- a successfully committed new branch is active immediately
 - no mid-cycle proration
 - additional branch charge applies on the next renewal
 - deactivating a branch preserves historical data and removes the add-on on the next renewal
 - never hard-delete a branch that has historical operational data
-- checkout/payment records must store enough pricing snapshot information to explain the charged amount
+- every new subscription payment stores the exact branch-pricing snapshot that produced its amount
+
+## V1 release hardening
+
+Before exposing multi-branch publicly, the transitional compatibility rules are tightened:
+
+- `Staff.branchId`, `Service.branchId`, `Appointment.branchId`, `Invoice.branchId`, and `StaffInvite.branchId` are required after a final repair/backfill migration. `BusinessUser.branchId` remains nullable because BusinessAdmin is intentionally business-scoped.
+- Appointment-backed invoices inherit `branchId` from the appointment; clients do not choose the invoice branch.
+- Add Branch uses `POST /branches/setup`; the owner cannot create a public/billable empty branch through a separate create-then-configure sequence.
+- The setup transaction creates the Branch, Services, Staff, ServiceStaff assignments, Availability and optional StaffInvite atomically. External invitation email enqueue happens only after the database transaction commits.
+- Branch lifecycle changes use business and branch transaction-scoped advisory locks. Appointment creation takes the same branch lifecycle lock before the active-branch check, preventing booking/deactivation races.
+- A branch cannot be deactivated while it has a pending, confirmed, or in-progress appointment that has not ended yet. The owner must move/cancel those visits first.
+- Global Business Settings must not edit branch location/contact data. Legacy Business location columns remain compatibility data until a later cleanup migration, while Branch is the operational/public source of truth.
+- V1 is Egypt-only. New onboarding/branch writes accept `Africa/Cairo`; scheduling, rescheduling, staff-day calculations, public availability, and invoice local-year behavior use the selected/appointment Branch timezone. Legacy Business timezone is only a compatibility fallback where still required.
+- Billing UI and checkout use the same branch-pricing calculation. A hosted checkout whose amount or stored pricing snapshot no longer matches is canceled and recreated at the current price.
 
 ## Production rollout safety
 
@@ -305,25 +322,27 @@ Acceptance:
 - All branches is mathematically correct and not a sum of branch percentages/customer counts
 - changing dashboard scope does not change operational branch selection
 
-### PR 10 — Add Branch wizard, branch pricing and cleanup
+### PR 10 — Add Branch setup, branch pricing and cleanup
 
 Backend + frontend.
 
-Add Branch wizard:
+Add Branch setup:
+- dedicated onboarding-style page
 - location/contact
-- services
-- team/receptionist
-- availability
+- services and team/receptionist
+- per-staff availability
 - review/create
 - no business identity fields
 - no website preview
-- optional convenience: copy services from another branch by duplicating, not linking
+- one `POST /branches/setup` call at completion
+- one database transaction creates all branch-owned setup data; failure creates nothing
+- optional convenience later: copy services from another branch by duplicating, not linking
 
 Billing:
 - first branch included
-- +300 EGP/month per additional active branch
+- +350 EGP/month per additional active branch
 - next-renewal pricing, no proration in V1
-- pricing snapshot/breakdown on payment
+- pricing snapshot/breakdown stored on each new subscription payment
 - update billing UI/landing copy
 
 Cleanup only after all consumers are migrated:
@@ -333,6 +352,7 @@ Cleanup only after all consumers are migrated:
 
 Acceptance:
 - feature can be exposed to customers safely
+- failed branch setup leaves no incomplete public/billable branch
 - branch creation cannot exceed any future entitlement/limit introduced later
 - historical branch data survives deactivation
 

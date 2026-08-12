@@ -57,6 +57,16 @@ class BillingController {
     }
   }
 
+  async getPricing(req: Request, res: Response, next: NextFunction) {
+    try {
+      const businessId = authenticatedBusinessId(req, res);
+      if (!businessId) return;
+      return ok(res, { pricing: await billingService.getBranchPricing(businessId) });
+    } catch (error) {
+      return next(error);
+    }
+  }
+
   async listPayments(req: Request, res: Response, next: NextFunction) {
     try {
       const businessId = authenticatedBusinessId(req, res);
@@ -108,6 +118,7 @@ class BillingController {
           currency: result.payment.currency,
           expiresAt: result.payment.expiresAt,
         },
+        pricing: result.pricing,
         checkoutUrl: result.checkoutUrl,
         reused: result.reused,
       });

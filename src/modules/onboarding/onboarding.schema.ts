@@ -63,7 +63,7 @@ export const completeOnboardingSchema = z
     phone: z.string().min(1).max(30),
     city: z.string().max(120).optional(),
     address: z.string().optional(),
-    timezone: z.string().min(1).max(80).default("Africa/Cairo"),
+    timezone: z.literal("Africa/Cairo").default("Africa/Cairo"),
     language: z.enum(["en", "ar"]).default("en"),
     tagline: z.string().optional(),
     aboutText: z.string().optional(),
