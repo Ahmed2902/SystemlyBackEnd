@@ -80,6 +80,27 @@ describe("appointment branch lifecycle safety", () => {
     expect(tx.appointment.update).not.toHaveBeenCalled();
   });
 
+  it("rejects rescheduling a completed appointment before acquiring the branch lock", async () => {
+    const tx = buildTx(AppointmentStatus.completed);
+    mockDatabase(tx);
+
+    const service = require("../src/modules/appointments/appointments.command.service")
+      .default;
+
+    await expect(
+      service.rescheduleAppointment(
+        appointmentId,
+        businessId,
+        "2026-08-13T10:00:00",
+      ),
+    ).rejects.toMatchObject({
+      code: "LOCKED",
+    });
+
+    expect(tx.$executeRaw).not.toHaveBeenCalled();
+    expect(tx.appointment.update).not.toHaveBeenCalled();
+  });
+
   it("rejects editing appointment segments after the branch becomes inactive", async () => {
     const tx = buildTx();
     mockDatabase(tx);
