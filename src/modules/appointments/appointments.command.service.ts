@@ -454,8 +454,14 @@ class AppointmentsCommandService {
     return prisma.$transaction(async (tx) => {
       const appt = await getOwnedAppointmentOrThrow(tx, id, businessId, {
         appointmentServices: { orderBy: { order: "asc" } },
+        invoices: {
+          where: { status: { not: InvoiceStatus.voided } },
+          orderBy: { issuedAt: "desc" },
+          take: 1,
+        },
         branch: true,
       });
+      assertEditable(appt);
       const activeBranch = await requireActiveAppointmentBranch(
         tx,
         businessId,
