@@ -16,7 +16,7 @@ const branchFields = {
   city: optionalText(120),
   lat: z.number().min(-90).max(90).nullable().optional(),
   lng: z.number().min(-180).max(180).nullable().optional(),
-  timezone: z.string().trim().min(1).max(80).default("Africa/Cairo"),
+  timezone: z.literal("Africa/Cairo").default("Africa/Cairo"),
 };
 
 export const branchIdParamsSchema = z.object({
