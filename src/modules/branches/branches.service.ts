@@ -1,6 +1,21 @@
-import { AppointmentStatus, Prisma } from "@prisma/client";
+import crypto from "node:crypto";
+import {
+  AppointmentStatus,
+  CommissionType,
+  Prisma,
+  Roles,
+} from "@prisma/client";
 import { prisma } from "../../shared/db/prisma";
-import type { CreateBranchInput, UpdateBranchInput } from "./branches.schema";
+import { enqueueStaffInviteEmail } from "../../shared/services/email.service";
+import {
+  lockBranchLifecycle,
+  lockBusinessBranches,
+} from "../../shared/services/branch-lifecycle-lock.service";
+import type {
+  CreateBranchInput,
+  SetupBranchInput,
+  UpdateBranchInput,
+} from "./branches.schema";
 
 const branchError = (message: string, statusCode: number, code: string) => {
   const error = new Error(message) as Error & {
@@ -12,11 +27,22 @@ const branchError = (message: string, statusCode: number, code: string) => {
   return error;
 };
 
+const EPOCH_DATE = "1970-01-01";
+const toTimeDate = (hhmm: string) => new Date(`${EPOCH_DATE}T${hhmm}:00.000Z`);
+
 function normalizeNullable(value: string | null | undefined) {
   if (value === undefined) return undefined;
   if (value === null) return null;
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+function normalizeEmail(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function hashToken(token: string) {
+  return crypto.createHash("sha256").update(token).digest("hex");
 }
 
 function branchData(input: CreateBranchInput | UpdateBranchInput) {
@@ -69,12 +95,197 @@ class BranchesService {
 
   async create(businessId: string, input: CreateBranchInput) {
     try {
-      return await prisma.branch.create({
-        data: {
-          businessId,
-          ...branchData(input),
-        } as Prisma.BranchUncheckedCreateInput,
+      return await prisma.$transaction(async (tx) => {
+        await lockBusinessBranches(tx, businessId);
+        return tx.branch.create({
+          data: {
+            businessId,
+            ...branchData(input),
+          } as Prisma.BranchUncheckedCreateInput,
+        });
       });
+    } catch (error) {
+      translateUnique(error);
+    }
+  }
+
+  async setup(businessId: string, input: SetupBranchInput) {
+    const receptionistEmail = input.receptionistEmail
+      ? normalizeEmail(input.receptionistEmail)
+      : null;
+    const inviteToken = receptionistEmail
+      ? crypto.randomBytes(32).toString("hex")
+      : null;
+    const inviteExpiresAt = receptionistEmail
+      ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      : null;
+
+    try {
+      const configured = await prisma.$transaction(async (tx) => {
+        await lockBusinessBranches(tx, businessId);
+
+        const business = await tx.business.findUnique({
+          where: { id: businessId },
+          select: { id: true, name: true, language: true },
+        });
+        if (!business) {
+          throw branchError("Business not found", 404, "NOT_FOUND");
+        }
+
+        if (receptionistEmail) {
+          const existingUser = await tx.businessUser.findUnique({
+            where: { email: receptionistEmail },
+            select: { businessId: true },
+          });
+          if (existingUser?.businessId === businessId) {
+            throw branchError(
+              "This account already belongs to the business",
+              409,
+              "ALREADY_ATTACHED",
+            );
+          }
+          if (existingUser?.businessId) {
+            throw branchError(
+              "This account belongs to another business",
+              409,
+              "ACCOUNT_IN_OTHER_BUSINESS",
+            );
+          }
+        }
+
+        const branch = await tx.branch.create({
+          data: {
+            businessId,
+            name: input.name,
+            slug: input.slug,
+            phone: normalizeNullable(input.phone),
+            address: normalizeNullable(input.address),
+            city: normalizeNullable(input.city),
+            lat: input.lat,
+            lng: input.lng,
+            timezone: input.timezone,
+            isActive: true,
+          },
+        });
+
+        const serviceIdByClientId = new Map<string, string>();
+        for (const service of input.services) {
+          const created = await tx.service.create({
+            data: {
+              businessId,
+              branchId: branch.id,
+              name: service.name,
+              category: service.category,
+              description: service.description,
+              durationMin: service.durationMin,
+              priceEgp: service.priceEgp,
+              isActive: true,
+            },
+          });
+          serviceIdByClientId.set(service.clientId, created.id);
+        }
+
+        const staffIdByClientId = new Map<string, string>();
+        for (const staff of input.staff) {
+          const created = await tx.staff.create({
+            data: {
+              businessId,
+              branchId: branch.id,
+              name: staff.name,
+              role: Roles.Staff,
+              jobTitle: staff.jobTitle,
+              isActive: true,
+            },
+          });
+          staffIdByClientId.set(staff.clientId, created.id);
+        }
+
+        const serviceStaff = input.staff.flatMap((staff) => {
+          const staffId = staffIdByClientId.get(staff.clientId)!;
+          return staff.serviceClientIds.map((serviceClientId) => ({
+            staffId,
+            serviceId: serviceIdByClientId.get(serviceClientId)!,
+            commissionType: CommissionType.NONE,
+            commissionAmount: 0,
+          }));
+        });
+        await tx.serviceStaff.createMany({ data: serviceStaff });
+
+        const availability = input.staff.flatMap((staff) => {
+          const staffId = staffIdByClientId.get(staff.clientId)!;
+          return staff.availability.map((entry) => ({
+            staffId,
+            dayOfWeek: entry.dayOfWeek,
+            startTime: toTimeDate(entry.startTime),
+            endTime: toTimeDate(entry.endTime),
+          }));
+        });
+        await tx.availability.createMany({ data: availability });
+
+        let invite: { id: string; expiresAt: Date } | null = null;
+        if (receptionistEmail && inviteToken && inviteExpiresAt) {
+          await tx.staffInvite.updateMany({
+            where: { businessId, email: receptionistEmail, acceptedAt: null },
+            data: { expiresAt: new Date(0) },
+          });
+          invite = await tx.staffInvite.create({
+            data: {
+              businessId,
+              branchId: branch.id,
+              email: receptionistEmail,
+              role: Roles.Receptionist,
+              tokenHash: hashToken(inviteToken),
+              expiresAt: inviteExpiresAt,
+            },
+            select: { id: true, expiresAt: true },
+          });
+        }
+
+        return { branch, business, invite };
+      });
+
+      let invitation:
+        | {
+            id: string;
+            expiresAt: Date;
+            acceptUrl: string;
+            delivery: "queued" | "not_queued";
+          }
+        | null = null;
+
+      if (
+        configured.invite &&
+        receptionistEmail &&
+        inviteToken
+      ) {
+        const frontendUrl = (
+          process.env.FRONTEND_URL || "http://localhost:3000"
+        ).replace(/\/$/, "");
+        const acceptUrl = `${frontendUrl}/invite?token=${encodeURIComponent(inviteToken)}`;
+        let delivery: "queued" | "not_queued" = "queued";
+        try {
+          await enqueueStaffInviteEmail(
+            receptionistEmail,
+            {
+              businessName: configured.business.name,
+              acceptUrl,
+              locale: configured.business.language,
+              idempotencyKey: `receptionist-invite:${configured.invite.id}`,
+            },
+            { idempotencyKey: `receptionist-invite:${configured.invite.id}` },
+          );
+        } catch {
+          delivery = "not_queued";
+        }
+        invitation = {
+          id: configured.invite.id,
+          expiresAt: configured.invite.expiresAt,
+          acceptUrl,
+          delivery,
+        };
+      }
+
+      return { branch: configured.branch, invitation };
     } catch (error) {
       translateUnique(error);
     }
@@ -94,6 +305,9 @@ class BranchesService {
 
   async deactivate(businessId: string, branchId: string) {
     return prisma.$transaction(async (tx) => {
+      await lockBusinessBranches(tx, businessId);
+      await lockBranchLifecycle(tx, businessId, branchId);
+
       const branch = await tx.branch.findFirst({
         where: { id: branchId, businessId },
       });
@@ -142,10 +356,18 @@ class BranchesService {
   }
 
   async reactivate(businessId: string, branchId: string) {
-    await this.get(businessId, branchId);
-    return prisma.branch.update({
-      where: { id: branchId },
-      data: { isActive: true },
+    return prisma.$transaction(async (tx) => {
+      await lockBusinessBranches(tx, businessId);
+      await lockBranchLifecycle(tx, businessId, branchId);
+      const branch = await tx.branch.findFirst({
+        where: { id: branchId, businessId },
+      });
+      if (!branch) throw branchError("Branch not found", 404, "BRANCH_NOT_FOUND");
+      if (branch.isActive) return branch;
+      return tx.branch.update({
+        where: { id: branchId },
+        data: { isActive: true },
+      });
     });
   }
 }
