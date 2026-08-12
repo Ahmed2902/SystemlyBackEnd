@@ -1,5 +1,6 @@
 import { Roles } from "@prisma/client";
 import type { NextFunction, Request, RequestHandler, Response } from "express";
+import { prisma } from "../db/prisma";
 import { fail } from "../utils/response.util";
 import { verifyAccessToken } from "../utils/token.util";
 
@@ -13,7 +14,7 @@ function requestedBranchHeader(req: Request) {
   return typeof value === "string" ? value.trim() || undefined : undefined;
 }
 
-export const requireAuth = (
+export const requireAuth = async (
   req: Request,
   res: Response,
   next: NextFunction,
@@ -47,15 +48,27 @@ export const requireAuth = (
       );
     }
 
+    const user = await prisma.businessUser.findUnique({
+      where: { id: userId },
+      select: { id: true, businessId: true, branchId: true, role: true, email: true },
+    });
+    if (!user) {
+      return fail(
+        res,
+        "Invalid or expired authentication",
+        401,
+        "UNAUTHORIZED",
+        req.requestId ?? null,
+      );
+    }
+
     req.user = {
-      id: userId,
-      businessId:
-        typeof payload.businessId === "string" ? payload.businessId : undefined,
-      branchId:
-        typeof payload.branchId === "string" ? payload.branchId : undefined,
+      id: user.id,
+      businessId: user.businessId ?? undefined,
+      branchId: user.branchId ?? undefined,
       requestedBranchId: requestedBranchHeader(req),
-      role: typeof payload.role === "string" ? payload.role : undefined,
-      email: typeof payload.email === "string" ? payload.email : undefined,
+      role: user.role,
+      email: user.email,
     };
     return next();
   } catch {

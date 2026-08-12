@@ -124,11 +124,12 @@ export const requireServiceIdsBodyAccess = (
   const businessId = tenantId(req, res);
   if (!businessId) return;
 
-  const ids = [
+  const rawIds: unknown[] = Array.isArray(req.body?.[fieldName])
+    ? req.body[fieldName]
+    : [];
+  const ids: string[] = [
     ...new Set(
-      (Array.isArray(req.body?.[fieldName]) ? req.body[fieldName] : []).filter(
-        (id): id is string => typeof id === "string",
-      ),
+      rawIds.filter((id: unknown): id is string => typeof id === "string"),
     ),
   ];
   if (ids.length === 0) return next();

@@ -37,11 +37,7 @@ class WorkspaceQuery {
     return staffQueryService.getWorkspace(staffId, user);
   }
 
-  invoiceList(
-    businessId: string,
-    branchId: string,
-    query: ListInvoicesQuery,
-  ) {
+  invoiceList(businessId: string, branchId: string, query: ListInvoicesQuery) {
     return invoicesQueryService.list(businessId, branchId, query);
   }
 

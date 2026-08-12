@@ -19,36 +19,36 @@ const OWNERS = [Roles.BusinessAdmin, Roles.SuperAdmin];
 
 router.use(requireAuth, requireBusinessId, requireRole(OWNERS));
 
-router.get("/", branchesController.list.bind(branchesController));
+router.get("/", branchesController.list);
 router.post(
   "/setup",
   requireSubscriptionAccess,
   validate.validateBody(setupBranchSchema),
-  branchesController.setup.bind(branchesController),
+  branchesController.setup,
 );
 router.get(
   "/:branchId",
   validate.validateParams(branchIdParamsSchema),
-  branchesController.get.bind(branchesController),
+  branchesController.get,
 );
 router.patch(
   "/:branchId",
   requireSubscriptionAccess,
   validate.validateParams(branchIdParamsSchema),
   validate.validateBody(updateBranchSchema),
-  branchesController.update.bind(branchesController),
+  branchesController.update,
 );
 router.post(
   "/:branchId/deactivate",
   requireSubscriptionAccess,
   validate.validateParams(branchIdParamsSchema),
-  branchesController.deactivate.bind(branchesController),
+  branchesController.deactivate,
 );
 router.post(
   "/:branchId/reactivate",
   requireSubscriptionAccess,
   validate.validateParams(branchIdParamsSchema),
-  branchesController.reactivate.bind(branchesController),
+  branchesController.reactivate,
 );
 
 export default router;
