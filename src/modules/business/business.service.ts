@@ -265,11 +265,11 @@ class BusinessService {
 
     return {
       ...business,
-      phone: selectedBranch.phone ?? business.phone,
-      address: selectedBranch.address ?? business.address,
-      city: selectedBranch.city ?? business.city,
-      lat: selectedBranch.lat ?? business.lat,
-      lng: selectedBranch.lng ?? business.lng,
+      phone: selectedBranch.phone,
+      address: selectedBranch.address,
+      city: selectedBranch.city,
+      lat: selectedBranch.lat,
+      lng: selectedBranch.lng,
       timezone: selectedBranch.timezone,
       selectedBranch,
       services: services.map(({ serviceStaff, ...service }) => ({
