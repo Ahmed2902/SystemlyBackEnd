@@ -641,6 +641,7 @@ model SubscriptionPayment {
   status             SubscriptionPaymentStatus @default(PENDING)
   amountCents        Int                       @map("amount_cents")
   currency           String                    @db.VarChar(10)
+  pricingSnapshot    Json?                     @map("pricing_snapshot")
   providerCheckoutId String?                   @map("provider_checkout_id") @db.VarChar(255)
   providerPaymentId  String?                   @map("provider_payment_id") @db.VarChar(255)
   checkoutUrl        String?                   @map("checkout_url") @db.Text
