@@ -11,6 +11,7 @@ import branchesController from "./branches.controller";
 import {
   branchIdParamsSchema,
   createBranchSchema,
+  setupBranchSchema,
   updateBranchSchema,
 } from "./branches.schema";
 
@@ -20,6 +21,12 @@ const OWNERS = [Roles.BusinessAdmin, Roles.SuperAdmin];
 router.use(requireAuth, requireBusinessId, requireRole(OWNERS));
 
 router.get("/", branchesController.list.bind(branchesController));
+router.post(
+  "/setup",
+  requireSubscriptionAccess,
+  validate.validateBody(setupBranchSchema),
+  branchesController.setup.bind(branchesController),
+);
 router.get(
   "/:branchId",
   validate.validateParams(branchIdParamsSchema),
