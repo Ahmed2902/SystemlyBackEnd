@@ -5,10 +5,6 @@ const nullableText = (max: number) =>
 
 export const updateBusinessSettingsSchema = z.object({
   name: z.string().trim().min(1).max(255),
-  phone: z.string().trim().min(1).max(30),
-  address: nullableText(1000),
-  city: nullableText(120),
-  timezone: z.string().trim().min(1).max(80),
   language: z.enum(["en", "ar"]),
 });
 
