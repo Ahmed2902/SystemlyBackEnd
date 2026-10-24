@@ -1,4 +1,33 @@
-# Systemly Backend
+# Systemly — Multi-Tenant Booking SaaS Backend
+
+**Production-oriented appointment, staff and business-operations API built with Node.js, TypeScript and PostgreSQL.**
+
+[Merchant & booking frontend](https://github.com/Ahmed2902/Systemly-frontend) · [Website](https://systemly.me) · [Detailed architecture](./architecture.md) · [OpenAPI contract](./openApi.json)
+
+## Project snapshot
+
+Systemly models independently administered appointment businesses and their customer-booking flows. The API prioritizes tenant isolation, secure sessions, race-safe scheduling, and reliable transactional email delivery.
+
+```mermaid
+flowchart LR
+    Browser["Merchant console / public booking"] --> API["Express REST API"]
+    API --> Guards["Auth + role + tenant middleware"]
+    Guards --> Services["Scheduling / customers / staff"]
+    Services --> DB[("Supabase PostgreSQL")]
+    Services -. transactional email .-> Worker["Embedded Graphile Worker"]
+    Worker --> Resend["Resend"]
+    Services -. optional cache .-> Redis[("Redis")]
+    API --> Storage["Supabase Storage"]
+```
+
+**Engineering highlights:** business-timezone scheduling with UTC persistence; PostgreSQL advisory locks for appointment conflict prevention; opaque HttpOnly refresh sessions with CSRF/Origin defenses; tenant-level RBAC; embedded durable email jobs; Docker and Azure Container Apps.
+
+**Stack:** Node.js 22, Express, TypeScript, PostgreSQL, Prisma, Graphile Worker, Redis (optional), Jest, OpenAPI, Docker, GitHub Actions.
+
+The architecture diagram shows responsibility boundaries; full runbooks and environment requirements remain below.
+
+---
+
 
 Systemly is a multi-tenant appointment-business API for salons, clinics, spas, and related service businesses.
 
