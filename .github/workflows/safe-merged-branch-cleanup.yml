@@ -1,7 +1,5 @@
 name: Archive and trim portfolio branches
 on:
-  issues:
-    types: [opened]
   workflow_dispatch:
     inputs:
       mode:
@@ -26,13 +24,12 @@ concurrency:
   cancel-in-progress: false
 jobs:
   trim:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && github.event.issue.user.login == 'Ahmed2902' && github.event.issue.title == 'Archive and reduce branches to 8' && github.event.issue.body == 'portfolio-branch-archive-execute-2026-10-25')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
-      CLEANUP_MODE: ${{ github.event_name == 'issues' && 'archive-and-delete' || inputs.mode }}
-      TARGET_COUNT: ${{ github.event_name == 'issues' && '8' || inputs.target_count }}
+      CLEANUP_MODE: ${{ inputs.mode }}
+      TARGET_COUNT: ${{ inputs.target_count }}
     steps:
       - uses: actions/checkout@v4
         with:
