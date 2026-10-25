@@ -1,0 +1,144 @@
+name: Safe merged-branch cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Preview only, or delete fully merged and inactive branches'
+        type: choice
+        required: true
+        default: dry-run
+        options:
+          - dry-run
+          - delete
+      min_age_days:
+        description: 'Only consider branches whose last commit is at least this old'
+        type: string
+        required: true
+        default: '45'
+      max_deletions:
+        description: 'Safety cap for a single execution'
+        type: string
+        required: true
+        default: '75'
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    name: Audit and optionally delete merged branches
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      MODE: ${{ inputs.mode }}
+      MIN_AGE_DAYS: ${{ inputs.min_age_days }}
+      MAX_DELETIONS: ${{ inputs.max_deletions }}
+    steps:
+      - name: Audit remote branch refs and protect active work
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import datetime as dt
+          import json
+          import os
+          import re
+          import sys
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repo = os.environ['REPOSITORY']
+          mode = os.environ['MODE']
+          age_days = int(os.environ['MIN_AGE_DAYS'])
+          limit = int(os.environ['MAX_DELETIONS'])
+          if mode not in ('dry-run', 'delete') or not (30 <= age_days <= 3650) or not (1 <= limit <= 100):
+              raise SystemExit('Invalid safety inputs. Age must be >=30 days and max deletions <=100.')
+          token = os.environ['GITHUB_TOKEN']
+          root = 'https://api.github.com/repos/' + repo
+          headers = {
+              'Authorization': 'Bearer ' + token,
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'portfolio-merged-branch-audit',
+          }
+          def api(path, method='GET'):
+              req = urllib.request.Request(root + path, method=method, headers=headers)
+              with urllib.request.urlopen(req, timeout=30) as res:
+                  data = res.read()
+                  return json.loads(data) if data else None
+          def pages(path):
+              result = []
+              page = 1
+              while True:
+                  sep = '&' if '?' in path else '?'
+                  batch = api(path + sep + 'per_page=100&page=' + str(page))
+                  result += batch
+                  if len(batch) < 100:
+                      return result
+                  page += 1
+          meta = api('')
+          base = meta['default_branch']
+          branches = pages('/branches')
+          pulls = pages('/pulls?state=open')
+          active = {p['head']['ref'] for p in pulls if p['head'].get('repo') and p['head']['repo']['full_name'].lower() == repo.lower()}
+          skip_exact = {'main','master','develop','development','dev','staging','stage','production','prod','release','hotfix','trunk'}
+          skip_prefix = ('backup/','archive/','release/','hotfix/','production/','deploy/','restore/','rescue/','keep/','long-lived/')
+          cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=age_days)
+          candidates = []
+          skipped = {'protected_or_reserved':0,'open_pr':0,'unmerged':0,'recent':0}
+          for b in branches:
+              name = b['name']
+              if name == base or b['protected'] or name.lower() in skip_exact or name.lower().startswith(skip_prefix):
+                  skipped['protected_or_reserved'] += 1
+                  continue
+              if name in active:
+                  skipped['open_pr'] += 1
+                  continue
+              encoded = urllib.parse.quote(name, safe='')
+              comparison = api('/compare/' + urllib.parse.quote(base, safe='') + '...' + encoded)
+              if comparison['ahead_by'] != 0:
+                  skipped['unmerged'] += 1
+                  continue
+              sha = b['commit']['sha']
+              commit = api('/commits/' + sha)
+              date_text = commit['commit']['committer']['date'] or commit['commit']['author']['date']
+              modified = dt.datetime.fromisoformat(date_text.replace('Z', '+00:00'))
+              if modified > cutoff:
+                  skipped['recent'] += 1
+                  continue
+              candidates.append((modified, name, sha))
+          candidates.sort()
+          print('Repository:', repo, 'Default:', base, 'Branches:', len(branches))
+          print('Mode:', mode, 'Age threshold:', age_days, 'days', 'Cap:', limit)
+          print('Safety skips:', skipped)
+          print('Eligible:', len(candidates))
+          for when,name,sha in candidates:
+              print('ELIGIBLE', when.date().isoformat(), name, sha[:10])
+          if mode == 'dry-run':
+              print('DRY RUN: no branch refs were deleted.')
+              sys.exit(0)
+          completed = 0
+          for when,name,sha in candidates[:limit]:
+              encoded = urllib.parse.quote(name, safe='')
+              current = api('/branches/' + encoded)
+              if current['protected'] or current['commit']['sha'] != sha:
+                  print('SKIP changed/protected branch',name)
+                  continue
+              # Recheck the merge relation right before deletion.
+              check = api('/compare/' + urllib.parse.quote(base, safe='') + '...' + encoded)
+              if check['ahead_by'] != 0:
+                  print('SKIP newly unmerged branch',name)
+                  continue
+              try:
+                  api('/git/refs/heads/' + encoded, method='DELETE')
+                  print('DELETED', name)
+                  completed += 1
+              except urllib.error.HTTPError as e:
+                  print('SKIP deletion refused:',name,e.code)
+          print('Deleted:',completed,'Eligible but not attempted due to cap:',max(len(candidates)-limit,0))
+          PY
