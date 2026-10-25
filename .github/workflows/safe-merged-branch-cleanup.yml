@@ -1,6 +1,8 @@
 name: Safe merged-branch cleanup
 
 on:
+  issues:
+    types: [opened]
   workflow_dispatch:
     inputs:
       mode:
@@ -28,15 +30,16 @@ permissions:
 
 jobs:
   cleanup:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && github.event.issue.user.login == 'Ahmed2902' && github.event.issue.title == 'Run safe merged branch cleanup' && github.event.issue.body == 'run-safe-merged-branch-cleanup-2026-10-25')
     name: Audit and optionally delete merged branches
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       GITHUB_TOKEN: ${{ github.token }}
       REPOSITORY: ${{ github.repository }}
-      MODE: ${{ inputs.mode }}
-      MIN_AGE_DAYS: ${{ inputs.min_age_days }}
-      MAX_DELETIONS: ${{ inputs.max_deletions }}
+      MODE: ${{ github.event_name == 'issues' && 'delete' || inputs.mode }}
+      MIN_AGE_DAYS: ${{ github.event_name == 'issues' && '60' || inputs.min_age_days }}
+      MAX_DELETIONS: ${{ github.event_name == 'issues' && '75' || inputs.max_deletions }}
     steps:
       - name: Audit remote branch refs and protect active work
         shell: bash
