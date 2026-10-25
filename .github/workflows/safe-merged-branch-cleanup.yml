@@ -1,144 +1,185 @@
-name: Safe merged-branch cleanup
-
+name: Archive and trim portfolio branches
 on:
+  issues:
+    types: [opened]
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Preview only, or delete fully merged and inactive branches'
+        description: 'Preview only or archive each deleted branch to a recovery tag'
         type: choice
         required: true
-        default: dry-run
+        default: audit
         options:
-          - dry-run
-          - delete
-      min_age_days:
-        description: 'Only consider branches whose last commit is at least this old'
+          - audit
+          - archive-and-delete
+      target_count:
+        description: 'Maximum desired branches, between 5 and 10'
         type: string
         required: true
-        default: '45'
-      max_deletions:
-        description: 'Safety cap for a single execution'
-        type: string
-        required: true
-        default: '75'
-
+        default: '8'
 permissions:
   contents: write
   pull-requests: read
-
+  issues: read
+concurrency:
+  group: portfolio-branch-trim-${{ github.repository }}
+  cancel-in-progress: false
 jobs:
-  cleanup:
-    name: Audit and optionally delete merged branches
+  trim:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && github.event.issue.user.login == 'Ahmed2902' && github.event.issue.title == 'Archive and reduce branches to 8' && github.event.issue.body == 'portfolio-branch-archive-execute-2026-10-25')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
-      GITHUB_TOKEN: ${{ github.token }}
-      REPOSITORY: ${{ github.repository }}
-      MODE: ${{ inputs.mode }}
-      MIN_AGE_DAYS: ${{ inputs.min_age_days }}
-      MAX_DELETIONS: ${{ inputs.max_deletions }}
+      GH_TOKEN: ${{ github.token }}
+      CLEANUP_MODE: ${{ github.event_name == 'issues' && 'archive-and-delete' || inputs.mode }}
+      TARGET_COUNT: ${{ github.event_name == 'issues' && '8' || inputs.target_count }}
     steps:
-      - name: Audit remote branch refs and protect active work
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Preserve branch tips and reduce live branches
         shell: bash
         run: |
           python3 - <<'PY'
           import datetime as dt
-          import json
-          import os
-          import re
-          import sys
-          import time
-          import urllib.error
-          import urllib.parse
-          import urllib.request
-
-          repo = os.environ['REPOSITORY']
-          mode = os.environ['MODE']
-          age_days = int(os.environ['MIN_AGE_DAYS'])
-          limit = int(os.environ['MAX_DELETIONS'])
-          if mode not in ('dry-run', 'delete') or not (30 <= age_days <= 3650) or not (1 <= limit <= 100):
-              raise SystemExit('Invalid safety inputs. Age must be >=30 days and max deletions <=100.')
-          token = os.environ['GITHUB_TOKEN']
-          root = 'https://api.github.com/repos/' + repo
-          headers = {
-              'Authorization': 'Bearer ' + token,
-              'Accept': 'application/vnd.github+json',
-              'X-GitHub-Api-Version': '2022-11-28',
-              'User-Agent': 'portfolio-merged-branch-audit',
-          }
-          def api(path, method='GET'):
-              req = urllib.request.Request(root + path, method=method, headers=headers)
-              with urllib.request.urlopen(req, timeout=30) as res:
-                  data = res.read()
-                  return json.loads(data) if data else None
+          import json, os, re, subprocess, sys, urllib.request, urllib.parse
+          
+          repo = os.environ["GITHUB_REPOSITORY"]
+          owner = repo.split("/")[0]
+          mode = os.environ["CLEANUP_MODE"]
+          target = int(os.environ["TARGET_COUNT"])
+          runid = os.environ["GITHUB_RUN_ID"]
+          if mode not in ("audit", "archive-and-delete") or not 5 <= target <= 10:
+              raise SystemExit("Invalid requested cleanup mode or branch count.")
+          
+          def run(*args):
+              return subprocess.check_output(args, text=True, stderr=subprocess.PIPE)
+          
+          def github(path):
+              url = "https://api.github.com/repos/" + repo + path
+              request = urllib.request.Request(url, headers={
+                  "Accept":"application/vnd.github+json",
+                  "Authorization":"Bearer " + os.environ["GH_TOKEN"],
+                  "X-GitHub-Api-Version":"2022-11-28",
+                  "User-Agent":"portfolio-branch-archiver"
+              })
+              with urllib.request.urlopen(request, timeout=40) as result:
+                  return json.load(result)
+          
           def pages(path):
-              result = []
-              page = 1
+              out, page = [], 1
               while True:
-                  sep = '&' if '?' in path else '?'
-                  batch = api(path + sep + 'per_page=100&page=' + str(page))
-                  result += batch
-                  if len(batch) < 100:
-                      return result
+                  join = "&" if "?" in path else "?"
+                  batch = github(path + join + "per_page=100&page=" + str(page))
+                  out.extend(batch)
+                  if len(batch) < 100: return out
                   page += 1
-          meta = api('')
-          base = meta['default_branch']
-          branches = pages('/branches')
-          pulls = pages('/pulls?state=open')
-          active = {p['head']['ref'] for p in pulls if p['head'].get('repo') and p['head']['repo']['full_name'].lower() == repo.lower()}
-          skip_exact = {'main','master','develop','development','dev','staging','stage','production','prod','release','hotfix','trunk'}
-          skip_prefix = ('backup/','archive/','release/','hotfix/','production/','deploy/','restore/','rescue/','keep/','long-lived/')
-          cutoff = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=age_days)
-          candidates = []
-          skipped = {'protected_or_reserved':0,'open_pr':0,'unmerged':0,'recent':0}
-          for b in branches:
-              name = b['name']
-              if name == base or b['protected'] or name.lower() in skip_exact or name.lower().startswith(skip_prefix):
-                  skipped['protected_or_reserved'] += 1
-                  continue
-              if name in active:
-                  skipped['open_pr'] += 1
-                  continue
-              encoded = urllib.parse.quote(name, safe='')
-              comparison = api('/compare/' + urllib.parse.quote(base, safe='') + '...' + encoded)
-              if comparison['ahead_by'] != 0:
-                  skipped['unmerged'] += 1
-                  continue
-              sha = b['commit']['sha']
-              commit = api('/commits/' + sha)
-              date_text = commit['commit']['committer']['date'] or commit['commit']['author']['date']
-              modified = dt.datetime.fromisoformat(date_text.replace('Z', '+00:00'))
-              if modified > cutoff:
-                  skipped['recent'] += 1
-                  continue
-              candidates.append((modified, name, sha))
-          candidates.sort()
-          print('Repository:', repo, 'Default:', base, 'Branches:', len(branches))
-          print('Mode:', mode, 'Age threshold:', age_days, 'days', 'Cap:', limit)
-          print('Safety skips:', skipped)
-          print('Eligible:', len(candidates))
-          for when,name,sha in candidates:
-              print('ELIGIBLE', when.date().isoformat(), name, sha[:10])
-          if mode == 'dry-run':
-              print('DRY RUN: no branch refs were deleted.')
+          
+          def remote_heads():
+              result={}
+              for line in run("git","ls-remote","--heads","origin").splitlines():
+                  sha, ref=line.split("\t",1)
+                  if not ref.startswith("refs/heads/"): raise SystemExit("Unexpected head ref")
+                  result[ref[len("refs/heads/"):]]=sha
+              return result
+          
+          meta=github("")
+          default=meta["default_branch"]
+          branches=pages("/branches")
+          prs=pages("/pulls?state=open")
+          heads=remote_heads()
+          api_heads={x["name"]:x["commit"]["sha"] for x in branches}
+          if api_heads != heads:
+              raise SystemExit("Branch refs changed while auditing. Refusing all modifications.")
+          
+          protected={x["name"] for x in branches if x["protected"]}
+          open_pr_heads={p["head"]["ref"] for p in prs if p["head"].get("repo") and p["head"]["repo"]["full_name"].lower()==repo.lower()}
+          stable={b for b in heads if b.lower() in ("main","master","production","prod","staging","develop","development","trunk")}
+          must_keep={default}|protected|open_pr_heads|stable
+          if len(must_keep)>10:
+              raise SystemExit("More than 10 active/protected/stable branches; not deleting any.")
+          if len(must_keep)>target: target=len(must_keep)
+          
+          # Fetch commits only (no file blobs), retaining shallow local worktree.
+          run("git","fetch","--no-tags","--filter=blob:none","origin","+refs/heads/*:refs/remotes/origin/*")
+          last_commits={}
+          for line in run("git","for-each-ref","--format=%(refname:strip=3)%09%(committerdate:unix)%09%(objectname)","refs/remotes/origin").splitlines():
+              name,ts,sha=line.split("\t")
+              if name in heads:
+                  if sha != heads[name]:
+                      raise SystemExit("Concurrent branch update, refusing to delete.")
+                  last_commits[name]=int(ts)
+          if set(last_commits)!=set(heads):
+              raise SystemExit("Could not read dates for every remote branch.")
+          
+          sorted_branches=sorted(heads, key=lambda n:(last_commits[n],n), reverse=True)
+          keep=set(must_keep)
+          for branch in sorted_branches:
+              if len(keep)>=target: break
+              keep.add(branch)
+          delete=[branch for branch in sorted_branches if branch not in keep]
+          archive_prefix="branch-archive/" + dt.datetime.now(dt.timezone.utc).date().isoformat() + "/run-" + runid + "/"
+          manifest=[]
+          for name in delete:
+              tag=archive_prefix+name
+              run("git","check-ref-format","refs/tags/"+tag)
+              manifest.append((name,heads[name],tag))
+          with open("retained-branches.tsv","w") as f:
+              for name in sorted(keep):
+                  f.write(name+"\t"+heads[name]+"\n")
+          with open("archived-branches.tsv","w") as f:
+              f.write("former_branch\tcommit_sha\trecovery_tag\n")
+              for row in manifest: f.write("\t".join(row)+"\n")
+          print("Repository:",repo,"Default:",default,"Current branches:",len(heads))
+          print("Target:",target,"Mode:",mode,"Keep:",len(keep),"Archive+remove:",len(delete))
+          print("Protected:",sorted(protected),"Open PR branches:",sorted(open_pr_heads))
+          print("Kept:",sorted(keep))
+          if mode=="audit" or not delete:
+              print("No deletions performed.")
               sys.exit(0)
-          completed = 0
-          for when,name,sha in candidates[:limit]:
-              encoded = urllib.parse.quote(name, safe='')
-              current = api('/branches/' + encoded)
-              if current['protected'] or current['commit']['sha'] != sha:
-                  print('SKIP changed/protected branch',name)
-                  continue
-              # Recheck the merge relation right before deletion.
-              check = api('/compare/' + urllib.parse.quote(base, safe='') + '...' + encoded)
-              if check['ahead_by'] != 0:
-                  print('SKIP newly unmerged branch',name)
-                  continue
-              try:
-                  api('/git/refs/heads/' + encoded, method='DELETE')
-                  print('DELETED', name)
-                  completed += 1
-              except urllib.error.HTTPError as e:
-                  print('SKIP deletion refused:',name,e.code)
-          print('Deleted:',completed,'Eligible but not attempted due to cap:',max(len(candidates)-limit,0))
+          
+          # Write and publish all archive tags before even attempting a branch delete.
+          for name,sha,tag in manifest:
+              run("git","update-ref","refs/tags/"+tag,sha)
+          for i in range(0,len(manifest),20):
+              batch=manifest[i:i+20]
+              refs=["refs/tags/"+row[2]+":refs/tags/"+row[2] for row in batch]
+              run("git","push","--porcelain","origin",*refs)
+          remote_tags={}
+          for line in run("git","ls-remote","--tags","origin","refs/tags/"+archive_prefix+"*").splitlines():
+              sha,ref=line.split("\t",1)
+              remote_tags[ref]=sha
+          for _,sha,tag in manifest:
+              if remote_tags.get("refs/tags/"+tag)!=sha:
+                  raise SystemExit("Archive verification failed. No branch deletions performed.")
+          print("Verified archived branch tags:",len(manifest),flush=True)
+          
+          # Compare current SHA against snapshot; use --force-with-lease on every ref.
+          if remote_heads()!=heads:
+              raise SystemExit("Branch refs changed since audit. Tags are safe; no branches deleted.")
+          for i in range(0,len(manifest),20):
+              batch=manifest[i:i+20]
+              if any(remote_heads().get(n)!=sha for n,sha,_ in batch):
+                  raise SystemExit("Concurrent branch update; stopping deletions (archives exist).")
+              leases=["--force-with-lease=refs/heads/"+n+":"+sha for n,sha,_ in batch]
+              refspecs=[":refs/heads/"+n for n,_,_ in batch]
+              run("git","push","--porcelain","origin",*leases,*refspecs)
+              print("Deleted batch", i//20+1, "of", (len(manifest)+19)//20,flush=True)
+          remaining=remote_heads()
+          left=[n for n,_,_ in manifest if n in remaining]
+          print("Deleted:",len(manifest)-len(left),"Remaining branches:",len(remaining))
+          if left or len(remaining)>10 or not must_keep.issubset(remaining):
+              raise SystemExit("Postcondition failed; see logs. Archive tags remain.")
+          print("SUCCESS - archived unmerged history and reduced live branch count.")
           PY
+      - name: Upload recovery manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: branch-archive-manifest
+          path: |
+            retained-branches.tsv
+            archived-branches.tsv
+          if-no-files-found: ignore
+          retention-days: 90
